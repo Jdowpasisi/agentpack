@@ -83,11 +83,8 @@ def _extract_relevant_symbol_bodies(
     keywords: set[str],
     budget_remaining: int,
 ) -> tuple[str | None, int]:
-    """Extract bodies of symbols matching keywords; fall back to signatures if over budget."""
-    from agentpack.analysis.symbols import (
-        filter_symbols_by_keywords,
-        extract_symbol_body,
-    )
+    """Assemble symbol bodies from Symbol.body (captured at extraction time — no file re-read)."""
+    from agentpack.analysis.symbols import filter_symbols_by_keywords
 
     relevant = filter_symbols_by_keywords(syms, keywords) if keywords else syms[:5]
     if not relevant:
@@ -96,7 +93,7 @@ def _extract_relevant_symbol_bodies(
     parts: list[str] = []
     tokens_used = 0
     for sym in relevant:
-        body = extract_symbol_body(fi.abs_path, sym)
+        body = sym.body
         if body:
             tok = estimate_tokens(body)
             if tokens_used + tok <= budget_remaining:
@@ -107,6 +104,11 @@ def _extract_relevant_symbol_bodies(
                 if tokens_used + sig_tok <= budget_remaining:
                     parts.append(sym.signature)
                     tokens_used += sig_tok
+        elif sym.signature:
+            sig_tok = estimate_tokens(sym.signature)
+            if tokens_used + sig_tok <= budget_remaining:
+                parts.append(sym.signature)
+                tokens_used += sig_tok
 
     return "\n\n".join(parts) if parts else None, tokens_used
 
