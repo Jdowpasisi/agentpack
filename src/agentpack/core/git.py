@@ -72,3 +72,74 @@ def changed_files_since(root: Path, ref: str) -> set[str]:
             if line:
                 result.add(line)
     return result
+
+
+def infer_task_from_git(root: Path) -> str:
+    """Infer a task description from branch name, changed files, and recent commits.
+
+    Priority: branch name (explicit intent) → changed file paths (current work) → recent commit.
+    """
+    branch: str | None = None
+    branch_out = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
+    if branch_out:
+        b = branch_out.strip()
+        if b and b not in ("HEAD", "main", "master", "develop"):
+            slug = b.split("/", 1)[-1]
+            branch = slug.replace("-", " ").replace("_", " ")
+
+    # Changed files are the strongest signal for *current* work
+    changed = changed_files(root)
+    file_topic = _topic_from_paths(changed) if changed else None
+
+    # Fallback: most recent non-merge commit
+    commit: str | None = None
+    log_out = _run(["git", "log", "--oneline", "-5"], root)
+    if log_out:
+        for line in log_out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            msg = line.split(" ", 1)[1] if " " in line else line
+            if not msg.lower().startswith("merge "):
+                commit = msg
+                break
+
+    if branch and file_topic:
+        return f"{branch}: {file_topic}"
+    if branch:
+        return branch
+    if file_topic:
+        return file_topic
+    if commit:
+        return commit
+    return "general development"
+
+
+def _topic_from_paths(paths: set[str]) -> str | None:
+    """Extract a short topic string from a set of file paths."""
+    _SKIP = {"__init__", "index", "main", "mod", "lib", "utils", "helpers", "types", "constants"}
+    words: list[str] = []
+    for path in sorted(paths):
+        parts = Path(path).parts
+        # Skip test dirs and generated dirs
+        stem = Path(path).stem
+        if stem in _SKIP:
+            continue
+        # Take the most specific meaningful directory + stem
+        for part in reversed(parts[:-1]):
+            if part not in ("src", "lib", "pkg", "app", "tests", "test", "__pycache__"):
+                words.append(part.replace("_", " ").replace("-", " "))
+                break
+        words.append(stem.replace("_", " ").replace("-", " "))
+    if not words:
+        return None
+    # Deduplicate preserving order, keep up to 5 words
+    seen: set[str] = set()
+    unique: list[str] = []
+    for w in words:
+        if w not in seen:
+            seen.add(w)
+            unique.append(w)
+        if len(unique) == 5:
+            break
+    return ", ".join(unique)

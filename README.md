@@ -202,7 +202,7 @@ Options:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--agent` | `claude` | Target agent (`claude` or `generic`) |
-| `--task` | required | One-line description of the task |
+| `--task` | `auto` | Task description, or `auto` to infer from git |
 | `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
 | `--budget` | 25000 | Token budget |
 | `--since` | — | Only include files changed since this git ref |
@@ -558,6 +558,111 @@ src/agentpack/
     markdown.py                # full/symbols/summary mode markdown renderer
     receipts.py                # context receipt formatter
 ```
+
+---
+
+## Tips & tricks
+
+### Let `--task auto` do the work
+
+Skip writing a task description — agentpack infers it from your branch name, changed files, and recent commits:
+
+```bash
+agentpack pack --task auto --print | claude
+```
+
+Priority order: branch name → changed file paths → recent commit message. The more descriptive your branch names (`feat/add-rate-limiting` beats `dev`), the better the inferred task.
+
+### Boost keyword coverage automatically
+
+When you run `agentpack pack`, changed file content is scanned for high-frequency identifiers. If you're editing `session_manager.py` that mentions `validate_token` 30 times, `validate` and `token` are added as keywords automatically — related files that use the same terms get a score boost even if your task string didn't mention them.
+
+### Commit the summary cache for instant team packs
+
+```bash
+agentpack init --share-cache
+git add .agentpack/cache/
+git commit -m "chore: add agentpack summary cache"
+```
+
+Every teammate and CI job now skips the summarize step. `agentpack pack` takes under 100ms from a warm cache.
+
+### Use `--since` for PR reviews
+
+```bash
+agentpack pack --task "review auth changes" --since main --print | claude
+```
+
+Only includes files changed since `main`. Cuts out noise from unrelated work in long-running branches.
+
+### Tune the budget for your use case
+
+```bash
+agentpack pack --task "fix bug" --mode minimal   # changed files only, fewest tokens
+agentpack pack --task "refactor" --mode deep     # everything including docs
+agentpack pack --task "fix bug" --budget 40000   # explicit token cap
+```
+
+`balanced` (default) is right for most tasks. Use `minimal` for quick fixes, `deep` when architectural context matters.
+
+### Watch mode for active sessions
+
+```bash
+agentpack pack --task "refactor auth" --session
+```
+
+Repacks every time you save a file. Pipe the output file into Claude separately:
+
+```bash
+# In one terminal:
+agentpack pack --task "refactor auth" --session
+
+# In another:
+claude < .agentpack/context.claude.md
+```
+
+### Auto-repack in Claude Code via hook
+
+Add to `.claude/settings.json` to auto-repack when stale at the start of each prompt:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "result=$(agentpack status 2>&1); code=$?; if [ $code -ne 0 ]; then agentpack pack --task auto --mode balanced 2>/dev/null && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"UserPromptSubmit\", \"additionalContext\": \"agentpack context was stale and has been auto-repacked\"}}'; fi",
+        "timeout": 15
+      }]
+    }]
+  }
+}
+```
+
+Stale = silent repack. Fresh = zero overhead.
+
+### Raise scoring weights for your codebase
+
+If tests are always irrelevant to your tasks, drop their weight. If config files are critical, raise them:
+
+```toml
+# .agentpack/config.toml
+[scoring]
+related_test    = 5    # was 35 — tests rarely relevant
+config_file     = 60   # was 25 — configs always matter here
+```
+
+### Check what got included and why
+
+Every pack includes a context receipt explaining each file's inclusion or exclusion:
+
+```
+- `src/auth.py` included because modified, filename keyword match
+- `tests/test_auth.py` summarized because test for src/auth.py
+- `src/unrelated_big.py` excluded because score too low
+```
+
+Use this to tune your `.agentignore` or scoring weights when irrelevant files keep appearing.
 
 ---
 

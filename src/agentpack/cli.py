@@ -23,7 +23,7 @@ from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata, load_pack_metadata
 from agentpack.core.models import ContextPack, Receipt
 from agentpack.core.token_estimator import estimate_tokens
-from agentpack.analysis.ranking import score_files, extract_keywords
+from agentpack.analysis.ranking import score_files, extract_keywords, enrich_keywords_from_files
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis.python_imports import extract_imports as py_imports
 from agentpack.analysis.python_imports import resolve_relative_import as py_resolve
@@ -352,7 +352,7 @@ def summarize(
 @app.command()
 def pack(
     agent: str = typer.Option("claude", "--agent", help="Target agent (claude|generic)."),
-    task: str = typer.Option(..., "--task", help="Task description."),
+    task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
     mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
     budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
     since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
@@ -367,16 +367,27 @@ def pack(
         console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
         raise typer.Exit(1)
 
+    resolved_task = _resolve_task(task)
+
     if watch or session:
-        _pack_watch(agent=agent, task=task, mode=mode, budget=budget,
+        _pack_watch(agent=agent, task=resolved_task, mode=mode, budget=budget,
                     since=since, summary_provider=summary_provider)
         return
 
     _do_pack(
-        agent=agent, task=task, mode=mode, budget=budget,
+        agent=agent, task=resolved_task, mode=mode, budget=budget,
         since=since, print_output=print_output,
         refresh=refresh, summary_provider=summary_provider,
     )
+
+
+def _resolve_task(task: str) -> str:
+    """Resolve 'auto' to an inferred task string from git context."""
+    if task != "auto":
+        return task
+    inferred = git.infer_task_from_git(_root())
+    console.print(f"[dim]Auto task: {inferred}[/]")
+    return inferred
 
 
 def _sf_tokens(sf) -> int:  # type: ignore[no-untyped-def]
@@ -449,6 +460,7 @@ def _do_pack(
     t0 = time.perf_counter()
     with console.status("[bold]Ranking files..."):
         keywords = extract_keywords(task)
+        keywords = enrich_keywords_from_files(keywords, all_changed, files)
         all_paths = {f.path for f in files}
 
         for fi in files:
