@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -66,7 +68,7 @@ def init(
     gitignore = agentpack_dir / ".gitignore"
     if not gitignore.exists() or force:
         gitignore.write_text(
-            ".agentpack/cache/\n.agentpack/snapshots/\n.agentpack/context.*\n"
+            ".agentpack/cache/\n.agentpack/snapshots/\n.agentpack/context.*\n.agentpack/metrics.jsonl\n"
         )
         console.print("[green]Created[/] .agentpack/.gitignore")
     else:
@@ -377,17 +379,25 @@ def _do_pack(
     cfg = load_config(root)
     effective_budget = budget if budget > 0 else cfg.context.default_budget
     ignore_spec = load_spec(root / cfg.project.ignore_file)
+    phase_times: dict[str, float] = {}
 
+    t0 = time.perf_counter()
     with console.status("[bold]Scanning repository..."):
         files = scan(root, ignore_spec, cfg.context.max_file_tokens)
+    phase_times["scan"] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     with console.status("[bold]Building summaries..."):
         summaries_objs = build_all_summaries(files, root, summary_provider)
         summaries = {p: s.model_dump() for p, s in summaries_objs.items()}
+    phase_times["summarize"] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     with console.status("[bold]Building dependency graph..."):
         dep_graph = _build_dep_graph(files, root)
+    phase_times["deps"] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     with console.status("[bold]Detecting changes..."):
         current_snap = build_snapshot(files)
         previous_snap = load_snapshot(root)
@@ -407,7 +417,9 @@ def _do_pack(
             recently_modified = git.recently_modified_files(root)
 
         all_changed = changed_from_snap | git_changed
+    phase_times["changes"] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     with console.status("[bold]Ranking files..."):
         keywords = extract_keywords(task)
         all_paths = {f.path for f in files}
@@ -429,7 +441,9 @@ def _do_pack(
             include_configs=cfg.context.include_configs,
             weights=cfg.scoring,
         )
+    phase_times["rank"] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     with console.status("[bold]Selecting files within budget..."):
         selected, receipts = select_files(
             files=files,
@@ -441,6 +455,7 @@ def _do_pack(
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=keywords,
         )
+    phase_times["select"] = time.perf_counter() - t0
 
     raw_tokens = sum(f.estimated_tokens for f in files)
     after_ignore = sum(f.estimated_tokens for f in files if not f.ignored and not f.binary)
@@ -470,7 +485,9 @@ def _do_pack(
     else:
         adapter = GenericAdapter(cfg.agents.generic.output)
 
+    t0 = time.perf_counter()
     out_path = adapter.write(pack_obj, root)
+    phase_times["render"] = time.perf_counter() - t0
 
     save_snapshot(current_snap, root)
     save_pack_metadata(
@@ -497,6 +514,34 @@ def _do_pack(
 
     if print_output:
         print(out_path.read_text())
+
+    _record_metrics(root, task=task, mode=mode, phase_times=phase_times,
+                    packed_tokens=packed_tokens, raw_tokens=raw_tokens,
+                    saving_pct=saving_pct, selected_count=len(selected),
+                    changed_count=len(all_changed))
+
+
+def _record_metrics(root: Path, *, task: str, mode: str, phase_times: dict[str, float],
+                    packed_tokens: int, raw_tokens: int, saving_pct: float,
+                    selected_count: int, changed_count: int) -> None:
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "task": task,
+        "mode": mode,
+        "packed_tokens": packed_tokens,
+        "raw_tokens": raw_tokens,
+        "saving_pct": round(saving_pct, 1),
+        "selected_files": selected_count,
+        "changed_files": changed_count,
+        "phases": {k: round(v, 3) for k, v in phase_times.items()},
+        "total_s": round(sum(phase_times.values()), 3),
+    }
+    try:
+        with metrics_path.open("a") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
 
 
 def _print_pack_summary(
@@ -771,6 +816,106 @@ def global_install_cmd(
         console.print("  `/agentpack` is available in any Claude CLI session.")
     else:
         console.print(f"[yellow]No slash command defined for agent: {agent}[/]")
+
+
+# ---------------------------------------------------------------------------
+# monitor
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def monitor(
+    last: int = typer.Option(20, "--last", "-n", help="Show last N pack runs."),
+    clear: bool = typer.Option(False, "--clear", help="Delete metrics log."),
+) -> None:
+    """Show pack performance metrics across runs."""
+    root = _root()
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+
+    if clear:
+        if metrics_path.exists():
+            metrics_path.unlink()
+            console.print("[green]Metrics log cleared.[/]")
+        else:
+            console.print("[dim]No metrics log found.[/]")
+        return
+
+    if not metrics_path.exists():
+        console.print("[yellow]No metrics recorded yet. Run agentpack pack first.[/]")
+        raise typer.Exit(1)
+
+    records = []
+    for line in metrics_path.read_text().splitlines():
+        line = line.strip()
+        if line:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+
+    if not records:
+        console.print("[yellow]Metrics log is empty.[/]")
+        raise typer.Exit(1)
+
+    recent = records[-last:]
+
+    # Summary stats
+    savings = [r["saving_pct"] for r in recent]
+    totals = [r["total_s"] for r in recent]
+    avg_saving = sum(savings) / len(savings)
+    avg_total = sum(totals) / len(totals)
+    best_saving = max(savings)
+
+    summary_table = Table(title="Performance Summary", show_header=True, box=box.SIMPLE)
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", justify="right")
+    summary_table.add_row("Runs recorded", str(len(records)))
+    summary_table.add_row("Shown", str(len(recent)))
+    summary_table.add_row("Avg saving", f"[green]{avg_saving:.1f}%[/]")
+    summary_table.add_row("Best saving", f"[green]{best_saving:.1f}%[/]")
+    summary_table.add_row("Avg pack time", f"{avg_total:.2f}s")
+    console.print(summary_table)
+
+    # Per-run table
+    run_table = Table(title=f"Last {len(recent)} Runs", show_header=True, box=box.SIMPLE)
+    run_table.add_column("When", style="dim", max_width=20)
+    run_table.add_column("Task", max_width=35)
+    run_table.add_column("Mode", width=9)
+    run_table.add_column("Saving", justify="right")
+    run_table.add_column("Packed", justify="right")
+    run_table.add_column("Total", justify="right")
+    run_table.add_column("scan", justify="right", style="dim")
+    run_table.add_column("sum", justify="right", style="dim")
+    run_table.add_column("rank", justify="right", style="dim")
+
+    for r in recent:
+        ts = r.get("ts", "")[:16].replace("T", " ")
+        phases = r.get("phases", {})
+        run_table.add_row(
+            ts,
+            r.get("task", "")[:35],
+            r.get("mode", ""),
+            f"[green]{r['saving_pct']:.1f}%[/]",
+            f"{r['packed_tokens']:,}",
+            f"{r['total_s']:.2f}s",
+            f"{phases.get('scan', 0):.2f}s",
+            f"{phases.get('summarize', 0):.2f}s",
+            f"{phases.get('rank', 0):.2f}s",
+        )
+
+    console.print(run_table)
+
+    # Phase breakdown averaged
+    phase_keys = ["scan", "summarize", "deps", "changes", "rank", "select", "render"]
+    phase_table = Table(title="Avg Phase Times", show_header=True, box=box.SIMPLE)
+    phase_table.add_column("Phase", style="cyan")
+    phase_table.add_column("Avg (s)", justify="right")
+    phase_table.add_column("Max (s)", justify="right")
+    for pk in phase_keys:
+        vals = [r.get("phases", {}).get(pk, 0) for r in recent]
+        if any(v > 0 for v in vals):
+            phase_table.add_row(pk, f"{sum(vals)/len(vals):.3f}", f"{max(vals):.3f}")
+    console.print(phase_table)
 
 
 # ---------------------------------------------------------------------------
