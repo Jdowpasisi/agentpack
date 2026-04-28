@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "result=$(agentpack status 2>&1); code=$?; if [ $code -ne 0 ]; then agentpack pack --task auto --mode balanced 2>/dev/null && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"UserPromptSubmit\", \"additionalContext\": \"agentpack context was stale and has been auto-repacked\"}}' || echo '{\"hookSpecificOutput\": {\"hookEventName\": \"UserPromptSubmit\", \"additionalContext\": \"agentpack context is STALE — run agentpack pack --task to refresh\"}}'; fi",
+            "timeout": 10,
+            "statusMessage": "Checking agentpack freshness..."
+          }
+        ]
+      }
+    ]
+  }
+}

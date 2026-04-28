@@ -89,6 +89,50 @@ def extract_keywords(task: str) -> set[str]:
     return keywords
 
 
+def enrich_keywords_from_files(
+    keywords: set[str],
+    changed_paths: set[str],
+    files: list[FileInfo],
+    max_new_keywords: int = 20,
+) -> set[str]:
+    """Expand keywords with high-frequency terms from changed file content.
+
+    Reads only the changed files, extracts identifier-like tokens, and adds
+    those that appear repeatedly — giving the ranker semantic signal beyond
+    the task string alone.
+    """
+    path_map = {fi.path: fi for fi in files if not fi.ignored and not fi.binary}
+    token_freq: dict[str, int] = {}
+
+    for path in changed_paths:
+        fi = path_map.get(path)
+        if fi is None or not fi.abs_path.exists():
+            continue
+        try:
+            text = fi.abs_path.read_text(errors="replace")
+        except OSError:
+            continue
+        # Extract camelCase/snake_case identifiers and plain words
+        tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9_]{2,}", text)
+        for raw in tokens:
+            # Split camelCase into parts
+            parts = re.sub(r"([A-Z])", r" \1", raw).lower().split()
+            for part in parts:
+                if len(part) < 3 or part in _STOPWORDS:
+                    continue
+                token_freq[part] = token_freq.get(part, 0) + 1
+
+    # Keep tokens that appear ≥3 times and aren't already in keywords
+    new_keywords = {
+        tok for tok, freq in token_freq.items()
+        if freq >= 3 and tok not in keywords
+    }
+
+    # Limit to top max_new_keywords by frequency
+    top = sorted(new_keywords, key=lambda t: -token_freq[t])[:max_new_keywords]
+    return keywords | set(top)
+
+
 def _path_matches_keywords(path: str, keywords: set[str]) -> bool:
     path_lower = path.lower()
     return any(kw in path_lower for kw in keywords)

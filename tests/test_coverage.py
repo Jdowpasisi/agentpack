@@ -643,3 +643,69 @@ class TestScoreFiles:
         reasons = scored[0][2]
         assert len(reasons) > 0
         assert any("modified" in r for r in reasons)
+
+
+# ---------------------------------------------------------------------------
+# analysis/ranking.py — enrich_keywords_from_files
+# ---------------------------------------------------------------------------
+
+from agentpack.analysis.ranking import enrich_keywords_from_files
+
+
+def _fi(path: str, tmp_path: Path, tokens: int = 100, language: str = "python",
+        ignored: bool = False, binary: bool = False, too_large: bool = False):
+    from agentpack.core.models import FileInfo
+    abs_path = tmp_path / path
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    if not abs_path.exists():
+        abs_path.write_text(f"# {path}\n")
+    return FileInfo(
+        path=path,
+        abs_path=abs_path,
+        language=language,
+        size_bytes=100,
+        estimated_tokens=tokens,
+        hash="abc",
+        ignored=ignored,
+        binary=binary,
+        too_large=too_large,
+    )
+
+
+class TestEnrichKeywords:
+    def test_adds_frequent_tokens_from_changed_files(self, tmp_path: Path) -> None:
+        fi = _fi("src/auth.py", tmp_path)
+        fi.abs_path.write_text("token token token validate validate validate session\n" * 5)
+        result = enrich_keywords_from_files({"auth"}, {"src/auth.py"}, [fi])
+        assert "token" in result or "validate" in result
+
+    def test_does_not_add_stopwords(self, tmp_path: Path) -> None:
+        fi = _fi("src/util.py", tmp_path)
+        fi.abs_path.write_text("the the the and and and for for for\n" * 5)
+        result = enrich_keywords_from_files(set(), {"src/util.py"}, [fi])
+        assert "the" not in result
+        assert "and" not in result
+
+    def test_does_not_add_rare_tokens(self, tmp_path: Path) -> None:
+        fi = _fi("src/rare.py", tmp_path)
+        fi.abs_path.write_text("unicorn\n")  # appears once
+        result = enrich_keywords_from_files(set(), {"src/rare.py"}, [fi])
+        assert "unicorn" not in result
+
+    def test_preserves_existing_keywords(self, tmp_path: Path) -> None:
+        fi = _fi("src/x.py", tmp_path)
+        fi.abs_path.write_text("foo foo foo\n" * 5)
+        base = {"mykey", "other"}
+        result = enrich_keywords_from_files(base, {"src/x.py"}, [fi])
+        assert "mykey" in result
+        assert "other" in result
+
+    def test_unchanged_paths_not_read(self, tmp_path: Path) -> None:
+        fi = _fi("src/unrelated.py", tmp_path)
+        fi.abs_path.write_text("token token token\n" * 5)
+        result = enrich_keywords_from_files(set(), set(), [fi])
+        assert "token" not in result
+
+    def test_returns_set(self, tmp_path: Path) -> None:
+        result = enrich_keywords_from_files({"x"}, set(), [])
+        assert isinstance(result, set)
