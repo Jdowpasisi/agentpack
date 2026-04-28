@@ -12,6 +12,66 @@ If you're using **Claude Code** (interactive, with tool access), Claude already 
 
 ---
 
+## How it compares to alternatives
+
+**The honest version.**
+
+### repomix / gitingest / code2prompt
+
+These tools are repo dumpers. They pack a repo (or subset) into a file and hand it to you. They do that job well.
+
+What they don't do: decide what's relevant to *your task*. You specify the scope — files, globs, directories — and they package your decision. If you want "only the files that matter for fixing this auth bug", you have to figure that out yourself and pass the right flags. On a 200-file repo, that's 80% of the work.
+
+AgentPack does that selection automatically. You give it a task string; it uses git diff, import graph traversal, and keyword scoring to rank every file, then cuts to fit your token budget. You don't touch globs.
+
+The other difference: all three pack at most signatures/summaries uniformly. AgentPack is selective by inclusion mode — changed files get full content, unchanged deps get summaries, unrelated files get dropped. A repomix dump of a 50k-token repo is still 50k tokens after compression. An agentpack of the same repo for a specific task is typically 8k–20k.
+
+**Use repomix/gitingest if:** you want to dump an entire small repo into a chat UI for a one-shot question. Zero setup, good for "explain this codebase."
+
+**Use agentpack if:** you're running repeated tasks on a large repo and want automatic, task-driven file selection every time.
+
+### aider
+
+Different category. Aider is an interactive pair programmer — it reads, edits, and commits files directly while you supervise. Its repo-map is genuinely smart. If you want an AI coding assistant in your terminal making actual edits, aider is excellent.
+
+AgentPack is not a coding assistant. It's a context preparation tool. The output is a markdown file you pipe somewhere.
+
+**Use aider if:** you want interactive, supervised AI coding sessions.
+
+**Use agentpack if:** you're driving Claude via pipe or API without an interactive session — CI, scripts, batch workflows.
+
+### Claude Code / Cursor / Windsurf (agentic IDEs)
+
+These tools have native file access via tool calls. Claude reads exactly the files it needs, on demand, per turn. Pre-packing context adds overhead without much benefit on small-to-medium repos.
+
+AgentPack's README says this explicitly: **if you're in an interactive Claude Code session on a small repo, you probably don't need this.** The value shows up on large repos (>100 active files) where exploration tool calls pile up, or in headless workflows where there's no agent loop at all.
+
+### Where agentpack genuinely wins
+
+| Scenario | repomix | gitingest | code2prompt | aider | agentpack |
+|---|---|---|---|---|---|
+| Piped CLI (`... \| claude`) | ✓ dump | ✓ dump | ✓ dump | ✗ | ✓ task-filtered |
+| API call without tool use | ✓ dump | ✗ | ✓ | ✗ | ✓ task-filtered |
+| CI per-PR context | ✓ dump | ✗ | ✓ | ✗ | ✓ task-filtered |
+| Auto task inference from git | ✗ | ✗ | ✗ | partial | ✓ |
+| Relevance ranking by task | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Import graph traversal | ✗ | ✗ | ✗ | ✓ | ✓ |
+| Token budget enforcement | manual | manual | manual | ✓ | ✓ |
+| Zero API calls | ✓ | ✓ | ✓ | ✗ | ✓ |
+| Interactive coding sessions | ✗ | ✗ | ✗ | ✓✓ | ✗ |
+| Any LLM | ✓ | ✓ | ✓ | ✓ | partial* |
+
+_*`--agent generic` outputs standard markdown. Claude adapter has richer instructions._
+
+### What agentpack does NOT do well
+
+- **Interactive sessions**: if Claude has tool access and can read files itself, pre-packing is redundant overhead
+- **Tiny repos**: if your whole repo fits in 20k tokens, just use repomix
+- **One-shot public repo questions**: gitingest's "replace hub with ingest" is faster for that
+- **Semantic understanding**: keyword scoring + AST is not a language model. It misses semantic relationships that don't share vocabulary (e.g. "rate limiting" and `leaky_bucket.py` — the file name doesn't match the task phrase). Task descriptions with precise technical terms work best.
+
+---
+
 ## When it helps
 
 | Workflow | Value |
