@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
+
+from agentpack.core.config import Config
+from agentpack.core.models import (
+    ContextPack,
+    FileInfo,
+    Receipt,
+    SelectedFile,
+    Symbol,
+)
+from agentpack.core.token_estimator import estimate_tokens
+
+
+Mode = Literal["minimal", "balanced", "deep"]
+
+_MODE_WEIGHTS: dict[str, dict[str, bool]] = {
+    "minimal": {
+        "include_unchanged_deps": False,
+        "include_rev_deps": False,
+        "include_tests": False,
+        "include_docs": False,
+        "extra_full": False,
+    },
+    "balanced": {
+        "include_unchanged_deps": True,
+        "include_rev_deps": True,
+        "include_tests": True,
+        "include_docs": False,
+        "extra_full": False,
+    },
+    "deep": {
+        "include_unchanged_deps": True,
+        "include_rev_deps": True,
+        "include_tests": True,
+        "include_docs": True,
+        "extra_full": True,
+    },
+}
+
+
+def _metadata_path(root: Path) -> Path:
+    return root / ".agentpack" / "pack_metadata.json"
+
+
+def save_pack_metadata(
+    root: Path,
+    context_path: str,
+    snapshot_root_hash: str,
+    task: str,
+    agent: str,
+    mode: str,
+    budget: int,
+    token_estimate: int = 0,
+) -> None:
+    meta = {
+        "context_path": context_path,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "snapshot_root_hash": snapshot_root_hash,
+        "task": task,
+        "agent": agent,
+        "mode": mode,
+        "budget": budget,
+        "token_estimate": token_estimate,
+    }
+    _metadata_path(root).write_text(json.dumps(meta, indent=2))
+
+
+def load_pack_metadata(root: Path) -> dict[str, Any] | None:
+    path = _metadata_path(root)
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+def select_files(
+    files: list[FileInfo],
+    scored: list[tuple[FileInfo, float, list[str]]],
+    changed_paths: set[str],
+    summaries: dict[str, Any],
+    mode: Mode,
+    budget: int,
+    max_file_tokens: int,
+) -> tuple[list[SelectedFile], list[Receipt]]:
+    opts = _MODE_WEIGHTS[mode]
+    selected: list[SelectedFile] = []
+    receipts: list[Receipt] = []
+    tokens_used = 0
+
+    file_map = {f.path: f for f in files}
+
+    for fi, score, reasons in sorted(scored, key=lambda x: -x[1]):
+        if fi.ignored or fi.binary:
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="ignored or binary"))
+            continue
+
+        if score <= 0:
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="score too low"))
+            continue
+
+        is_changed = fi.path in changed_paths
+        summary_data = summaries.get(fi.path)
+
+        if is_changed and fi.estimated_tokens <= max_file_tokens:
+            mode_str: Literal["full", "symbols", "summary"] = "full"
+            content = fi.abs_path.read_text(errors="replace") if fi.abs_path.exists() else None
+            tok = fi.estimated_tokens
+        elif is_changed or (opts["extra_full"] and fi.estimated_tokens <= max_file_tokens):
+            mode_str = "symbols"
+            content = None
+            tok = min(fi.estimated_tokens, max_file_tokens // 2)
+        elif summary_data:
+            mode_str = "summary"
+            content = None
+            tok = estimate_tokens(summary_data.get("summary", ""))
+        else:
+            mode_str = "summary"
+            content = None
+            tok = min(fi.estimated_tokens, 200)
+
+        if tokens_used + tok > budget:
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
+            continue
+
+        tokens_used += tok
+        syms: list[Symbol] = []
+        if summary_data and mode_str in ("symbols", "summary"):
+            raw_syms = summary_data.get("symbols", [])
+            for s in raw_syms:
+                try:
+                    syms.append(Symbol(**s) if isinstance(s, dict) else s)
+                except Exception:
+                    pass
+
+        selected.append(
+            SelectedFile(
+                path=fi.path,
+                language=fi.language,
+                score=score,
+                include_mode=mode_str,
+                reasons=reasons,
+                content=content,
+                summary=summary_data.get("summary") if summary_data else None,
+                symbols=syms,
+            )
+        )
+
+        action: Literal["included", "excluded", "summarized"] = (
+            "included" if mode_str == "full" else "summarized"
+        )
+        receipts.append(
+            Receipt(path=fi.path, action=action, reason=", ".join(reasons[:2]))
+        )
+
+    return selected, receipts

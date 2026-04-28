@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from agentpack.core.models import ContextPack, SelectedFile, Symbol
+
+
+def _lang_fence(lang: str | None) -> str:
+    return lang or ""
+
+
+def _symbols_block(symbols: list[Symbol], lang: str | None) -> str:
+    if not symbols:
+        return ""
+    lines = ["```" + _lang_fence(lang)]
+    for s in symbols:
+        if s.signature:
+            lines.append(s.signature)
+            if s.summary:
+                lines.append(f"    # {s.summary}")
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def _file_section(sf: SelectedFile) -> str:
+    parts = [f"### {sf.path}", ""]
+    parts.append(f"Included as: **{sf.include_mode}**")
+    parts.append("")
+    if sf.reasons:
+        parts.append("Reasons:")
+        for r in sf.reasons:
+            parts.append(f"- {r}")
+        parts.append("")
+
+    if sf.include_mode == "full" and sf.content:
+        parts.append("```" + _lang_fence(sf.language))
+        parts.append(sf.content)
+        parts.append("```")
+
+    elif sf.include_mode == "symbols":
+        if sf.summary:
+            parts.append("Summary:")
+            parts.append(sf.summary)
+            parts.append("")
+        if sf.symbols:
+            parts.append("Relevant symbols:")
+            parts.append("")
+            parts.append(_symbols_block(sf.symbols, sf.language))
+
+    elif sf.include_mode == "summary":
+        if sf.summary:
+            parts.append("Summary:")
+            parts.append(sf.summary)
+
+    return "\n".join(parts)
+
+
+def render_claude(pack: ContextPack) -> str:
+    sections: list[str] = []
+
+    sections.append("# AgentPack Context for Claude")
+    sections.append("")
+
+    if pack.stale:
+        sections.append("> **Warning:** This context pack may be stale. Run `agentpack pack` to regenerate.")
+        sections.append("")
+
+    sections.append("## Task")
+    sections.append("")
+    sections.append(pack.task)
+    sections.append("")
+
+    sections.append("## Instructions for Claude")
+    sections.append("")
+    sections.append(
+        "Use this context as the primary repo context for the task.\n"
+        "Prefer files marked as changed.\n"
+        "Use summaries for unchanged files.\n"
+        "Do not assume ignored files are relevant unless necessary.\n"
+        "If context is stale, ask the user to regenerate AgentPack."
+    )
+    sections.append("")
+
+    sections.append("## Token Stats")
+    sections.append("")
+    sections.append(f"Raw repo tokens: {pack.raw_repo_tokens:,}")
+    sections.append(f"After ignore: {pack.after_ignore_tokens:,}")
+    sections.append(f"Packed tokens: {pack.token_estimate:,}")
+    sections.append(f"Estimated saving: {pack.estimated_savings_percent:.1f}%")
+    sections.append("")
+
+    sections.append("## Changed Files")
+    sections.append("")
+    if pack.changed_files:
+        for f in pack.changed_files:
+            sections.append(f"- {f}")
+    else:
+        sections.append("_No changed files detected._")
+    sections.append("")
+
+    sections.append("## Selected Files")
+    sections.append("")
+    sections.append("| File | Mode | Score | Why |")
+    sections.append("|---|---|---:|---|")
+    for sf in pack.selected_files:
+        why = sf.reasons[0] if sf.reasons else ""
+        sections.append(f"| `{sf.path}` | {sf.include_mode} | {sf.score:.0f} | {why} |")
+    sections.append("")
+
+    if pack.receipts:
+        sections.append("## Context Receipts")
+        sections.append("")
+        for r in pack.receipts:
+            sections.append(f"- `{r.path}` {r.action} because {r.reason}")
+        sections.append("")
+
+    sections.append("## File Context")
+    sections.append("")
+    for sf in pack.selected_files:
+        sections.append(_file_section(sf))
+        sections.append("")
+
+    return "\n".join(sections)
+
+
+def render_generic(pack: ContextPack) -> str:
+    return render_claude(pack).replace("# AgentPack Context for Claude", "# AgentPack Context")

@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+
+# builds
+dist/
+build/
+.next/
+coverage/
+
+# caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# generated/noisy
+generated/
+*.generated.*
+*.min.js
+*.map
+*.lock
+*.log
+
+# secrets
+.env
+.env.*
+*.pem
+*.key
+
+# lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+Pipfile.lock
+poetry.lock
+Cargo.lock
+composer.lock
+Gemfile.lock
+
+# large data
+*.csv
+*.jsonl
+*.parquet
