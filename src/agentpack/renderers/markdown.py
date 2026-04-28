@@ -35,6 +35,11 @@ def _file_section(sf: SelectedFile) -> str:
         parts.append(sf.content)
         parts.append("```")
 
+    elif sf.include_mode == "symbols" and sf.content:
+        parts.append("```" + _lang_fence(sf.language))
+        parts.append(sf.content)
+        parts.append("```")
+
     elif sf.include_mode == "symbols":
         if sf.summary:
             parts.append("Summary:")

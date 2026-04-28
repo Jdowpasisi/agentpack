@@ -170,8 +170,9 @@ def select_files(
             for s in raw_syms:
                 try:
                     syms.append(Symbol(**s) if isinstance(s, dict) else s)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    import warnings
+                    warnings.warn(f"skipping malformed symbol in {fi.path}: {exc}", stacklevel=2)
 
         # Symbol body extraction for "symbols" mode
         sym_body_content: str | None = None
