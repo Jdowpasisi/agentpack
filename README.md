@@ -1,13 +1,27 @@
 # AgentPack
 
-**Pack only what your coding agent needs.**
+**Pre-built repo context for non-agentic Claude workflows.**
 
-AgentPack scans your repo, ignores noise, detects changes, ranks relevant files, summarizes unchanged code, and generates compact context packs for Claude CLI and other AI coding agents.
+AgentPack is most useful when Claude has no tool access — piped CLI sessions, API calls, CI pipelines, PR reviews. It scans your repo once, builds an offline summary cache of every file, then on each task packs only the relevant files into a tight context document you pipe straight into Claude.
 
-- Saves tokens — typical savings: 70–97%
-- Focuses Claude on files that matter for the task
-- Fully local by default — no LLM API calls, no network requests
-- Works with Claude CLI, Claude Code, and other agents
+```bash
+agentpack pack --agent claude --task "fix auth session bug" --print | claude
+```
+
+If you're using **Claude Code** (interactive, with tool access), Claude already reads files on demand — agentpack adds less value there. The sweet spot is everywhere else.
+
+---
+
+## When it helps
+
+| Workflow | Value |
+|---|---|
+| `agentpack pack --print \| claude` — piped, no tools | **High** — Claude has no file access; pack is its only context |
+| `claude < .agentpack/context.claude.md` — stdin | **High** — same |
+| Claude API calls without tool use | **High** — same |
+| CI: generate pack per PR, attach as artifact | **High** — reviewers get instant task context |
+| Large repos (>50k tokens) where exploration is slow | **Medium** — summary cache eliminates repeated file reads |
+| Claude Code interactive session | **Low** — Claude reads files on demand already |
 
 ---
 
@@ -25,47 +39,105 @@ Requires Python 3.10+.
 
 ```bash
 cd your-project/
-
 agentpack init
+agentpack summarize              # build offline summary cache once
+agentpack pack --agent claude --task "fix auth session bug" --print | claude
+```
+
+Or save to file and pipe later:
+
+```bash
 agentpack pack --agent claude --task "fix auth session bug"
 claude < .agentpack/context.claude.md
 ```
 
-Or pipe directly:
+---
+
+## The summary cache — the core feature
+
+Run once, reuse forever:
 
 ```bash
-agentpack pack --agent claude --task "fix auth session bug" --print | claude
+agentpack summarize
 ```
+
+This builds an offline summary of every file in your repo — no API calls, no network. Each summary captures:
+- What the file does and its responsibility
+- Exported classes, functions, and their signatures with extracted bodies
+- Import dependencies
+
+Summaries are stored in `.agentpack/cache/` keyed by file hash. When a file changes, only that file's summary is rebuilt on the next pack. When nothing changes, `agentpack pack` takes milliseconds.
+
+**Team tip:** commit the cache so every developer and CI job gets summaries for free:
+
+```bash
+agentpack init --share-cache    # removes cache/ from .gitignore
+git add .agentpack/cache/
+git commit -m "chore: add agentpack summary cache"
+```
+
+Now `agentpack pack` runs in under 100ms for every teammate — no per-machine summarize step.
 
 ---
 
-## Claude CLI slash command
+## Honest token framing
 
-Install the `/agentpack` slash command so you can run it directly inside any Claude CLI session:
+AgentPack's pack is typically 10,000–25,000 tokens. Comparing that to "raw repo size" (200k–2M tokens) is misleading — nobody dumps the whole repo into Claude.
+
+The real comparison for a piped/API workflow is: **what would you have to manually copy-paste** to give Claude enough context to work? For a typical bug fix that touches 3 files with 10 relevant dependencies, that's roughly 30,000–80,000 tokens assembled by hand. AgentPack gets you there in one command.
+
+For agentic workflows (Claude Code), the comparison is tool calls: reading 15 files via tool calls costs ~2,000 tokens in tool scaffolding overhead. The pack costs ~1,500 tokens of metadata. Roughly equivalent — neither is clearly cheaper there.
+
+---
+
+## CI/CD: pack per PR
+
+Add to `.github/workflows/agentpack.yml`:
+
+```yaml
+name: AgentPack context
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install agentpack
+
+      - name: Generate context pack
+        run: |
+          agentpack init --yes
+          agentpack pack --agent claude \
+            --task "${{ github.event.pull_request.title }}" \
+            --since origin/${{ github.base_ref }} \
+            --mode balanced
+
+      - name: Upload context pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentpack-context
+          path: .agentpack/context.claude.md
+          retention-days: 7
+```
+
+Reviewers download the artifact and run:
 
 ```bash
-agentpack install --agent claude
+claude < context.claude.md
 ```
 
-This does three things:
-1. Patches `CLAUDE.md` with an AgentPack context block
-2. Installs `~/.claude/commands/agentpack.md` globally (available in all repos)
-
-Then inside Claude CLI:
-
-```
-/agentpack                          # init + pack with balanced mode
-/agentpack --task "fix Redis SSE cancellation issue"
-/agentpack status                   # is pack stale?
-/agentpack stats                    # token savings report
-/agentpack diff                     # changed files since last snapshot
-```
-
-To install locally for just this repo (`.claude/commands/agentpack.md`):
-
-```bash
-agentpack install --agent claude --local
-```
+No repo clone needed. Claude gets focused context for exactly the PR's changes.
 
 ---
 
@@ -75,17 +147,76 @@ agentpack install --agent claude --local
 
 Initialize AgentPack in the current directory.
 
+```bash
+agentpack init                  # interactive mode picker
+agentpack init --yes            # non-interactive, use defaults (good for CI)
+agentpack init --share-cache    # commit cache/ to git for team sharing
+```
+
 Creates:
 ```
 .agentignore              # gitignore-style file exclusion rules
 .agentpack/
   config.toml             # configuration (safe to commit)
-  .gitignore              # excludes cache/, snapshots/, context.*
-  cache/                  # offline summary cache (gitignored)
-  snapshots/              # file hash snapshots (gitignored)
+  .gitignore              # excludes cache/, snapshots/, context.* by default
+  cache/                  # offline summary cache
+  snapshots/              # file hash snapshots
 ```
 
-Won't overwrite existing files unless `--force` is passed.
+---
+
+### `agentpack summarize`
+
+Build or refresh the offline summary cache. **No API calls.**
+
+```bash
+agentpack summarize              # build summaries for all files not yet cached
+agentpack summarize --refresh    # force rebuild all
+```
+
+Run this once after `init`. After that, pack automatically rebuilds summaries only for changed files.
+
+---
+
+### `agentpack pack`
+
+Generate a context pack.
+
+```bash
+# Pipe directly into Claude (primary workflow)
+agentpack pack --agent claude --task "fix auth session bug" --print | claude
+
+# Save to file
+agentpack pack --agent claude --task "fix auth session bug"
+claude < .agentpack/context.claude.md
+
+# Only include changes since a git ref
+agentpack pack --agent claude --task "review these changes" --since main
+
+# Watch mode — re-packs on every file change
+agentpack pack --agent claude --task "refactor auth" --session
+```
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--agent` | `claude` | Target agent (`claude` or `generic`) |
+| `--task` | required | One-line description of the task |
+| `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
+| `--budget` | 25000 | Token budget |
+| `--since` | — | Only include files changed since this git ref |
+| `--print` | off | Print to stdout (use with pipe) |
+| `--session` | off | Re-pack on every file change (watch mode) |
+| `--refresh` | off | Force rebuild summaries before packing |
+
+**Budget modes:**
+
+| Mode | What's included |
+|------|----------------|
+| `minimal` | Changed files + direct configs only |
+| `balanced` | Changed files + deps + reverse deps + tests + summaries |
+| `deep` | Everything in balanced + docs + more full-content files |
 
 ---
 
@@ -103,90 +234,38 @@ Tokens after ignore:  210,000
 
 ---
 
-### `agentpack pack`
+### `agentpack stats`
 
-Main command. Generates a context pack for the target agent.
+Show token statistics for the last pack vs. realistic alternatives.
 
-```bash
-agentpack pack --agent claude --task "fix Redis SSE cancellation issue"
-agentpack pack --agent claude --task "fix Redis SSE cancellation issue" --mode deep
-agentpack pack --agent claude --task "..." --budget 15000
-agentpack pack --agent claude --task "..." --print | claude
 ```
-
-Options:
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--agent` | `claude` | Target agent (`claude` or `generic`) |
-| `--task` | required | One-line description of the task |
-| `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
-| `--budget` | 25000 | Token budget (0 = use config default) |
-| `--print` | off | Print context to stdout instead of file |
-| `--refresh` | off | Rebuild summaries before packing |
-| `--summary-provider` | `offline` | Summary provider (only `offline` in v1) |
-
-**Budget modes:**
-
-| Mode | What's included |
-|------|----------------|
-| `minimal` | Changed files + direct configs only |
-| `balanced` | Changed files + dependencies + reverse deps + tests + summaries |
-| `deep` | Everything in balanced + docs + more full-content files |
-
-**Output:** `.agentpack/context.claude.md`
-
----
-
-### `agentpack install`
-
-Patch `CLAUDE.md` and install the `/agentpack` slash command.
-
-```bash
-agentpack install --agent claude            # global (~/.claude/commands/)
-agentpack install --agent claude --local    # local (.claude/commands/)
-agentpack install --agent claude --no-slash-command   # CLAUDE.md only
+Raw repo tokens:        940,000
+After ignore:           210,000
+Packed tokens:           24,000
+vs. manual assembly:    ~65,000   (estimated hand-picked context)
+Files ignored:            1,230
+Files included (full):       18
+Files summarized:            12
 ```
 
 ---
 
 ### `agentpack status`
 
-Check whether the latest context pack is stale.
-
-A pack is stale if any files changed since it was generated (detected via snapshot hash comparison).
+Check whether the context pack is stale.
 
 ```bash
 agentpack status
 # Context pack is up to date.
 #   Task: fix auth session bug
 #   Generated: 2026-04-28T18:06:02Z
-
-# or:
-# Context pack is STALE. Run agentpack pack to refresh.
-```
-
----
-
-### `agentpack stats`
-
-Show token-saving statistics.
-
-```
-Raw repo tokens:    940,000
-After ignore:       210,000
-Packed tokens:       24,000
-Estimated saving:     97.4%
-Files ignored:        1,230
-Files included (full):   18
-Files summarized:        12
 ```
 
 ---
 
 ### `agentpack diff`
 
-Show changes since the last saved snapshot.
+Show changes since last snapshot.
 
 ```
 Added:    3 files
@@ -197,14 +276,33 @@ Unchanged: 202 files
 
 ---
 
-### `agentpack summarize`
+### `agentpack monitor`
 
-Build or refresh the offline summary cache. No API calls.
+Show pack performance across runs — timing per phase, token savings trend.
 
 ```bash
-agentpack summarize
-agentpack summarize --refresh    # force rebuild all
+agentpack monitor           # last 20 runs
+agentpack monitor --last 5  # last 5 runs
+agentpack monitor --clear   # wipe metrics log
 ```
+
+---
+
+## Claude Code slash command
+
+For Claude Code sessions where you want a pre-built context snapshot (useful on large repos where initial exploration is slow):
+
+```bash
+agentpack install --agent claude    # installs /agentpack globally
+```
+
+Then inside Claude Code:
+
+```
+/agentpack --task "fix Redis SSE cancellation issue"
+```
+
+This is a convenience wrapper — it packs and reads the context, then starts working. On small repos where Claude Code's tool calls are fast, you won't notice a difference. On large repos (>100 files of active code), pre-packing can reduce tool-call overhead on the first turn.
 
 ---
 
@@ -213,19 +311,19 @@ agentpack summarize --refresh    # force rebuild all
 ```
 1. Scan repo  →  apply .agentignore  →  hash every file
 2. Build current snapshot  →  diff against previous snapshot
-3. Get git changed/staged files
-4. Build Python/JS/TS import dependency graph
+3. Get git changed/staged files  (+ --since <ref> if specified)
+4. Build Python/JS/TS/Go/Rust/Java import dependency graph
 5. Detect related test files
 6. Extract task keywords  →  score every file
 7. Rank by score, select within token budget
 8. For each selected file:
      changed + small  →  full content
-     changed + large  →  symbols + summary
-     unchanged dep    →  summary + symbols
+     changed + large  →  symbol bodies (ast.get_source_segment, no re-read)
+     unchanged dep    →  summary + symbol signatures
      low-score file   →  summary only
 9. Generate context receipts (why each file included/excluded)
 10. Render Claude markdown  →  save context pack
-11. Save snapshot + metadata
+11. Save snapshot + metadata + metrics
 ```
 
 ---
@@ -251,7 +349,7 @@ agentpack summarize --refresh    # force rebuild all
 
 ## Configuration
 
-`.agentpack/config.toml` (created by `agentpack init`):
+`.agentpack/config.toml`:
 
 ```toml
 [project]
@@ -280,6 +378,27 @@ output = ".agentpack/context.md"
 
 ---
 
+## Configurable scoring weights
+
+```toml
+[scoring]
+modified                  = 100
+staged                    = 90
+filename_keyword          = 80
+symbol_keyword            = 70
+content_keyword_per_hit   = 10
+content_keyword_max       = 60
+direct_dep                = 50
+reverse_dep               = 40
+related_test              = 35
+config_file               = 25
+recently_modified         = 20
+large_unrelated_penalty   = -50
+ignored_penalty           = -100
+```
+
+---
+
 ## .agentignore
 
 Works like `.gitignore`. Default rules exclude:
@@ -290,30 +409,14 @@ Works like `.gitignore`. Default rules exclude:
 - `.env`, `.env.*`, `*.pem`, `*.key`
 - `*.csv`, `*.jsonl`, `*.parquet`
 
-Add your own rules:
-
-```gitignore
-# team-specific
-internal-docs/
-*.generated.ts
-fixtures/large/
-```
-
 ---
 
 ## Git integration
 
-What to commit:
-
 ```
 .agentignore              ✓ commit
 .agentpack/config.toml    ✓ commit
-```
-
-What's gitignored by default:
-
-```
-.agentpack/cache/         ✗ gitignored
+.agentpack/cache/         ✓ commit if --share-cache (recommended for teams)
 .agentpack/snapshots/     ✗ gitignored
 .agentpack/context.*      ✗ gitignored
 ```
@@ -348,11 +451,23 @@ What's gitignored by default:
           │                 ─  Java/Kotlin regex     │
           │                                         │
           │  Symbol extract  ── Python AST          │
-          │                  ── JS/TS regex         │
+          │    (body via       ── JS/TS regex       │
+          │  ast.get_source_                        │
+          │  segment — no re-read)                  │
           │                                         │
           │  Test detection  ── name heuristics     │
-          │                                         │
           │  Task keywords   ── stopwords + variants│
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │     SUMMARY CACHE  (offline, local)      │
+          │                                         │
+          │  key: path + hash + provider + schema   │
+          │  hit  → instant, zero I/O               │
+          │  miss → build from AST/regex, cache it  │
+          │                                         │
+          │  offline  ──  AST / regex extract       │
+          │  claude   ──  Haiku API (optional)      │
           └────────────────────┬────────────────────┘
                                │
           ┌────────────────────▼────────────────────┐
@@ -374,15 +489,6 @@ What's gitignored by default:
           │   +50 dep       +40 rev-dep             │
           │   +35 test      +25 config  +20 recent  │
           │   -50 large unrelated                   │
-          └────────────────────┬────────────────────┘
-                               │
-          ┌────────────────────▼────────────────────┐
-          │          SUMMARY CACHE                   │
-          │                                         │
-          │  key: path + hash + provider + schema   │
-          │                                         │
-          │  offline  ──  AST / regex extract       │
-          │  claude   ──  Haiku API (optional)      │
           └────────────────────┬────────────────────┘
                                │
           ┌────────────────────▼────────────────────┐
@@ -434,7 +540,7 @@ src/agentpack/
     go_imports.py              # Go import / import(...) blocks
     rust_imports.py            # use, mod, extern crate
     java_imports.py            # Java import + Kotlin import
-    symbols.py                 # AST symbols + body extraction + keyword filter
+    symbols.py                 # AST symbols + body via ast.get_source_segment
     tests.py                   # source → test file mapping heuristics
     ranking.py                 # keyword extraction + configurable scoring
 
@@ -455,45 +561,23 @@ src/agentpack/
 
 ---
 
-## Configurable scoring weights
-
-Override any score in `.agentpack/config.toml`:
-
-```toml
-[scoring]
-modified                  = 100
-staged                    = 90
-filename_keyword          = 80
-symbol_keyword            = 70
-content_keyword_per_hit   = 10
-content_keyword_max       = 60
-direct_dep                = 50
-reverse_dep               = 40
-related_test              = 35
-config_file               = 25
-recently_modified         = 20
-large_unrelated_penalty   = -50
-ignored_penalty           = -100
-```
-
----
-
 ## Principles
 
 - **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls by default
 - **Non-destructive**: never overwrites user files; CLAUDE.md patching only touches the AgentPack-managed block
 - **Agent-neutral**: architecture is generic; Claude is the first-class adapter
-- **No daemons**: file watching is opt-in via `--watch`; nothing runs in the background otherwise
+- **No daemons**: file watching is opt-in via `--session`; nothing runs in the background otherwise
+- **Honest**: packed token count reflects real content, not raw repo size
 
 ---
 
 ## Optional dependencies
 
-tiktoken is included by default — exact token counts work out of the box.
+tiktoken is included by default.
 
 ```bash
-pip install "agentpack[llm]"      # anthropic + openai — LLM summaries
-pip install "agentpack[watch]"    # watchdog — --watch mode
+pip install "agentpack[llm]"      # anthropic — LLM summaries via Claude Haiku
+pip install "agentpack[watch]"    # watchdog — --session watch mode
 pip install "agentpack[all]"      # llm + watch
 ```
 

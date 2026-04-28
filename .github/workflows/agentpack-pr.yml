@@ -1,0 +1,35 @@
+name: AgentPack context pack
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install agentpack
+        run: pip install agentpack
+
+      - name: Generate context pack
+        run: |
+          agentpack init --yes
+          agentpack pack --agent claude \
+            --task "${{ github.event.pull_request.title }}" \
+            --since origin/${{ github.base_ref }} \
+            --mode balanced
+
+      - name: Upload context pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentpack-context
+          path: .agentpack/context.claude.md
+          retention-days: 7
