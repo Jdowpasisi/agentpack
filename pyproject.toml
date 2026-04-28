@@ -9,7 +9,8 @@ dependencies = [
   "rich>=13.0.0",
   "pathspec>=0.12.1",
   "pydantic>=2.0.0",
-  "tomli-w>=1.0.0"
+  "tomli-w>=1.0.0",
+  "tiktoken>=0.7.0"
 ]
 
 [project.scripts]
@@ -25,22 +26,16 @@ watch = [
   "watchdog>=4.0.0"
 ]
 
-tokens = [
-  "tiktoken>=0.7.0"
-]
-
 all = [
   "anthropic>=0.39.0",
   "openai>=1.0.0",
-  "watchdog>=4.0.0",
-  "tiktoken>=0.7.0"
+  "watchdog>=4.0.0"
 ]
 
 dev = [
   "pytest",
   "ruff",
-  "mypy",
-  "tiktoken>=0.7.0"
+  "mypy"
 ]
 
 [build-system]
