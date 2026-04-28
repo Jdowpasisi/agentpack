@@ -1,6 +1,6 @@
 [project]
 name = "agentpack"
-version = "1.0.0"
+version = "0.1.0"
 description = "Token-aware context packing for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"

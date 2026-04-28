@@ -1,5 +1,7 @@
 # AgentPack
 
+> **Status: alpha (v0.1.0).** Works, tested, used in real sessions. Not yet validated across a wide range of repos. API may change before 1.0.
+
 **Pre-built repo context for non-agentic Claude workflows.**
 
 AgentPack is most useful when Claude has no tool access — piped CLI sessions, API calls, CI pipelines, PR reviews. It scans your repo once, builds an offline summary cache of every file, then on each task packs only the relevant files into a tight context document you pipe straight into Claude.
@@ -136,7 +138,7 @@ git add .agentpack/cache/
 git commit -m "chore: add agentpack summary cache"
 ```
 
-Now `agentpack pack` runs in under 100ms for every teammate — no per-machine summarize step.
+Now `agentpack pack` reuses cached summaries for every teammate — no per-machine summarize step. Pack time drops significantly on warm cache (unchanged files skip summarization entirely).
 
 ---
 
@@ -348,12 +350,42 @@ agentpack monitor --clear   # wipe metrics log
 
 ---
 
+### `agentpack explain`
+
+Debug and trust: show exactly which files would be selected, why, and what was excluded — without writing a context pack.
+
+```bash
+agentpack explain --task "fix auth session bug"
+agentpack explain --task auto
+```
+
+Output:
+
+```
+Top selected files (ranked):
+  1. src/auth/session.py        score=180  [full]     modified, filename keyword match
+  2. src/auth/token.py          score=130  [symbols]  direct dependency of changed file
+  3. tests/auth/test_session.py score=95   [summary]  test for src/auth/session.py
+
+Files near budget cutoff:
+  4. src/config/security.py     score=45   [summary]  content keyword match (2)
+
+Excluded (top 5):
+  - src/unrelated_big.py        score=12   budget exhausted
+  - src/utils.py                score=8    score too low
+```
+
+Use this when a file you expected isn't showing up in the pack, or to tune `.agentignore` and scoring weights.
+
+---
+
 ## Claude Code slash command
 
 For Claude Code sessions where you want a pre-built context snapshot (useful on large repos where initial exploration is slow):
 
 ```bash
-agentpack install --agent claude    # installs /agentpack globally
+agentpack install --agent claude    # installs /agentpack locally (.claude/commands/)
+agentpack install --agent claude --global  # install globally (~/.claude/commands/)
 ```
 
 Then inside Claude Code:
@@ -372,7 +404,7 @@ This is a convenience wrapper — it packs and reads the context, then starts wo
 1. Scan repo  →  apply .agentignore  →  hash every file
 2. Build current snapshot  →  diff against previous snapshot
 3. Get git changed/staged files  (+ --since <ref> if specified)
-4. Build Python/JS/TS/Go/Rust/Java import dependency graph
+4. Build import dependency graph (Python/JS/TS: full resolution; Go/Rust/Java: best-effort extraction)
 5. Detect related test files
 6. Extract task keywords  →  score every file
 7. Rank by score, select within token budget
@@ -592,7 +624,7 @@ src/agentpack/
     merkle.py                  # root hash: sort(path:hash) → sha256
     cache.py                   # summary cache keyed path+hash+provider+version
     context_pack.py            # file selection algorithm + pack metadata
-    token_estimator.py         # tiktoken cl100k_base (exact counts)
+    token_estimator.py         # tiktoken cl100k_base (approximate; optimized for budget control, not exact Claude billing)
 
   analysis/
     python_imports.py          # ast-based import extraction
@@ -645,7 +677,7 @@ git add .agentpack/cache/
 git commit -m "chore: add agentpack summary cache"
 ```
 
-Every teammate and CI job now skips the summarize step. `agentpack pack` takes under 100ms from a warm cache.
+Every teammate and CI job now skips the summarize step. `agentpack pack` is significantly faster from a warm cache — only changed files trigger new summarization.
 
 ### Use `--since` for PR reviews
 
