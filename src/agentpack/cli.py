@@ -365,6 +365,19 @@ def pack(
     )
 
 
+def _sf_tokens(sf) -> int:  # type: ignore[no-untyped-def]
+    """Accurate token count for a SelectedFile regardless of include mode."""
+    if sf.content:
+        return estimate_tokens(sf.content)
+    parts: list[str] = []
+    if sf.summary:
+        parts.append(sf.summary)
+    for sym in sf.symbols:
+        if sym.signature:
+            parts.append(sym.signature)
+    return estimate_tokens("\n".join(parts)) if parts else 50
+
+
 def _do_pack(
     agent: str,
     task: str,
@@ -459,10 +472,7 @@ def _do_pack(
 
     raw_tokens = sum(f.estimated_tokens for f in files)
     after_ignore = sum(f.estimated_tokens for f in files if not f.ignored and not f.binary)
-    packed_tokens = sum(
-        estimate_tokens(sf.content) if sf.content else 200
-        for sf in selected
-    )
+    packed_tokens = sum(_sf_tokens(sf) for sf in selected)
     saving_pct = (1 - packed_tokens / raw_tokens) * 100 if raw_tokens > 0 else 0.0
 
     pack_obj = ContextPack(
