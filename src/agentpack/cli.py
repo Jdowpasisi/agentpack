@@ -8,6 +8,9 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
+from rich.columns import Columns
+from rich import box
 
 from agentpack.core.config import Config, load_config, save_config, DEFAULT_CONFIG
 from agentpack.core.ignore import load_spec, DEFAULT_AGENTIGNORE
@@ -49,6 +52,9 @@ def _root() -> Path:
 @app.command()
 def init(
     force: bool = typer.Option(False, "--force", help="Overwrite existing files."),
+    mode: Optional[str] = typer.Option(None, "--mode", help="Default pack mode (minimal|balanced|deep)."),
+    budget: int = typer.Option(0, "--budget", help="Default token budget (0 = keep default 25000)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive prompts, use defaults."),
 ) -> None:
     """Initialize AgentPack in the current directory."""
     root = _root()
@@ -66,10 +72,28 @@ def init(
     else:
         console.print("[dim]Skipped[/] .agentpack/.gitignore (exists)")
 
-    config_path = agentpack_dir / "config.toml"
-    if not config_path.exists() or force:
-        save_config(DEFAULT_CONFIG, root)
-        console.print("[green]Created[/] .agentpack/config.toml")
+    config_path_file = agentpack_dir / "config.toml"
+    if not config_path_file.exists() or force:
+        cfg = DEFAULT_CONFIG.model_copy(deep=True)
+
+        # Interactive mode selection
+        if not yes and mode is None and sys.stdin.isatty():
+            console.print("\n[bold]Choose default pack mode:[/]")
+            console.print("  [cyan]1[/] minimal  — changed files + configs only (fastest, fewest tokens)")
+            console.print("  [cyan]2[/] balanced — + deps, tests, summaries [bold](recommended)[/]")
+            console.print("  [cyan]3[/] deep     — + docs, more full files (most context)")
+            choice = typer.prompt("Mode", default="2")
+            mode_map = {"1": "minimal", "2": "balanced", "3": "deep",
+                        "minimal": "minimal", "balanced": "balanced", "deep": "deep"}
+            cfg.context.default_mode = mode_map.get(choice.strip(), "balanced")
+        elif mode in ("minimal", "balanced", "deep"):
+            cfg.context.default_mode = mode
+
+        if budget > 0:
+            cfg.context.default_budget = budget
+
+        save_config(cfg, root)
+        console.print(f"[green]Created[/] .agentpack/config.toml  [dim](mode: {cfg.context.default_mode}, budget: {cfg.context.default_budget:,})[/]")
     else:
         console.print("[dim]Skipped[/] .agentpack/config.toml (exists)")
 
@@ -320,13 +344,14 @@ def pack(
     refresh: bool = typer.Option(False, "--refresh", help="Rebuild summaries before packing."),
     summary_provider: str = typer.Option("offline", "--summary-provider", help="Summary provider (offline|claude)."),
     watch: bool = typer.Option(False, "--watch", help="Watch for file changes and re-pack automatically."),
+    session: bool = typer.Option(False, "--session", help="Keep re-packing on changes for the whole session (alias for --watch)."),
 ) -> None:
     """Generate a context pack for an AI coding agent."""
     if mode not in ("minimal", "balanced", "deep"):
         console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
         raise typer.Exit(1)
 
-    if watch:
+    if watch or session:
         _pack_watch(agent=agent, task=task, mode=mode, budget=budget,
                     since=since, summary_provider=summary_provider)
         return
@@ -459,16 +484,90 @@ def _do_pack(
         token_estimate=packed_tokens,
     )
 
-    console.print(f"\n[bold green]Context pack generated:[/] {out_path}")
-    console.print(f"  Files selected:   {len(selected)}")
-    console.print(f"  Packed tokens:    {packed_tokens:,}")
-    console.print(f"  Raw tokens:       {raw_tokens:,}")
-    console.print(f"  Estimated saving: {saving_pct:.1f}%")
-    if since:
-        console.print(f"  Changes since:    {since}")
+    _print_pack_summary(
+        out_path=out_path,
+        selected=selected,
+        packed_tokens=packed_tokens,
+        raw_tokens=raw_tokens,
+        saving_pct=saving_pct,
+        changed_files=sorted(all_changed),
+        task=task,
+        since=since,
+    )
 
     if print_output:
         print(out_path.read_text())
+
+
+def _print_pack_summary(
+    out_path: Path,
+    selected: list,
+    packed_tokens: int,
+    raw_tokens: int,
+    saving_pct: float,
+    changed_files: list[str],
+    task: str,
+    since: str | None,
+) -> None:
+    from rich.text import Text
+
+    # ── Stats row ──────────────────────────────────────────────────────────
+    stats = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
+    stats.add_column(style="dim")
+    stats.add_column(justify="right", style="bold")
+    stats.add_row("packed tokens", f"{packed_tokens:,}")
+    stats.add_row("raw tokens", f"{raw_tokens:,}")
+    stats.add_row("saving", f"[green]{saving_pct:.1f}%[/]")
+    if since:
+        stats.add_row("changes since", since)
+
+    # ── Selected files table ───────────────────────────────────────────────
+    MODE_STYLE = {"full": "green", "symbols": "yellow", "summary": "dim"}
+    files_tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+    files_tbl.add_column("file", style="dim", no_wrap=False, max_width=55)
+    files_tbl.add_column("mode", justify="center", width=8)
+    files_tbl.add_column("why", style="dim", max_width=30)
+
+    for sf in selected[:20]:
+        style = MODE_STYLE.get(sf.include_mode, "")
+        changed_marker = " [red]●[/]" if sf.path in changed_files else ""
+        files_tbl.add_row(
+            f"{sf.path}{changed_marker}",
+            f"[{style}]{sf.include_mode}[/]",
+            sf.reasons[0] if sf.reasons else "",
+        )
+    if len(selected) > 20:
+        files_tbl.add_row(f"[dim]... {len(selected) - 20} more[/]", "", "")
+
+    # ── Changed files list ─────────────────────────────────────────────────
+    if changed_files:
+        changed_lines = "\n".join(f"  [red]●[/] {f}" for f in changed_files[:10])
+        if len(changed_files) > 10:
+            changed_lines += f"\n  [dim]... {len(changed_files) - 10} more[/]"
+    else:
+        changed_lines = "  [dim]none detected[/]"
+
+    # ── Render ─────────────────────────────────────────────────────────────
+    console.print()
+    console.print(Panel(
+        f"[bold cyan]{task}[/]",
+        title="[bold green]✓ Context Pack Ready[/]",
+        subtitle=f"[dim]{out_path}[/]",
+        border_style="green",
+        padding=(0, 1),
+    ))
+
+    console.print()
+    console.print(Columns([stats, files_tbl], equal=False, expand=False))
+
+    if changed_files:
+        console.print(f"\n[bold]Changed files[/] ({len(changed_files)}):")
+        console.print(changed_lines)
+
+    console.print(f"\n[bold]Next step:[/]")
+    console.print(f"  [bold white]claude < {out_path}[/]")
+    console.print(f"  [dim]or: agentpack pack --task \"{task}\" --print | claude[/]")
+    console.print()
 
 
 def _pack_watch(
@@ -629,6 +728,49 @@ def _build_dep_graph(files: list, root: Path) -> dict[str, dict]:
                 graph[dep]["imported_by"].append(fi.path)
 
     return graph
+
+
+# ---------------------------------------------------------------------------
+# global-install
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="global-install")
+def global_install_cmd(
+    agent: str = typer.Option("claude", "--agent", help="Target agent."),
+    pipx: bool = typer.Option(True, "--pipx/--no-pipx", help="Install via pipx for global availability."),
+) -> None:
+    """Install agentpack globally (pipx) and set up the slash command system-wide."""
+    import subprocess as sp
+
+    if pipx:
+        console.print("[bold]Installing agentpack globally via pipx...[/]")
+        result = sp.run(
+            ["pipx", "install", "agentpack", "--force"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            console.print("[green]agentpack installed globally.[/] Available as `agentpack` in any shell.")
+        else:
+            console.print("[yellow]pipx install failed. Trying pip install --user...[/]")
+            result2 = sp.run(
+                [sys.executable, "-m", "pip", "install", "--user", "agentpack"],
+                capture_output=True, text=True,
+            )
+            if result2.returncode != 0:
+                console.print(f"[red]Install failed:[/] {result2.stderr[:200]}")
+                raise typer.Exit(1)
+            console.print("[green]Installed via pip --user.[/]")
+
+    # Install slash command globally
+    if agent == "claude":
+        root = _root()
+        _install_slash_command(root, global_install=True)
+        console.print("\n[bold green]Global install complete.[/]")
+        console.print("  `agentpack` is available in any terminal.")
+        console.print("  `/agentpack` is available in any Claude CLI session.")
+    else:
+        console.print(f"[yellow]No slash command defined for agent: {agent}[/]")
 
 
 # ---------------------------------------------------------------------------
