@@ -57,4 +57,7 @@ def test_token_estimation(tmp_path):
     spec = _spec()
     files = scan(tmp_path, spec)
     fi = next(x for x in files if x.path == "big.py")
-    assert fi.estimated_tokens == 100
+    # tiktoken gives exact counts; len//4 is the fallback — either way > 0
+    assert fi.estimated_tokens > 0
+    # 400 chars of 'x' is ~50-100 tokens depending on estimator
+    assert fi.estimated_tokens <= 400

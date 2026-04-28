@@ -54,9 +54,21 @@ def untracked_files(root: Path) -> set[str]:
 
 def recently_modified_files(root: Path, n: int = 20) -> list[str]:
     out = _run(
-        ["git", "log", f"--diff-filter=M", "--name-only", "--format=", f"-{n}"],
+        ["git", "log", "--diff-filter=M", "--name-only", "--format=", f"-{n}"],
         root,
     )
     if not out:
         return []
-    return [l.strip() for l in out.splitlines() if l.strip()]
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def changed_files_since(root: Path, ref: str) -> set[str]:
+    """Files changed between ref and HEAD (e.g. ref='HEAD~1', ref='main')."""
+    result: set[str] = set()
+    out = _run(["git", "diff", "--name-only", ref, "HEAD"], root)
+    if out:
+        for line in out.splitlines():
+            line = line.strip()
+            if line:
+                result.add(line)
+    return result

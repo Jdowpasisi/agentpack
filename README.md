@@ -322,56 +322,178 @@ What's gitignored by default:
 
 ## Architecture
 
+### Data flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        agentpack pack                               │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │              SCAN LAYER                  │
+          │                                         │
+          │  pathlib.rglob()  ──▶  .agentignore     │
+          │       │                 (pathspec)       │
+          │       ▼                                  │
+          │  FileInfo[]  (path, hash, tokens, lang) │
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │            ANALYSIS LAYER                │
+          │                                         │
+          │  Import graph  ──  Python AST           │
+          │  (6 languages)  ─  JS/TS regex          │
+          │                 ─  Go regex              │
+          │                 ─  Rust regex            │
+          │                 ─  Java/Kotlin regex     │
+          │                                         │
+          │  Symbol extract  ── Python AST          │
+          │                  ── JS/TS regex         │
+          │                                         │
+          │  Test detection  ── name heuristics     │
+          │                                         │
+          │  Task keywords   ── stopwords + variants│
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │           CHANGE DETECTION               │
+          │                                         │
+          │  Snapshot diff  (merkle root hash)      │
+          │       +                                 │
+          │  git diff / git diff --cached           │
+          │       +                                 │
+          │  git diff <ref> HEAD  (--since flag)    │
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │              RANKING                     │
+          │                                         │
+          │  Score each file (configurable weights) │
+          │  +100 modified  +80 filename match      │
+          │   +70 symbol    +60 content match       │
+          │   +50 dep       +40 rev-dep             │
+          │   +35 test      +25 config  +20 recent  │
+          │   -50 large unrelated                   │
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │          SUMMARY CACHE                   │
+          │                                         │
+          │  key: path + hash + provider + schema   │
+          │                                         │
+          │  offline  ──  AST / regex extract       │
+          │  claude   ──  Haiku API (optional)      │
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │         BUDGET SELECTION                 │
+          │                                         │
+          │  Sort by score, consume until budget    │
+          │                                         │
+          │  changed + small  ──▶  full content     │
+          │  changed + large  ──▶  symbol bodies    │
+          │  unchanged dep    ──▶  summary + sigs   │
+          │  low score        ──▶  summary only     │
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │              RENDERING                   │
+          │                                         │
+          │  Claude adapter  ──▶  context.claude.md │
+          │  Generic adapter ──▶  context.md        │
+          │                                         │
+          │  Context receipts (why each file in/out)│
+          │  Staleness warning if snapshot drifted  │
+          └─────────────────────────────────────────┘
+```
+
+### Package layout
+
 ```
 src/agentpack/
-  cli.py                  # Typer CLI — all 8 commands
+  cli.py                       # Typer CLI — all commands
   data/
-    agentpack.md          # bundled /agentpack slash command
+    agentpack.md               # bundled /agentpack slash command for Claude CLI
+
   core/
-    models.py             # Pydantic models: FileInfo, Symbol, ContextPack, ...
-    config.py             # TOML config load/save
-    ignore.py             # .agentignore / gitignore-style matching
-    scanner.py            # pathlib rglob, binary detection, token estimation
-    snapshot.py           # JSON snapshots + merkle root hash
-    diff.py               # added/modified/deleted/unchanged diff
-    git.py                # subprocess git (graceful fallback if not in git repo)
-    merkle.py             # root hash via sorted path:hash
-    cache.py              # summary cache keyed by path+hash+provider+version
-    context_pack.py       # file selection algorithm + pack metadata
-    token_estimator.py    # len(text) // 4
+    models.py                  # Pydantic: FileInfo, Symbol, FileSummary, ContextPack
+    config.py                  # TOML config + ScoringWeights
+    ignore.py                  # .agentignore / gitignore-style matching
+    scanner.py                 # pathlib rglob, binary detection, token estimation
+    snapshot.py                # JSON snapshots + merkle root hash
+    diff.py                    # added / modified / deleted / unchanged diff
+    git.py                     # subprocess git (graceful fallback)
+    merkle.py                  # root hash: sort(path:hash) → sha256
+    cache.py                   # summary cache keyed path+hash+provider+version
+    context_pack.py            # file selection algorithm + pack metadata
+    token_estimator.py         # tiktoken (if available) or len//4 fallback
+
   analysis/
-    python_imports.py     # ast-based import extraction
-    js_ts_imports.py      # regex-based import extraction
-    symbols.py            # Python ast + JS regex symbol extraction
-    tests.py              # test file detection heuristics
-    ranking.py            # keyword extraction + file scoring
+    python_imports.py          # ast-based import extraction
+    js_ts_imports.py           # regex import extraction (ESM + CJS)
+    go_imports.py              # Go import / import(...) blocks
+    rust_imports.py            # use, mod, extern crate
+    java_imports.py            # Java import + Kotlin import
+    symbols.py                 # AST symbols + body extraction + keyword filter
+    tests.py                   # source → test file mapping heuristics
+    ranking.py                 # keyword extraction + configurable scoring
+
   summaries/
-    offline.py            # zero-API summaries for Python/JS/TS/generic
-    base.py               # cache-or-build orchestration
+    offline.py                 # zero-API: AST/regex → imports, symbols, summary
+    llm.py                     # Claude Haiku API summaries (optional)
+    base.py                    # cache-or-build orchestration
+
   adapters/
-    claude.py             # context.claude.md + CLAUDE.md patching
-    generic.py            # context.md
+    base.py                    # abstract BaseAdapter
+    claude.py                  # context.claude.md + CLAUDE.md safe patching
+    generic.py                 # context.md
+
   renderers/
-    markdown.py           # Claude markdown renderer
+    markdown.py                # full/symbols/summary mode markdown renderer
+    receipts.py                # context receipt formatter
+```
+
+---
+
+## Configurable scoring weights
+
+Override any score in `.agentpack/config.toml`:
+
+```toml
+[scoring]
+modified                  = 100
+staged                    = 90
+filename_keyword          = 80
+symbol_keyword            = 70
+content_keyword_per_hit   = 10
+content_keyword_max       = 60
+direct_dep                = 50
+reverse_dep               = 40
+related_test              = 35
+config_file               = 25
+recently_modified         = 20
+large_unrelated_penalty   = -50
+ignored_penalty           = -100
 ```
 
 ---
 
 ## Principles
 
-- **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls
+- **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls by default
 - **Non-destructive**: never overwrites user files; CLAUDE.md patching only touches the AgentPack-managed block
 - **Agent-neutral**: architecture is generic; Claude is the first-class adapter
-- **No daemons**: no background processes, no file watchers, no VS Code extensions
+- **No daemons**: file watching is opt-in via `--watch`; nothing runs in the background otherwise
 
 ---
 
 ## Optional dependencies
 
-LLM-powered summaries (not used in v1 by default):
-
 ```bash
-pip install "agentpack[llm]"
+pip install "agentpack[tokens]"   # tiktoken — exact token counts
+pip install "agentpack[llm]"      # anthropic + openai — LLM summaries
+pip install "agentpack[watch]"    # watchdog — --watch mode
+pip install "agentpack[all]"      # everything above
 ```
 
 ---

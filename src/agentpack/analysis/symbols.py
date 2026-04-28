@@ -15,7 +15,6 @@ def extract_python_symbols(path: Path) -> list[Symbol]:
     except (SyntaxError, OSError):
         return []
 
-    lines = source.splitlines()
     symbols: list[Symbol] = []
 
     for node in ast.walk(tree):
@@ -50,11 +49,7 @@ def extract_python_symbols(path: Path) -> list[Symbol]:
                         )
                     )
 
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # top-level only (parent is Module)
-            pass
-
-    # top-level functions separately
+    # top-level functions
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             sig = f"def {node.name}({_args_str(node.args)})"
@@ -86,6 +81,17 @@ def _args_str(args: ast.arguments) -> str:
     return ", ".join(parts)
 
 
+def extract_symbol_body(path: Path, symbol: Symbol) -> str | None:
+    """Extract the source lines for a specific symbol."""
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    start = max(0, symbol.start_line - 1)
+    end = min(len(lines), symbol.end_line)
+    return "\n".join(lines[start:end])
+
+
 _JS_FUNC = re.compile(
     r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(",
 )
@@ -102,6 +108,10 @@ def extract_js_symbols(path: Path) -> list[Symbol]:
         return []
 
     symbols: list[Symbol] = []
+    brace_depth = 0
+    # track open symbol start → (name, kind, start_line)
+    open_syms: list[tuple[str, str, int]] = []
+
     for i, line in enumerate(lines, 1):
         for pattern, kind in [
             (_JS_CLASS, "class"),
@@ -128,3 +138,16 @@ def extract_symbols(path: Path, language: str | None) -> list[Symbol]:
     if language in ("javascript", "typescript"):
         return extract_js_symbols(path)
     return []
+
+
+def filter_symbols_by_keywords(symbols: list[Symbol], keywords: set[str]) -> list[Symbol]:
+    """Return symbols whose name or summary matches any keyword."""
+    if not keywords:
+        return symbols
+    result = []
+    for s in symbols:
+        name_lower = s.name.lower()
+        summary_lower = (s.summary or "").lower()
+        if any(kw in name_lower or kw in summary_lower for kw in keywords):
+            result.append(s)
+    return result

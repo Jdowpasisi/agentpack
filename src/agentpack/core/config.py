@@ -44,11 +44,29 @@ class AgentsConfig(BaseModel):
     )
 
 
+class ScoringWeights(BaseModel):
+    """Configurable scoring weights. All values are additive points."""
+    modified: float = 100
+    staged: float = 90
+    filename_keyword: float = 80
+    symbol_keyword: float = 70
+    content_keyword_per_hit: float = 10
+    content_keyword_max: float = 60
+    direct_dep: float = 50
+    reverse_dep: float = 40
+    related_test: float = 35
+    config_file: float = 25
+    recently_modified: float = 20
+    large_unrelated_penalty: float = -50
+    ignored_penalty: float = -100
+
+
 class Config(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    scoring: ScoringWeights = Field(default_factory=ScoringWeights)
 
 
 DEFAULT_CONFIG = Config()

@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from agentpack.core.models import FileInfo
+from agentpack.core.config import ScoringWeights
 
 _STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
@@ -53,15 +54,25 @@ _VARIANTS: dict[str, str] = {
     "redis": "redis",
     "stream": "stream",
     "streaming": "stream",
+    "goroutine": "goroutine",
+    "channel": "chan",
+    "interface": "interface",
+    "struct": "struct",
+    "trait": "trait",
+    "impl": "impl",
 }
 
 CONFIG_EXTENSIONS = {
     ".toml", ".yaml", ".yml", ".json", ".env", ".ini", ".cfg", ".conf",
+    ".dockerfile", ".makefile",
 }
 CONFIG_NAMES = {
     "config", "settings", "configuration", "env", ".env",
-    "pyproject", "package", "dockerfile", "makefile",
+    "pyproject", "package", "dockerfile", "makefile", "cargo", "go",
+    "build", "cmake",
 }
+
+_DEFAULT_WEIGHTS = ScoringWeights()
 
 
 def extract_keywords(task: str) -> set[str]:
@@ -90,8 +101,7 @@ def _content_matches_keywords(text: str, keywords: set[str]) -> int:
 
 def _symbol_matches_keywords(symbols: list[str], keywords: set[str]) -> bool:
     for sym in symbols:
-        sym_lower = sym.lower()
-        if any(kw in sym_lower for kw in keywords):
+        if any(kw in sym.lower() for kw in keywords):
             return True
     return False
 
@@ -105,36 +115,37 @@ def score_files(
     keywords: set[str],
     include_tests: bool = True,
     include_configs: bool = True,
+    weights: ScoringWeights | None = None,
 ) -> list[tuple[FileInfo, float, list[str]]]:
+    w = weights or _DEFAULT_WEIGHTS
     all_paths = {f.path for f in files}
     results: list[tuple[FileInfo, float, list[str]]] = []
-
     recently_set = set(recently_modified[:20])
 
     for fi in files:
         if fi.ignored or fi.binary:
-            results.append((fi, -100.0, ["ignored/binary"]))
+            results.append((fi, w.ignored_penalty, ["ignored/binary"]))
             continue
 
         score = 0.0
         reasons: list[str] = []
 
         if fi.path in changed_paths:
-            score += 100
+            score += w.modified
             reasons.append("modified")
 
         if fi.path in staged_paths:
-            score += 90
+            score += w.staged
             reasons.append("staged")
 
         if _path_matches_keywords(fi.path, keywords):
-            score += 80
+            score += w.filename_keyword
             reasons.append("filename keyword match")
 
         graph_entry = dep_graph.get(fi.path, {})
         sym_names = [s["name"] if isinstance(s, dict) else s.name for s in graph_entry.get("symbols", [])]
         if _symbol_matches_keywords(sym_names, keywords):
-            score += 70
+            score += w.symbol_keyword
             reasons.append("symbol keyword match")
 
         if fi.abs_path.exists():
@@ -142,46 +153,46 @@ def score_files(
                 text = fi.abs_path.read_text(errors="replace")
                 hits = _content_matches_keywords(text, keywords)
                 if hits > 0:
-                    score += min(60, hits * 10)
+                    score += min(w.content_keyword_max, hits * w.content_keyword_per_hit)
                     reasons.append(f"content keyword match ({hits})")
             except OSError:
                 pass
 
         for dep_path in graph_entry.get("imports", []):
             if dep_path in changed_paths or _path_matches_keywords(dep_path, keywords):
-                score += 50
+                score += w.direct_dep
                 reasons.append("direct dependency of changed file")
                 break
 
         for other_path, other_entry in dep_graph.items():
             if fi.path in other_entry.get("imports", []) and other_path in changed_paths:
-                score += 40
+                score += w.reverse_dep
                 reasons.append("reverse dependency")
                 break
 
         if include_tests:
             tests = graph_entry.get("tests", [])
             if tests and any(t in all_paths for t in tests):
-                score += 35
+                score += w.related_test
                 reasons.append("has related tests")
 
-            if include_tests and _is_test_file(fi.path):
+            if _is_test_file(fi.path):
                 for src_path in changed_paths:
                     if _test_matches_source(fi.path, src_path):
-                        score += 35
+                        score += w.related_test
                         reasons.append(f"test for {src_path}")
                         break
 
         if include_configs and _is_config_file(fi.path):
-            score += 25
+            score += w.config_file
             reasons.append("config file")
 
         if fi.path in recently_set:
-            score += 20
+            score += w.recently_modified
             reasons.append("recently modified")
 
         if fi.too_large and score < 50:
-            score -= 50
+            score += w.large_unrelated_penalty
             reasons.append("large unrelated file")
 
         results.append((fi, score, reasons))
