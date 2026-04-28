@@ -16,6 +16,62 @@ _STOPWORDS = {
     "use", "using", "used", "how", "what", "when", "where", "why",
 }
 
+_CONCEPT_MAP: dict[str, frozenset[str]] = {
+    # rate limiting
+    "rate": frozenset({"throttle", "ratelimit", "leaky", "bucket", "debounce", "backoff", "quota"}),
+    "limiting": frozenset({"throttle", "ratelimit", "leaky", "bucket", "debounce", "quota"}),
+    "throttle": frozenset({"rate", "limit", "ratelimit", "leaky", "bucket", "quota"}),
+
+    # authentication
+    "auth": frozenset({"jwt", "bearer", "token", "oauth", "credential", "login", "signin", "identity", "principal"}),
+    "authentication": frozenset({"jwt", "bearer", "token", "oauth", "credential", "login"}),
+    "login": frozenset({"auth", "signin", "credential", "token", "session"}),
+
+    # caching
+    "cache": frozenset({"lru", "memoize", "memo", "ttl", "evict", "invalidate", "redis", "memcache"}),
+    "caching": frozenset({"lru", "memoize", "memo", "ttl", "evict", "redis"}),
+
+    # queue / messaging
+    "queue": frozenset({"broker", "pubsub", "kafka", "rabbitmq", "worker", "job", "task", "celery", "enqueue", "dequeue"}),
+    "message": frozenset({"queue", "broker", "pubsub", "event", "dispatch", "emit", "publish", "subscribe"}),
+
+    # database
+    "database": frozenset({"db", "orm", "migration", "schema", "query", "repository", "dao", "entity"}),
+    "db": frozenset({"database", "orm", "migration", "schema", "query", "repository"}),
+    "migration": frozenset({"schema", "database", "db", "alembic", "flyway", "liquibase"}),
+
+    # concurrency
+    "concurrency": frozenset({"mutex", "lock", "semaphore", "atomic", "thread", "async", "goroutine", "coroutine"}),
+    "concurrent": frozenset({"mutex", "lock", "semaphore", "atomic", "thread", "race", "goroutine"}),
+    "race": frozenset({"mutex", "lock", "semaphore", "atomic", "concurrent", "thread"}),
+    "async": frozenset({"await", "coroutine", "future", "promise", "concurrent", "thread"}),
+
+    # error handling
+    "error": frozenset({"exception", "fault", "failure", "retry", "fallback", "circuit", "breaker"}),
+    "retry": frozenset({"backoff", "error", "fault", "resilience", "circuit", "breaker"}),
+
+    # http / api
+    "api": frozenset({"endpoint", "route", "handler", "controller", "rest", "graphql", "grpc", "rpc"}),
+    "endpoint": frozenset({"route", "handler", "controller", "api", "path", "url"}),
+    "middleware": frozenset({"interceptor", "filter", "hook", "plugin", "decorator", "wrapper"}),
+
+    # storage / files
+    "storage": frozenset({"disk", "filesystem", "bucket", "blob", "upload", "download", "s3", "gcs"}),
+    "upload": frozenset({"storage", "blob", "bucket", "multipart", "stream", "file"}),
+
+    # security
+    "security": frozenset({"auth", "permission", "role", "acl", "policy", "rbac", "encrypt", "hash", "sign"}),
+    "permission": frozenset({"role", "acl", "policy", "rbac", "auth", "access", "grant", "deny"}),
+    "encrypt": frozenset({"decrypt", "cipher", "hash", "sign", "verify", "secret", "key"}),
+
+    # logging / observability
+    "log": frozenset({"trace", "metric", "monitor", "observe", "telemetry", "audit", "event"}),
+    "metric": frozenset({"log", "trace", "monitor", "observe", "telemetry", "prometheus", "gauge", "counter"}),
+
+    # search
+    "search": frozenset({"index", "query", "fulltext", "elasticsearch", "solr", "lucene", "rank", "score"}),
+}
+
 _VARIANTS: dict[str, str] = {
     "cancellation": "cancel",
     "cancelled": "cancel",
@@ -86,6 +142,17 @@ def extract_keywords(task: str) -> set[str]:
         keywords.add(word)
         if word in _VARIANTS:
             keywords.add(_VARIANTS[word])
+
+    # expand via concept map (one level only — no recursion to avoid explosion)
+    expanded: set[str] = set()
+    for kw in keywords:
+        if kw in _CONCEPT_MAP:
+            for synonym in _CONCEPT_MAP[kw]:
+                expanded.add(synonym)
+                # also apply _VARIANTS to expanded terms
+                if synonym in _VARIANTS:
+                    expanded.add(_VARIANTS[synonym])
+    keywords.update(expanded)
     return keywords
 
 
