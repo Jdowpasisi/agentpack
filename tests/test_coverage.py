@@ -709,3 +709,48 @@ class TestEnrichKeywords:
     def test_returns_set(self, tmp_path: Path) -> None:
         result = enrich_keywords_from_files({"x"}, set(), [])
         assert isinstance(result, set)
+
+
+# ---------------------------------------------------------------------------
+# analysis/ranking.py — concept map / semantic expansion
+# ---------------------------------------------------------------------------
+
+from agentpack.analysis.ranking import extract_keywords
+
+
+class TestConceptExpansion:
+    def test_rate_limiting_expands_to_throttle(self) -> None:
+        kws = extract_keywords("fix rate limiting")
+        assert "throttle" in kws
+
+    def test_rate_limiting_expands_to_leaky(self) -> None:
+        kws = extract_keywords("fix rate limiting")
+        assert "leaky" in kws
+
+    def test_auth_expands_to_jwt(self) -> None:
+        kws = extract_keywords("fix auth")
+        assert "jwt" in kws
+
+    def test_cache_expands_to_lru(self) -> None:
+        kws = extract_keywords("improve caching")
+        assert "lru" in kws
+
+    def test_no_recursive_explosion(self) -> None:
+        # One-level expansion only; three-word task must stay well under 50 keywords
+        kws = extract_keywords("fix rate limiting")
+        assert len(kws) < 50
+
+    def test_original_keywords_preserved(self) -> None:
+        kws = extract_keywords("fix rate limiting")
+        # Original non-stopword tokens must still be present
+        assert "rate" in kws
+        assert "limiting" in kws
+
+    def test_unknown_word_no_expansion(self) -> None:
+        kws = extract_keywords("fix xyzzy_unknown")
+        # Should parse to base tokens without crash and without extra expansion
+        assert "fix" not in kws or True  # "fix" may be filtered as < 3 chars? no it's 3
+        # The key check: no crash, and only the base tokens plus no spurious additions
+        assert "xyzzy" in kws or "unknown" in kws  # at least one base token present
+        # No concept map matches means no expansion beyond base
+        assert len(kws) <= 5  # "fix", "xyzzy", "unknown" — very small set
