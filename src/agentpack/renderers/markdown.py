@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agentpack.core.models import ContextPack, SelectedFile, Symbol
+from agentpack.core.redactor import redact_secrets
 
 
 def _lang_fence(lang: str | None) -> str:
@@ -31,14 +32,26 @@ def _file_section(sf: SelectedFile) -> str:
         parts.append("")
 
     if sf.include_mode == "full" and sf.content:
+        content, redact_warnings = redact_secrets(sf.content, sf.path)
         parts.append("```" + _lang_fence(sf.language))
-        parts.append(sf.content)
+        parts.append(content)
         parts.append("```")
+        if redact_warnings:
+            types = ", ".join(
+                w.split(": ", 1)[1] if ": " in w else w for w in redact_warnings
+            )
+            parts.append(f"> ⚠ Secrets redacted: {types}")
 
     elif sf.include_mode == "symbols" and sf.content:
+        content, redact_warnings = redact_secrets(sf.content, sf.path)
         parts.append("```" + _lang_fence(sf.language))
-        parts.append(sf.content)
+        parts.append(content)
         parts.append("```")
+        if redact_warnings:
+            types = ", ".join(
+                w.split(": ", 1)[1] if ": " in w else w for w in redact_warnings
+            )
+            parts.append(f"> ⚠ Secrets redacted: {types}")
 
     elif sf.include_mode == "symbols":
         if sf.summary:
