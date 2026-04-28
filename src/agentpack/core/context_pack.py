@@ -77,6 +77,40 @@ def load_pack_metadata(root: Path) -> dict[str, Any] | None:
     return json.loads(path.read_text())
 
 
+def _extract_relevant_symbol_bodies(
+    fi: FileInfo,
+    syms: list[Symbol],
+    keywords: set[str],
+    budget_remaining: int,
+) -> tuple[str | None, int]:
+    """Extract bodies of symbols matching keywords; fall back to signatures if over budget."""
+    from agentpack.analysis.symbols import (
+        filter_symbols_by_keywords,
+        extract_symbol_body,
+    )
+
+    relevant = filter_symbols_by_keywords(syms, keywords) if keywords else syms[:5]
+    if not relevant:
+        return None, 0
+
+    parts: list[str] = []
+    tokens_used = 0
+    for sym in relevant:
+        body = extract_symbol_body(fi.abs_path, sym)
+        if body:
+            tok = estimate_tokens(body)
+            if tokens_used + tok <= budget_remaining:
+                parts.append(body)
+                tokens_used += tok
+            elif sym.signature:
+                sig_tok = estimate_tokens(sym.signature)
+                if tokens_used + sig_tok <= budget_remaining:
+                    parts.append(sym.signature)
+                    tokens_used += sig_tok
+
+    return "\n\n".join(parts) if parts else None, tokens_used
+
+
 def select_files(
     files: list[FileInfo],
     scored: list[tuple[FileInfo, float, list[str]]],
@@ -85,13 +119,13 @@ def select_files(
     mode: Mode,
     budget: int,
     max_file_tokens: int,
+    keywords: set[str] | None = None,
 ) -> tuple[list[SelectedFile], list[Receipt]]:
     opts = _MODE_WEIGHTS[mode]
     selected: list[SelectedFile] = []
     receipts: list[Receipt] = []
     tokens_used = 0
-
-    file_map = {f.path: f for f in files}
+    kw = keywords or set()
 
     for fi, score, reasons in sorted(scored, key=lambda x: -x[1]):
         if fi.ignored or fi.binary:
@@ -105,6 +139,7 @@ def select_files(
         is_changed = fi.path in changed_paths
         summary_data = summaries.get(fi.path)
 
+        # Determine inclusion mode
         if is_changed and fi.estimated_tokens <= max_file_tokens:
             mode_str: Literal["full", "symbols", "summary"] = "full"
             content = fi.abs_path.read_text(errors="replace") if fi.abs_path.exists() else None
@@ -127,6 +162,8 @@ def select_files(
             continue
 
         tokens_used += tok
+
+        # Build symbol list
         syms: list[Symbol] = []
         if summary_data and mode_str in ("symbols", "summary"):
             raw_syms = summary_data.get("symbols", [])
@@ -136,6 +173,16 @@ def select_files(
                 except Exception:
                     pass
 
+        # Symbol body extraction for "symbols" mode
+        sym_body_content: str | None = None
+        if mode_str == "symbols" and syms and fi.abs_path.exists():
+            budget_remaining = budget - tokens_used
+            sym_body_content, extra_tok = _extract_relevant_symbol_bodies(
+                fi, syms, kw, min(budget_remaining, max_file_tokens // 2)
+            )
+            if extra_tok > 0 and tokens_used + extra_tok <= budget:
+                tokens_used += extra_tok
+
         selected.append(
             SelectedFile(
                 path=fi.path,
@@ -143,7 +190,7 @@ def select_files(
                 score=score,
                 include_mode=mode_str,
                 reasons=reasons,
-                content=content,
+                content=content if mode_str == "full" else sym_body_content,
                 summary=summary_data.get("summary") if summary_data else None,
                 symbols=syms,
             )

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich import print as rprint
 
 from agentpack.core.config import Config, load_config, save_config, DEFAULT_CONFIG
 from agentpack.core.ignore import load_spec, DEFAULT_AGENTIGNORE
@@ -21,13 +21,15 @@ from agentpack.core.token_estimator import estimate_tokens
 from agentpack.analysis.ranking import score_files, extract_keywords
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis.python_imports import extract_imports as py_imports
+from agentpack.analysis.python_imports import resolve_relative_import as py_resolve
 from agentpack.analysis.js_ts_imports import extract_imports as js_imports
 from agentpack.analysis.js_ts_imports import resolve_relative_import as js_resolve
-from agentpack.analysis.python_imports import resolve_relative_import as py_resolve
+from agentpack.analysis.go_imports import extract_imports as go_imports
+from agentpack.analysis.rust_imports import extract_imports as rust_imports
+from agentpack.analysis.java_imports import extract_imports as java_imports
 from agentpack.summaries.base import build_all_summaries, get_or_build_summary
 from agentpack.adapters.claude import ClaudeAdapter
 from agentpack.adapters.generic import GenericAdapter
-import tomli_w
 
 app = typer.Typer(help="AgentPack — token-aware context packing for AI coding agents.")
 console = Console()
@@ -87,10 +89,8 @@ def init(
 # ---------------------------------------------------------------------------
 
 
-@app.command()
-def scan_cmd(
-    ctx: typer.Context = typer.Option(None),
-) -> None:
+@app.command(name="scan")
+def scan_cmd() -> None:
     """Scan the repository and report file statistics."""
     root = _root()
     cfg = load_config(root)
@@ -128,10 +128,6 @@ def scan_cmd(
         for f in largest:
             lt.add_row(f.path, f"{f.estimated_tokens:,}")
         console.print(lt)
-
-
-# keep CLI name consistent
-app.command(name="scan")(scan_cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +229,10 @@ def stats() -> None:
         if context_path.exists():
             content = context_path.read_text()
             included_count = content.count("Included as: **full**")
-            summarized_count = content.count("Included as: **summary**") + content.count("Included as: **symbols**")
+            summarized_count = (
+                content.count("Included as: **summary**")
+                + content.count("Included as: **symbols**")
+            )
 
     table = Table(title="Token Stats", show_header=True)
     table.add_column("Metric", style="cyan")
@@ -255,28 +254,54 @@ def stats() -> None:
 
 @app.command()
 def summarize(
-    provider: str = typer.Option("offline", "--provider", help="Summary provider."),
-    refresh: bool = typer.Option(False, "--refresh", help="Rebuild all summaries."),
+    provider: str = typer.Option("offline", "--provider", help="Summary provider (offline|claude)."),
+    refresh: bool = typer.Option(False, "--refresh", help="Force rebuild all summaries."),
+    model: Optional[str] = typer.Option(None, "--model", help="LLM model override (for claude provider)."),
 ) -> None:
-    """Build or refresh offline summary cache."""
+    """Build or refresh summary cache. Default: offline (no API calls)."""
     root = _root()
     cfg = load_config(root)
     ignore_spec = load_spec(root / cfg.project.ignore_file)
 
-    if provider != "offline":
-        console.print("[red]Only 'offline' provider supported in this release.[/]")
+    if provider not in ("offline", "claude"):
+        console.print("[red]Supported providers: offline, claude[/]")
         raise typer.Exit(1)
 
-    console.print("[bold]Building offline summaries...[/]")
+    if provider == "claude":
+        console.print("[bold]Building LLM summaries via Claude (requires ANTHROPIC_API_KEY)...[/]")
+    else:
+        console.print("[bold]Building offline summaries...[/]")
+
     files = scan(root, ignore_spec, cfg.context.max_file_tokens)
     active = [f for f in files if not f.ignored and not f.binary]
 
     built = 0
+    errors = 0
     for fi in active:
-        summary = get_or_build_summary(fi, root, provider)
-        built += 1
+        try:
+            if provider == "claude" and model:
+                # pass model through via a thin wrapper
+                from agentpack.summaries import llm as llm_mod
+                from agentpack.core import cache as summary_cache
+                if fi.hash:
+                    cached = summary_cache.load_summary(root, fi.path, fi.hash, provider)
+                    if cached and not refresh:
+                        built += 1
+                        continue
+                    summary = llm_mod.summarize(fi.path, fi.abs_path, fi.language, fi.hash or "", provider=provider, model=model)
+                    summary_cache.save_summary(root, summary)
+            else:
+                get_or_build_summary(fi, root, provider)
+            built += 1
+        except Exception as e:
+            console.print(f"[yellow]Warning:[/] {fi.path}: {e}")
+            errors += 1
 
-    console.print(f"[green]Done.[/] Built/refreshed {built} summaries.")
+    console.print(f"[green]Done.[/] Built/refreshed {built} summaries.", end="")
+    if errors:
+        console.print(f" [yellow]{errors} errors.[/]")
+    else:
+        console.print()
 
 
 # ---------------------------------------------------------------------------
@@ -290,16 +315,39 @@ def pack(
     task: str = typer.Option(..., "--task", help="Task description."),
     mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
     budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
-    from_git: bool = typer.Option(False, "--from-git", help="Use git diff to detect changes."),
+    since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
     print_output: bool = typer.Option(False, "--print", help="Print context to stdout."),
     refresh: bool = typer.Option(False, "--refresh", help="Rebuild summaries before packing."),
-    summary_provider: str = typer.Option("offline", "--summary-provider"),
+    summary_provider: str = typer.Option("offline", "--summary-provider", help="Summary provider (offline|claude)."),
+    watch: bool = typer.Option(False, "--watch", help="Watch for file changes and re-pack automatically."),
 ) -> None:
     """Generate a context pack for an AI coding agent."""
     if mode not in ("minimal", "balanced", "deep"):
         console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
         raise typer.Exit(1)
 
+    if watch:
+        _pack_watch(agent=agent, task=task, mode=mode, budget=budget,
+                    since=since, summary_provider=summary_provider)
+        return
+
+    _do_pack(
+        agent=agent, task=task, mode=mode, budget=budget,
+        since=since, print_output=print_output,
+        refresh=refresh, summary_provider=summary_provider,
+    )
+
+
+def _do_pack(
+    agent: str,
+    task: str,
+    mode: str,
+    budget: int,
+    since: str | None,
+    print_output: bool,
+    refresh: bool,
+    summary_provider: str,
+) -> None:
     root = _root()
     cfg = load_config(root)
     effective_budget = budget if budget > 0 else cfg.context.default_budget
@@ -324,9 +372,13 @@ def pack(
         git_changed: set[str] = set()
         git_staged: set[str] = set()
         recently_modified: list[str] = []
+
         if git.is_git_repo(root):
-            git_changed = git.changed_files(root)
-            git_staged = git_changed  # already includes staged via --cached
+            if since:
+                git_changed = git.changed_files_since(root, since)
+            else:
+                git_changed = git.changed_files(root)
+            git_staged = git_changed
             recently_modified = git.recently_modified_files(root)
 
         all_changed = changed_from_snap | git_changed
@@ -350,6 +402,7 @@ def pack(
             keywords=keywords,
             include_tests=cfg.context.include_tests,
             include_configs=cfg.context.include_configs,
+            weights=cfg.scoring,
         )
 
     with console.status("[bold]Selecting files within budget..."):
@@ -361,20 +414,16 @@ def pack(
             mode=mode,  # type: ignore[arg-type]
             budget=effective_budget,
             max_file_tokens=cfg.context.max_file_tokens,
+            keywords=keywords,
         )
 
     raw_tokens = sum(f.estimated_tokens for f in files)
     after_ignore = sum(f.estimated_tokens for f in files if not f.ignored and not f.binary)
     packed_tokens = sum(
-        estimate_tokens(sf.content) if sf.content else (sf.score and 200 or 100)
+        estimate_tokens(sf.content) if sf.content else 200
         for sf in selected
     )
     saving_pct = (1 - packed_tokens / raw_tokens) * 100 if raw_tokens > 0 else 0.0
-
-    stale = False
-    prev_meta = load_pack_metadata(root)
-    if prev_meta and prev_meta.get("snapshot_root_hash") != current_snap["root_hash"]:
-        stale = True
 
     pack_obj = ContextPack(
         task=task,
@@ -392,11 +441,9 @@ def pack(
     )
 
     if agent == "claude":
-        adapter_cfg = cfg.agents.claude
-        adapter = ClaudeAdapter(adapter_cfg.output)
+        adapter = ClaudeAdapter(cfg.agents.claude.output)
     else:
-        adapter_cfg = cfg.agents.generic
-        adapter = GenericAdapter(adapter_cfg.output)
+        adapter = GenericAdapter(cfg.agents.generic.output)
 
     out_path = adapter.write(pack_obj, root)
 
@@ -413,13 +460,77 @@ def pack(
     )
 
     console.print(f"\n[bold green]Context pack generated:[/] {out_path}")
-    console.print(f"  Files selected:  {len(selected)}")
-    console.print(f"  Packed tokens:   {packed_tokens:,}")
-    console.print(f"  Raw tokens:      {raw_tokens:,}")
+    console.print(f"  Files selected:   {len(selected)}")
+    console.print(f"  Packed tokens:    {packed_tokens:,}")
+    console.print(f"  Raw tokens:       {raw_tokens:,}")
     console.print(f"  Estimated saving: {saving_pct:.1f}%")
+    if since:
+        console.print(f"  Changes since:    {since}")
 
     if print_output:
         print(out_path.read_text())
+
+
+def _pack_watch(
+    agent: str,
+    task: str,
+    mode: str,
+    budget: int,
+    since: str | None,
+    summary_provider: str,
+) -> None:
+    try:
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+    except ImportError:
+        console.print("[red]watchdog is required for --watch mode.[/]")
+        console.print("Install it: [bold]pip install watchdog[/]")
+        raise typer.Exit(1)
+
+    root = _root()
+    cfg = load_config(root)
+
+    console.print(f"[bold]Watch mode active.[/] Repacking on file changes... (Ctrl+C to stop)")
+    console.print(f"  Task: {task}")
+
+    # Run once immediately
+    _do_pack(agent=agent, task=task, mode=mode, budget=budget,
+             since=since, print_output=False, refresh=False,
+             summary_provider=summary_provider)
+
+    _last_pack = [time.time()]
+    _DEBOUNCE = 2.0  # seconds
+
+    class Handler(FileSystemEventHandler):
+        def on_any_event(self, event):  # type: ignore[override]
+            if event.is_directory:
+                return
+            path = str(event.src_path)
+            # Skip .agentpack/ changes (our own output)
+            if ".agentpack" in path:
+                return
+            now = time.time()
+            if now - _last_pack[0] < _DEBOUNCE:
+                return
+            _last_pack[0] = now
+            console.print(f"\n[dim]Change detected: {event.src_path}[/]")
+            try:
+                _do_pack(agent=agent, task=task, mode=mode, budget=budget,
+                         since=since, print_output=False, refresh=False,
+                         summary_provider=summary_provider)
+            except Exception as e:
+                console.print(f"[red]Pack error: {e}[/]")
+
+    observer = Observer()
+    observer.schedule(Handler(), str(root), recursive=True)
+    observer.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+        console.print("\n[dim]Watch mode stopped.[/]")
+    observer.join()
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +542,7 @@ def pack(
 def install(
     agent: str = typer.Option("claude", "--agent", help="Target agent."),
     slash_command: bool = typer.Option(True, "--slash-command/--no-slash-command", help="Install /agentpack slash command."),
-    global_install: bool = typer.Option(True, "--global/--local", help="Install slash command globally (~/.claude/commands/) or locally (.claude/commands/)."),
+    global_install: bool = typer.Option(True, "--global/--local", help="Install globally (~/.claude/commands/) or locally (.claude/commands/)."),
 ) -> None:
     """Patch CLAUDE.md and install the /agentpack slash command for Claude CLI."""
     root = _root()
@@ -450,20 +561,17 @@ def install(
 def _install_slash_command(root: Path, global_install: bool) -> None:
     import importlib.resources
 
-    if global_install:
-        commands_dir = Path.home() / ".claude" / "commands"
-    else:
-        commands_dir = root / ".claude" / "commands"
-
+    commands_dir = (
+        Path.home() / ".claude" / "commands" if global_install
+        else root / ".claude" / "commands"
+    )
     commands_dir.mkdir(parents=True, exist_ok=True)
     dest = commands_dir / "agentpack.md"
 
     try:
-        # importlib.resources — works whether installed or running from source
         pkg_files = importlib.resources.files("agentpack") / "data" / "agentpack.md"
         source_text = pkg_files.read_text(encoding="utf-8")
     except Exception:
-        # fallback: resolve relative to this file
         source_text = (Path(__file__).parent / "data" / "agentpack.md").read_text()
 
     dest.write_text(source_text)
@@ -473,12 +581,14 @@ def _install_slash_command(root: Path, global_install: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Dependency graph builder
+# Dependency graph builder (Python, JS/TS, Go, Rust, Java/Kotlin)
 # ---------------------------------------------------------------------------
 
 
 def _build_dep_graph(files: list, root: Path) -> dict[str, dict]:
-    graph: dict[str, dict] = {fi.path: {"imports": [], "imported_by": [], "tests": []} for fi in files}
+    graph: dict[str, dict] = {
+        fi.path: {"imports": [], "imported_by": [], "tests": []} for fi in files
+    }
     path_set = {fi.path for fi in files}
 
     for fi in files:
@@ -486,18 +596,28 @@ def _build_dep_graph(files: list, root: Path) -> dict[str, dict]:
             continue
 
         raw_imports: list[str] = []
-        if fi.language == "python":
+        lang = fi.language
+
+        if lang == "python":
             raw_imports = py_imports(fi.abs_path)
-        elif fi.language in ("javascript", "typescript"):
+        elif lang in ("javascript", "typescript"):
             raw_imports = js_imports(fi.abs_path)
+        elif lang == "go":
+            raw_imports = go_imports(fi.abs_path)
+        elif lang == "rust":
+            raw_imports = rust_imports(fi.abs_path)
+        elif lang in ("java", "kotlin"):
+            raw_imports = java_imports(fi.abs_path)
 
         resolved: list[str] = []
         for imp in raw_imports:
             if imp.startswith("."):
-                if fi.language == "python":
+                if lang == "python":
                     r = py_resolve(fi.path, imp, root)
-                else:
+                elif lang in ("javascript", "typescript"):
                     r = js_resolve(fi.path, imp, root)
+                else:
+                    r = None
                 if r and r in path_set:
                     resolved.append(r)
             else:

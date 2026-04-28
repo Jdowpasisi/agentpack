@@ -21,10 +21,26 @@ llm = [
   "openai>=1.0.0"
 ]
 
+watch = [
+  "watchdog>=4.0.0"
+]
+
+tokens = [
+  "tiktoken>=0.7.0"
+]
+
+all = [
+  "anthropic>=0.39.0",
+  "openai>=1.0.0",
+  "watchdog>=4.0.0",
+  "tiktoken>=0.7.0"
+]
+
 dev = [
   "pytest",
   "ruff",
-  "mypy"
+  "mypy",
+  "tiktoken>=0.7.0"
 ]
 
 [build-system]
