@@ -1,83 +1,82 @@
 ---
-description: Initialize AgentPack in the current repo and generate a compact context pack for Claude CLI.
+description: Pack repo context and immediately start working on the task. Runs agentpack init + pack, reads the context, and begins helping — no manual piping needed.
 ---
 
 # AgentPack
 
-Initialize AgentPack in the current repo and generate a token-efficient context pack focused on your task.
+Pack the repo context and immediately start working on the task.
 
 ## Usage
 
 ```
-/agentpack                          # init (if needed) + pack with balanced mode
-/agentpack --task "fix auth bug"    # init + pack with specific task
-/agentpack init                     # initialize only
-/agentpack pack --task "..." --mode minimal|balanced|deep
-/agentpack status                   # check if pack is stale
-/agentpack stats                    # show token savings
-/agentpack diff                     # show changes since last snapshot
-/agentpack summarize                # rebuild offline summary cache
+/agentpack --task "fix Redis SSE cancellation issue"
+/agentpack --task "add rate limiting to auth endpoints" --mode deep
+/agentpack init
+/agentpack status
+/agentpack stats
+/agentpack diff
+/agentpack summarize
+/agentpack install
 ```
 
 ## Process
 
 ### Step 1: Check agentpack is installed
 
-Run:
 ```bash
 agentpack --version 2>/dev/null || pip install agentpack
 ```
 
-If not installed, install it first.
-
 ### Step 2: Initialize if not already done
 
-Check for `.agentpack/config.toml`:
-- Missing → run `agentpack init`
-- Present → skip
+```bash
+test -f .agentpack/config.toml || agentpack init
+```
 
 ### Step 3: Determine the task
 
-- If `--task "..."` provided → use it directly
-- Otherwise → check recent git log (`git log --oneline -5`) to infer context, or ask user for a one-line task description
+- If `--task "..."` provided → use it exactly
+- Otherwise → run `git log --oneline -5` and infer from recent commits, confirm in one sentence
 
-### Step 4: Generate the context pack
+### Step 4: Run pack
 
 ```bash
 agentpack pack --agent claude --task "<task>" --mode balanced
 ```
 
-### Step 5: Report and guide usage
+### Step 5: Read the context pack
 
-Show the result summary:
-```
-Context pack ready: .agentpack/context.claude.md
-  Files selected:  <n>
-  Packed tokens:   <n>
-  Estimated saving: <n>%
+Read `.agentpack/context.claude.md` in full. Do NOT ask the user to pipe it.
 
-Use it:
-  claude < .agentpack/context.claude.md
+### Step 6: Immediately start working
 
-Or pipe inline:
-  agentpack pack --agent claude --task "..." --print | claude
-```
+Using the context you just read:
+
+1. **Orient** — state which files are changed and what the key code areas are (2-3 sentences)
+2. **Diagnose or plan** — root cause for bugs, approach for features. Reference specific file:line
+3. **Start working** — edit code, fix the issue, implement the feature
+
+Do not say "context pack ready" and stop. Do not tell the user to run more commands.
+
+## Stale pack handling
+
+If pack is stale, re-run automatically before reading context.
 
 ## Subcommand routing
 
 | User types | Action |
 |---|---|
-| `/agentpack` | init if needed + pack |
+| `/agentpack --task "..."` | init + pack + read + work |
+| `/agentpack` | init + pack (ask for task if none) |
 | `/agentpack init` | `agentpack init` only |
-| `/agentpack pack ...` | `agentpack pack ...` |
-| `/agentpack status` | `agentpack status` |
-| `/agentpack stats` | `agentpack stats` |
-| `/agentpack diff` | `agentpack diff` |
-| `/agentpack summarize` | `agentpack summarize` |
+| `/agentpack status` | check staleness |
+| `/agentpack stats` | token savings |
+| `/agentpack diff` | changed files |
+| `/agentpack summarize` | rebuild summaries |
 | `/agentpack install` | `agentpack install --agent claude` |
 
 ## Notes
 
-- Never overwrites existing `.agentignore` or `config.toml` without `--force`
-- All commands are fully local — no LLM API calls, no network requests
-- After stale detection, re-run pack automatically before reporting
+- All pack/scan/diff are local — no API calls
+- Changed files are highest priority in context
+- Never overwrite `.agentignore` or `config.toml` without `--force`

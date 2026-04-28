@@ -71,11 +71,15 @@ def render_claude(pack: ContextPack) -> str:
     sections.append("## Instructions for Claude")
     sections.append("")
     sections.append(
-        "Use this context as the primary repo context for the task.\n"
-        "Prefer files marked as changed.\n"
-        "Use summaries for unchanged files.\n"
-        "Do not assume ignored files are relevant unless necessary.\n"
-        "If context is stale, ask the user to regenerate AgentPack."
+        "This is a task-focused context pack. Act on it immediately:\n\n"
+        "1. **Orient** — identify the changed files and key symbols relevant to the task.\n"
+        "2. **Diagnose or plan** — find the root cause (bug fix) or outline the approach (feature).\n"
+        "3. **Work** — edit files, write code, fix the issue. Do not wait for more instructions.\n\n"
+        "Priority order: changed files → keyword-matched files → dependencies → summaries.\n"
+        "Files marked `full` contain complete source. Files marked `symbols` contain relevant "
+        "function/class bodies. Files marked `summary` are unchanged context.\n"
+        "If the pack looks stale (changed files list is empty but you expect changes), "
+        "ask the user to run `agentpack pack --task \"<task>\"` to refresh."
     )
     sections.append("")
 
