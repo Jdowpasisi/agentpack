@@ -426,7 +426,7 @@ src/agentpack/
     merkle.py                  # root hash: sort(path:hash) → sha256
     cache.py                   # summary cache keyed path+hash+provider+version
     context_pack.py            # file selection algorithm + pack metadata
-    token_estimator.py         # tiktoken (if available) or len//4 fallback
+    token_estimator.py         # tiktoken cl100k_base (exact counts)
 
   analysis/
     python_imports.py          # ast-based import extraction
@@ -489,11 +489,12 @@ ignored_penalty           = -100
 
 ## Optional dependencies
 
+tiktoken is included by default — exact token counts work out of the box.
+
 ```bash
-pip install "agentpack[tokens]"   # tiktoken — exact token counts
 pip install "agentpack[llm]"      # anthropic + openai — LLM summaries
 pip install "agentpack[watch]"    # watchdog — --watch mode
-pip install "agentpack[all]"      # everything above
+pip install "agentpack[all]"      # llm + watch
 ```
 
 ---
