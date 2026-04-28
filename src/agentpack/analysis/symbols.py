@@ -32,6 +32,7 @@ def extract_python_symbols(path: Path) -> list[Symbol]:
                     end_line=node.end_lineno or node.lineno,
                     signature=sig,
                     summary=doc[:120] if doc else None,
+                    body=ast.get_source_segment(source, node),
                 )
             )
             for item in node.body:
@@ -46,6 +47,7 @@ def extract_python_symbols(path: Path) -> list[Symbol]:
                             end_line=item.end_lineno or item.lineno,
                             signature=msig,
                             summary=mdoc[:120] if mdoc else None,
+                            body=ast.get_source_segment(source, item),
                         )
                     )
 
@@ -62,6 +64,7 @@ def extract_python_symbols(path: Path) -> list[Symbol]:
                     end_line=node.end_lineno or node.lineno,
                     signature=sig,
                     summary=doc[:120] if doc else None,
+                    body=ast.get_source_segment(source, node),
                 )
             )
 
@@ -81,16 +84,6 @@ def _args_str(args: ast.arguments) -> str:
     return ", ".join(parts)
 
 
-def extract_symbol_body(path: Path, symbol: Symbol) -> str | None:
-    """Extract the source lines for a specific symbol."""
-    try:
-        lines = path.read_text(errors="replace").splitlines()
-    except OSError:
-        return None
-    start = max(0, symbol.start_line - 1)
-    end = min(len(lines), symbol.end_line)
-    return "\n".join(lines[start:end])
-
 
 _JS_FUNC = re.compile(
     r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(",
@@ -109,10 +102,10 @@ def extract_js_symbols(path: Path) -> list[Symbol]:
 
     symbols: list[Symbol] = []
     brace_depth = 0
-    # track open symbol start → (name, kind, start_line)
     open_syms: list[tuple[str, str, int]] = []
 
     for i, line in enumerate(lines, 1):
+        brace_depth += line.count("{") - line.count("}")
         for pattern, kind in [
             (_JS_CLASS, "class"),
             (_JS_FUNC, "function"),
@@ -120,15 +113,21 @@ def extract_js_symbols(path: Path) -> list[Symbol]:
         ]:
             m = pattern.search(line)
             if m:
-                symbols.append(
-                    Symbol(
-                        name=m.group(1),
-                        kind=kind,  # type: ignore[arg-type]
-                        start_line=i,
-                        end_line=i,
-                        signature=line.strip()[:120],
-                    )
-                )
+                open_syms.append((m.group(1), kind, i))
+
+    # close any unclosed syms at end of file
+    end_line = len(lines)
+    for name, kind, start in open_syms:
+        symbols.append(
+            Symbol(
+                name=name,
+                kind=kind,  # type: ignore[arg-type]
+                start_line=start,
+                end_line=end_line,
+                signature=lines[start - 1].strip()[:120],
+                body="\n".join(lines[start - 1 : min(start + 49, end_line)]),
+            )
+        )
     return symbols
 
 

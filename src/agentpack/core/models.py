@@ -24,6 +24,7 @@ class Symbol(BaseModel):
     end_line: int
     signature: str | None = None
     summary: str | None = None
+    body: str | None = None  # source text captured at extraction time; no re-read needed
 
 
 class FileSummary(BaseModel):
