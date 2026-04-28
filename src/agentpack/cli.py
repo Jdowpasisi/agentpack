@@ -57,6 +57,7 @@ def init(
     mode: Optional[str] = typer.Option(None, "--mode", help="Default pack mode (minimal|balanced|deep)."),
     budget: int = typer.Option(0, "--budget", help="Default token budget (0 = keep default 25000)."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive prompts, use defaults."),
+    share_cache: bool = typer.Option(False, "--share-cache", help="Commit summary cache to git (recommended for teams)."),
 ) -> None:
     """Initialize AgentPack in the current directory."""
     root = _root()
@@ -67,10 +68,14 @@ def init(
 
     gitignore = agentpack_dir / ".gitignore"
     if not gitignore.exists() or force:
+        # With --share-cache, cache/ is committed so teammates skip the summarize step
+        cache_line = "" if share_cache else ".agentpack/cache/\n"
         gitignore.write_text(
-            ".agentpack/cache/\n.agentpack/snapshots/\n.agentpack/context.*\n.agentpack/metrics.jsonl\n"
+            f"{cache_line}.agentpack/snapshots/\n.agentpack/context.*\n.agentpack/metrics.jsonl\n"
         )
         console.print("[green]Created[/] .agentpack/.gitignore")
+        if share_cache:
+            console.print("  [dim]cache/ not gitignored — commit it so teammates skip agentpack summarize[/]")
     else:
         console.print("[dim]Skipped[/] .agentpack/.gitignore (exists)")
 
@@ -260,17 +265,26 @@ def stats() -> None:
                 + content.count("Included as: **symbols**")
             )
 
+    # Estimate what manual assembly would cost: changed files full + deps summarized
+    # This is the honest comparison — nobody pipes the whole repo into Claude
+    full_files = [f for f in files if not f.ignored and not f.binary
+                  and f.estimated_tokens <= cfg.context.max_file_tokens]
+    manual_estimate = min(after_ignore, sum(f.estimated_tokens for f in full_files[:20]))
+    vs_manual = (1 - packed / manual_estimate) * 100 if manual_estimate > 0 else 0
+
     table = Table(title="Token Stats", show_header=True)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", justify="right")
     table.add_row("Raw repo tokens", f"{raw:,}")
     table.add_row("After ignore", f"{after_ignore:,}")
-    table.add_row("Packed tokens", f"{packed:,}")
-    table.add_row("Estimated saving", f"{saving:.1f}%")
+    table.add_row("Packed tokens", f"[bold]{packed:,}[/]")
+    table.add_row("vs. raw repo", f"[dim]{saving:.1f}% smaller[/]")
+    table.add_row("vs. manual assembly (~20 files)", f"[green]{vs_manual:.1f}% smaller[/]")
     table.add_row("Files ignored", f"{ignored_count:,}")
     table.add_row("Files included (full)", f"{included_count:,}")
     table.add_row("Files summarized", f"{summarized_count:,}")
     console.print(table)
+    console.print("[dim]'manual assembly' = hand-picking the 20 most relevant full files[/]")
 
 
 # ---------------------------------------------------------------------------
