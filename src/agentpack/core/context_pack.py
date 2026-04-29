@@ -13,6 +13,7 @@ from agentpack.core.models import (
     SelectedFile,
     Symbol,
 )
+from agentpack.core.redactor import redact_secrets
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -188,6 +189,12 @@ def select_files(
             if extra_tok > 0 and tokens_used + extra_tok <= budget:
                 tokens_used += extra_tok
 
+        # Redact secrets at materialization — before content reaches any renderer or adapter
+        materialized = content if mode_str == "full" else sym_body_content
+        redaction_warnings: list[str] = []
+        if materialized:
+            materialized, redaction_warnings = redact_secrets(materialized, fi.path)
+
         selected.append(
             SelectedFile(
                 path=fi.path,
@@ -195,9 +202,10 @@ def select_files(
                 score=score,
                 include_mode=mode_str,
                 reasons=reasons,
-                content=content if mode_str == "full" else sym_body_content,
+                content=materialized,
                 summary=summary_data.get("summary") if summary_data else None,
                 symbols=syms,
+                redaction_warnings=redaction_warnings,
             )
         )
 

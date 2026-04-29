@@ -23,8 +23,8 @@ def register(app: typer.Typer) -> None:
             console.print("[yellow]No context pack found. Run agentpack pack to generate one.[/]")
             raise typer.Exit(1)
 
-        files = scan(root, ignore_spec, cfg.context.max_file_tokens)
-        current = build_snapshot(files)
+        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        current = build_snapshot(scan_result.packable)
 
         if current["root_hash"] == meta.get("snapshot_root_hash"):
             console.print("[green]Context pack is up to date.[/]")

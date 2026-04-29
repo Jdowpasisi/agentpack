@@ -21,6 +21,7 @@ def _latest_path(root: Path) -> Path:
 
 
 def build_snapshot(files: list[FileInfo]) -> dict[str, Any]:
+    """Build a snapshot from packable FileInfo objects. Skips ignored and binary entries defensively."""
     file_data: dict[str, Any] = {}
     hashes: dict[str, str] = {}
     for f in files:

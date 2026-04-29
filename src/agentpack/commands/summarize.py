@@ -32,8 +32,8 @@ def register(app: typer.Typer) -> None:
         else:
             console.print("[bold]Building offline summaries...[/]")
 
-        files = scan(root, ignore_spec, cfg.context.max_file_tokens)
-        active = [f for f in files if not f.ignored and not f.binary]
+        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        active = scan_result.packable
 
         built = 0
         errors = 0

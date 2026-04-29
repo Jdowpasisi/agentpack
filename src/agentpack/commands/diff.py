@@ -19,8 +19,8 @@ def register(app: typer.Typer) -> None:
         cfg = load_config(root)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
 
-        files = scan(root, ignore_spec, cfg.context.max_file_tokens)
-        current = build_snapshot(files)
+        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        current = build_snapshot(scan_result.packable)
         previous = load_snapshot(root)
         result = diff_snapshots(previous, current)
 

@@ -18,16 +18,16 @@ def register(app: typer.Typer) -> None:
         ignore_spec = load_spec(root / cfg.project.ignore_file)
 
         console.print("[bold]Scanning repository...[/]")
-        files = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
 
-        total = len(files)
-        ignored = sum(1 for f in files if f.ignored or f.binary)
-        scanned = total - ignored
-        raw_tokens = sum(f.estimated_tokens for f in files)
-        after_ignore = sum(f.estimated_tokens for f in files if not f.ignored and not f.binary)
+        total = len(scan_result.all_files)
+        ignored = len(scan_result.ignored) + len(scan_result.binary)
+        scanned = len(scan_result.packable)
+        raw_tokens = sum(f.estimated_tokens for f in scan_result.all_files)
+        after_ignore = sum(f.estimated_tokens for f in scan_result.packable)
 
         largest = sorted(
-            [f for f in files if not f.ignored and not f.binary],
+            scan_result.packable,
             key=lambda x: x.estimated_tokens,
             reverse=True,
         )[:10]
