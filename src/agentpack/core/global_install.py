@@ -40,14 +40,15 @@ _HOOK_SCRIPTS = {
 }
 
 
-def install_git_template_hooks() -> dict[str, str]:
+def install_git_template_hooks(dry_run: bool = False) -> dict[str, str]:
     """Install agentpack hooks into ~/.git-templates/hooks/.
 
     Git copies these into every new repo on `git init` or `git clone`.
-    Returns {hook_name: action}.
+    Returns {hook_name: action}. With dry_run=True, reports what would happen.
     """
     hooks_dir = _GIT_TEMPLATE_DIR / "hooks"
-    hooks_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        hooks_dir.mkdir(parents=True, exist_ok=True)
 
     results: dict[str, str] = {}
     for name, script in _HOOK_SCRIPTS.items():
@@ -57,20 +58,24 @@ def install_git_template_hooks() -> dict[str, str]:
             if _AGENTPACK_MARKER in content:
                 results[name] = "unchanged"
                 continue
-            # Append to existing hook
-            sep = "" if content.endswith("\n") else "\n"
-            hook_path.write_text(content + sep + script)
-            results[name] = "appended"
+            results[name] = "would-append" if dry_run else "appended"
+            if not dry_run:
+                sep = "" if content.endswith("\n") else "\n"
+                hook_path.write_text(content + sep + script)
         else:
-            hook_path.write_text(script)
-            results[name] = "created"
-        hook_path.chmod(hook_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            results[name] = "would-create" if dry_run else "created"
+            if not dry_run:
+                hook_path.write_text(script)
+        if not dry_run:
+            hook_path.chmod(hook_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     return results
 
 
-def configure_git_template_dir() -> str:
+def configure_git_template_dir(dry_run: bool = False) -> str:
     """Set git's global init.templateDir to ~/.git-templates. Returns action taken."""
+    if dry_run:
+        return "would-configure"
     import subprocess
     result = subprocess.run(
         ["git", "config", "--global", "init.templateDir", str(_GIT_TEMPLATE_DIR)],
@@ -174,7 +179,7 @@ def _detect_rc_file() -> Path | None:
     return None
 
 
-def install_shell_hook(rc_file: Path | None = None) -> tuple[str, Path | None]:
+def install_shell_hook(rc_file: Path | None = None, dry_run: bool = False) -> tuple[str, Path | None]:
     """Append agentpack chpwd hook to shell rc. Returns (action, rc_path)."""
     target = rc_file or _detect_rc_file()
     if target is None:
@@ -187,15 +192,18 @@ def install_shell_hook(rc_file: Path | None = None) -> tuple[str, Path | None]:
         if _SHELL_MARKER_START in content:
             new_content = _BLOCK_RE.sub(shell_hook + "\n", content)
             if new_content != content:
-                target.write_text(new_content)
-                return "updated", target
+                if not dry_run:
+                    target.write_text(new_content)
+                return "would-update" if dry_run else "updated", target
             return "unchanged", target
-        sep = "" if content.endswith("\n") else "\n"
-        target.write_text(content + sep + shell_hook + "\n")
-        return "appended", target
+        if not dry_run:
+            sep = "" if content.endswith("\n") else "\n"
+            target.write_text(content + sep + shell_hook + "\n")
+        return "would-append" if dry_run else "appended", target
     else:
-        target.write_text(shell_hook + "\n")
-        return "created", target
+        if not dry_run:
+            target.write_text(shell_hook + "\n")
+        return "would-create" if dry_run else "created", target
 
 
 def remove_shell_hook(rc_file: Path | None = None) -> tuple[str, Path | None]:

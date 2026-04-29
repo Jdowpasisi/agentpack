@@ -1,5 +1,5 @@
 [project]
-name = "agentpack"
+name = "agentpack-cli"
 version = "0.1.0"
 description = "Token-aware context packing for AI coding agents"
 readme = "README.md"

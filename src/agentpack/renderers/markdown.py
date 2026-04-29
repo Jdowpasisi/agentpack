@@ -71,6 +71,16 @@ def _file_section(sf: SelectedFile) -> str:
     return "\n".join(parts)
 
 
+def _collect_redaction_warnings(pack: ContextPack) -> list[str]:
+    """Return all redaction warnings across all full/symbols files."""
+    warnings: list[str] = []
+    for sf in pack.selected_files:
+        if sf.include_mode in ("full", "symbols") and sf.content:
+            _, file_warnings = redact_secrets(sf.content, sf.path)
+            warnings.extend(file_warnings)
+    return warnings
+
+
 def render_claude(pack: ContextPack) -> str:
     sections: list[str] = []
 
@@ -108,6 +118,17 @@ def render_claude(pack: ContextPack) -> str:
     sections.append(f"Packed tokens: {pack.token_estimate:,}")
     sections.append(f"Estimated saving: {pack.estimated_savings_percent:.1f}%")
     sections.append("")
+
+    # Redaction summary — list all files that had secrets scrubbed
+    redaction_warnings = _collect_redaction_warnings(pack)
+    if redaction_warnings:
+        sections.append("## Security")
+        sections.append("")
+        sections.append("> The following secrets were redacted before packing:")
+        sections.append("")
+        for w in redaction_warnings:
+            sections.append(f"- {w}")
+        sections.append("")
 
     sections.append("## Changed Files")
     sections.append("")
