@@ -144,7 +144,9 @@ def select_files(
         # Determine inclusion mode
         if is_changed and fi.estimated_tokens <= max_file_tokens:
             mode_str: Literal["full", "symbols", "summary"] = "full"
-            content = fi.abs_path.read_text(errors="replace") if fi.abs_path.exists() else None
+            content = fi.content if fi.content is not None else (
+                fi.abs_path.read_text(errors="replace") if fi.abs_path.exists() else None
+            )
             tok = fi.estimated_tokens
         elif is_changed or (opts["extra_full"] and fi.estimated_tokens <= max_file_tokens):
             mode_str = "symbols"

@@ -139,6 +139,7 @@ def scan(
                 estimated_tokens=tokens,
                 hash=file_hash(abs_path),
                 too_large=too_large,
+                content=text,
             )
         )
 

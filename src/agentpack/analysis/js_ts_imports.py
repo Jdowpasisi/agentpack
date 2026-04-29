@@ -13,11 +13,12 @@ _IMPORT_PATTERNS = [
 _RELATIVE_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 
 
-def extract_imports(path: Path) -> list[str]:
-    try:
-        text = path.read_text(errors="replace")
-    except OSError:
-        return []
+def extract_imports(path: Path, text: str | None = None) -> list[str]:
+    if text is None:
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            return []
 
     imports: list[str] = []
     for pattern in _IMPORT_PATTERNS:

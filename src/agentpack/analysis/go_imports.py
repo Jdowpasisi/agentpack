@@ -8,11 +8,12 @@ _BLOCK_START = re.compile(r"^import\s+\(", re.MULTILINE)
 _BLOCK_ENTRY = re.compile(r'^\s+(?:\w+\s+)?"([^"]+)"')
 
 
-def extract_imports(path: Path) -> list[str]:
-    try:
-        text = path.read_text(errors="replace")
-    except OSError:
-        return []
+def extract_imports(path: Path, text: str | None = None) -> list[str]:
+    if text is None:
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            return []
 
     imports: list[str] = []
     imports.extend(m.group(1) for m in _SINGLE.finditer(text))
