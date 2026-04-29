@@ -24,6 +24,9 @@ def register(app: typer.Typer) -> None:
             action = adapter.patch_claude_md(root)
             console.print(f"[green]CLAUDE.md {action}.[/]")
 
+            hook_action = adapter.patch_claude_settings(root, global_install)
+            console.print(f"[green].claude/settings.json {hook_action}.[/]")
+
             if slash_command:
                 _install_slash_command(root, global_install)
         else:
@@ -56,9 +59,12 @@ def register(app: typer.Typer) -> None:
                     raise typer.Exit(1)
                 console.print("[green]Installed via pip --user.[/]")
 
-        # Install slash command globally
+        # Install slash command and hooks globally
         if agent == "claude":
             root = _root()
+            adapter = ClaudeAdapter()
+            hook_action = adapter.patch_claude_settings(root, global_install=True)
+            console.print(f"[green]~/.claude/settings.json {hook_action}.[/]")
             _install_slash_command(root, global_install=True)
             console.print("\n[bold green]Global install complete.[/]")
             console.print("  `agentpack` is available in any terminal.")
