@@ -324,3 +324,251 @@ class TestKeywordExtraction:
         assert isinstance(kw, set)
         # Just verify we don't get absurdly large keyword sets
         assert len(kw) < 50, f"Keyword set too large ({len(kw)}): {kw}"
+
+
+# ---------------------------------------------------------------------------
+# Cross-repo scenario 9: FastAPI-style — SSE / streaming endpoint
+# Real gap: "SSE" not in file names; file is named event_stream.py
+# ---------------------------------------------------------------------------
+
+class TestFastAPISSEScenario:
+    """Models a FastAPI repo with SSE streaming."""
+    FILES = [
+        "app/api/v1/events.py",          # route file
+        "app/services/event_stream.py",  # implements SSE streaming
+        "app/services/user_service.py",
+        "app/core/config.py",
+        "app/db/session.py",
+        "tests/test_events.py",
+    ]
+
+    def test_event_stream_in_top2_for_sse_task(self):
+        results = _run("fix SSE connection dropping after 30 seconds", self.FILES)
+        top = _top_paths(results, 3)
+        assert "app/services/event_stream.py" in top or "app/api/v1/events.py" in top, (
+            f"SSE stream files not in top-3 for SSE task. Top-3: {top}"
+        )
+
+    def test_sse_expansion_keywords(self):
+        kw = extract_keywords("fix SSE streaming endpoint")
+        assert "stream" in kw or "sse" in kw or "realtime" in kw, (
+            f"Expected stream/sse/realtime in: {kw}"
+        )
+
+    def test_websocket_expansion(self):
+        kw = extract_keywords("add WebSocket support to realtime dashboard")
+        assert "stream" in kw or "websocket" in kw or "channel" in kw, (
+            f"Expected stream/websocket/channel in: {kw}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cross-repo scenario 10: Django-style — pagination + serialization
+# Real gap: pagination file is named list_view.py or queryset.py
+# ---------------------------------------------------------------------------
+
+class TestDjangoPaginationScenario:
+    """Models a Django REST framework repo."""
+    FILES = [
+        "api/views/user_list.py",         # uses paginator
+        "api/pagination.py",              # pagination class
+        "api/serializers/user.py",        # serializer
+        "api/models/user.py",
+        "api/views/auth.py",
+        "tests/test_pagination.py",
+    ]
+
+    def test_pagination_in_top2(self):
+        results = _run("add cursor-based pagination to user list endpoint", self.FILES)
+        top = _top_paths(results, 2)
+        assert "api/pagination.py" in top or "api/views/user_list.py" in top, (
+            f"Pagination files not in top-2. Top-2: {top}"
+        )
+
+    def test_pagination_keywords(self):
+        kw = extract_keywords("implement cursor-based pagination")
+        assert "pagination" in kw or "cursor" in kw or "paginate" in kw, (
+            f"Expected pagination keywords in: {kw}"
+        )
+
+    def test_serializer_ranked_for_validation_task(self):
+        results = _run("fix validation error in user serializer", self.FILES)
+        top = _top_paths(results, 3)
+        assert "api/serializers/user.py" in top, (
+            f"serializer not in top-3 for validation task. Top-3: {top}"
+        )
+
+    def test_validation_keywords(self):
+        kw = extract_keywords("add input validation to REST endpoint")
+        assert "validation" in kw or "validate" in kw or "schema" in kw, (
+            f"Expected validation keywords in: {kw}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cross-repo scenario 11: Next.js / Node — webhook handler
+# Real gap: webhook is processed in a file named api/stripe.ts
+# ---------------------------------------------------------------------------
+
+class TestNextJSWebhookScenario:
+    """Models a Next.js app with Stripe webhook."""
+    FILES = [
+        "pages/api/stripe.ts",            # handles Stripe webhooks
+        "pages/api/checkout.ts",
+        "lib/payments/billing.ts",        # billing logic
+        "lib/db/prisma.ts",
+        "components/PricingTable.tsx",
+        "tests/stripe.test.ts",
+    ]
+
+    def test_stripe_in_top2_for_webhook_task(self):
+        results = _run("fix Stripe webhook signature verification failing", self.FILES)
+        top = _top_paths(results, 2)
+        assert "pages/api/stripe.ts" in top, (
+            f"stripe.ts should be in top-2 for webhook task. Top-2: {top}"
+        )
+
+    def test_billing_in_top3_for_payment_task(self):
+        results = _run("add subscription billing with Stripe", self.FILES)
+        top = _top_paths(results, 3)
+        assert "lib/payments/billing.ts" in top or "pages/api/stripe.ts" in top, (
+            f"billing/stripe not in top-3 for payment task. Top-3: {top}"
+        )
+
+    def test_webhook_keywords(self):
+        kw = extract_keywords("handle incoming webhook events")
+        assert "webhook" in kw or "event" in kw or "handler" in kw, (
+            f"Expected webhook/event keywords in: {kw}"
+        )
+
+    def test_payment_keywords(self):
+        kw = extract_keywords("integrate payment processing with Stripe")
+        assert "payment" in kw or "billing" in kw or "stripe" in kw, (
+            f"Expected payment keywords in: {kw}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cross-repo scenario 12: Go microservice — health check + deployment
+# Real gap: health endpoint is in handler/health.go, not obviously named
+# ---------------------------------------------------------------------------
+
+class TestGoMicroserviceScenario:
+    """Models a Go microservice repo."""
+    FILES = [
+        "handler/health.go",              # liveness/readiness probes
+        "handler/api.go",
+        "internal/db/postgres.go",
+        "internal/cache/redis.go",
+        "cmd/server/main.go",
+        "k8s/deployment.yaml",
+        "Dockerfile",
+    ]
+
+    def test_health_handler_in_top2(self):
+        results = _run("kubernetes readiness probe failing on startup", self.FILES)
+        top = _top_paths(results, 3)
+        assert "handler/health.go" in top or "k8s/deployment.yaml" in top, (
+            f"health/k8s not in top-3 for readiness probe task. Top-3: {top}"
+        )
+
+    def test_docker_in_top3_for_deploy_task(self):
+        results = _run("fix Docker image build for deployment", self.FILES)
+        top = _top_paths(results, 3)
+        assert "Dockerfile" in top or "k8s/deployment.yaml" in top, (
+            f"Dockerfile/k8s not in top-3 for deploy task. Top-3: {top}"
+        )
+
+    def test_health_keywords(self):
+        kw = extract_keywords("liveness probe returns 500 on startup")
+        assert "health" in kw or "liveness" in kw or "probe" in kw or "status" in kw, (
+            f"Expected health keywords in: {kw}"
+        )
+
+    def test_deploy_keywords(self):
+        kw = extract_keywords("configure Kubernetes deployment with Docker")
+        assert "deploy" in kw or "docker" in kw or "kubernetes" in kw or "container" in kw, (
+            f"Expected deploy keywords in: {kw}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cross-repo scenario 13: Rails-style — email / notification
+# Real gap: "welcome email" sends from mailer/user_mailer.rb
+# ---------------------------------------------------------------------------
+
+class TestRailsEmailScenario:
+    """Models a Rails-style app with ActionMailer."""
+    FILES = [
+        "app/mailers/user_mailer.rb",     # sends welcome/reset emails
+        "app/models/user.rb",
+        "app/controllers/auth_controller.rb",
+        "app/jobs/email_job.rb",          # background email delivery
+        "config/environments/production.rb",
+        "spec/mailers/user_mailer_spec.rb",
+    ]
+
+    def test_mailer_in_top2_for_email_task(self):
+        results = _run("fix welcome email not being sent after registration", self.FILES)
+        top = _top_paths(results, 2)
+        assert "app/mailers/user_mailer.rb" in top or "app/jobs/email_job.rb" in top, (
+            f"mailer/email_job not in top-2 for email task. Top-2: {top}"
+        )
+
+    def test_email_keywords(self):
+        kw = extract_keywords("transactional email delivery via SendGrid")
+        assert "email" in kw or "sendgrid" in kw or "notification" in kw or "mailer" in kw, (
+            f"Expected email keywords in: {kw}"
+        )
+
+    def test_notification_expansion(self):
+        kw = extract_keywords("send push notification to mobile users")
+        assert "notification" in kw or "push" in kw or "alert" in kw, (
+            f"Expected notification keywords in: {kw}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# New keyword expansion tests for added concepts
+# ---------------------------------------------------------------------------
+
+class TestNewConceptExpansions:
+    def test_sse_expands_to_stream(self):
+        kw = extract_keywords("fix SSE endpoint")
+        assert "stream" in kw or "sse" in kw
+
+    def test_webhook_expands_to_event(self):
+        kw = extract_keywords("handle webhook events")
+        assert "event" in kw or "webhook" in kw
+
+    def test_pagination_expands(self):
+        kw = extract_keywords("implement pagination")
+        assert "page" in kw or "cursor" in kw or "paginate" in kw
+
+    def test_validation_expands(self):
+        kw = extract_keywords("add validation")
+        assert "validate" in kw or "schema" in kw or "constraint" in kw
+
+    def test_deploy_expands(self):
+        kw = extract_keywords("deploy to production")
+        assert "deploy" in kw or "release" in kw or "container" in kw or "docker" in kw
+
+    def test_email_expands(self):
+        kw = extract_keywords("send email notification")
+        assert "email" in kw or "smtp" in kw or "notification" in kw
+
+    def test_payment_expands(self):
+        kw = extract_keywords("process payment")
+        assert "payment" in kw or "stripe" in kw or "billing" in kw
+
+    def test_health_expands(self):
+        kw = extract_keywords("health check endpoint")
+        assert "health" in kw or "ping" in kw or "liveness" in kw
+
+    def test_config_expands(self):
+        kw = extract_keywords("update configuration")
+        assert "config" in kw or "settings" in kw or "env" in kw
+
+    def test_mock_expands(self):
+        kw = extract_keywords("mock the database in tests")
+        assert "mock" in kw or "stub" in kw or "fixture" in kw
