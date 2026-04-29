@@ -13,6 +13,8 @@ from agentpack.core.global_install import (
     install_git_template_hooks,
     configure_git_template_dir,
     install_shell_hook,
+    remove_git_template_hooks,
+    remove_shell_hook,
 )
 from agentpack.commands._shared import console, _root
 
@@ -74,6 +76,7 @@ def register(app: typer.Typer) -> None:
         pipx: bool = typer.Option(True, "--pipx/--no-pipx", help="Install via pipx for global availability."),
         shell_hook: bool = typer.Option(True, "--shell-hook/--no-shell-hook", help="Add cd hook to shell rc for auto-bootstrap."),
         git_template: bool = typer.Option(True, "--git-template/--no-git-template", help="Install git template hooks for every new repo."),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be changed without mutating anything."),
     ) -> None:
         """Install agentpack once — works in every repo from that point on.
 
@@ -83,10 +86,13 @@ def register(app: typer.Typer) -> None:
         """
         import subprocess as sp
 
-        if pipx:
+        if dry_run:
+            console.print("[bold yellow]Dry run — no files will be changed.[/]\n")
+
+        if pipx and not dry_run:
             console.print("[bold]Installing agentpack globally via pipx...[/]")
             result = sp.run(
-                ["pipx", "install", "agentpack", "--force"],
+                ["pipx", "install", "agentpack-cli", "--force"],
                 capture_output=True, text=True,
             )
             if result.returncode == 0:
@@ -94,34 +100,42 @@ def register(app: typer.Typer) -> None:
             else:
                 console.print("[yellow]pipx install failed. Trying pip install --user...[/]")
                 result2 = sp.run(
-                    [sys.executable, "-m", "pip", "install", "--user", "agentpack"],
+                    [sys.executable, "-m", "pip", "install", "--user", "agentpack-cli"],
                     capture_output=True, text=True,
                 )
                 if result2.returncode != 0:
                     console.print(f"[red]Install failed:[/] {result2.stderr[:200]}")
                     raise typer.Exit(1)
                 console.print("[green]Installed via pip --user.[/]")
+        elif pipx and dry_run:
+            console.print("[dim]Would run: pipx install agentpack-cli[/]")
 
         # --- Git template hooks (fire on every future git init / clone) ---
         if git_template:
-            console.print("\n[bold]Setting up git template hooks...[/]")
-            hook_results = install_git_template_hooks()
+            console.print("\n[bold]Git template hooks:[/]" if dry_run else "\n[bold]Setting up git template hooks...[/]")
+            hook_results = install_git_template_hooks(dry_run=dry_run)
             for name, action in hook_results.items():
                 if action != "unchanged":
-                    console.print(f"[green]~/.git-templates/hooks/{name} {action}.[/]")
-            git_cfg_action = configure_git_template_dir()
-            console.print(f"[green]git config --global init.templateDir {git_cfg_action}.[/]")
-            console.print("  Every future [bold]git init[/] or [bold]git clone[/] will auto-bootstrap agentpack.")
+                    prefix = "[dim]" if dry_run else "[green]"
+                    suffix = "[/]"
+                    console.print(f"{prefix}~/.git-templates/hooks/{name} {action}.{suffix}")
+            git_cfg_action = configure_git_template_dir(dry_run=dry_run)
+            console.print(f"[dim]git config --global init.templateDir {git_cfg_action}.[/]" if dry_run
+                          else f"[green]git config --global init.templateDir {git_cfg_action}.[/]")
+            if not dry_run:
+                console.print("  Every future [bold]git init[/] or [bold]git clone[/] will auto-bootstrap agentpack.")
 
         # --- Shell cd hook (fires when entering opted-in repos) ---
         if shell_hook:
-            console.print("\n[bold]Setting up shell cd hook...[/]")
-            action, rc_path = install_shell_hook()
+            console.print("\n[bold]Shell cd hook:[/]" if dry_run else "\n[bold]Setting up shell cd hook...[/]")
+            action, rc_path = install_shell_hook(dry_run=dry_run)
             if rc_path:
-                console.print(f"[green]{rc_path} {action}.[/]")
-                console.print("  When you [bold]cd[/] into a repo with [dim].agentpack/config.toml[/], agentpack")
-                console.print("  silently repacks if stale. [dim]Non-configured repos are never touched.[/]")
-                console.print(f"  [dim]Reload with: source {rc_path}[/]")
+                prefix = "[dim]" if dry_run else "[green]"
+                console.print(f"{prefix}{rc_path} {action}.[/]")
+                if not dry_run:
+                    console.print("  When you [bold]cd[/] into a repo with [dim].agentpack/config.toml[/], agentpack")
+                    console.print("  silently repacks if stale. [dim]Non-configured repos are never touched.[/]")
+                    console.print(f"  [dim]Reload with: source {rc_path}[/]")
             else:
                 console.print(f"[yellow]Shell hook: {action}[/]")
 
@@ -130,36 +144,83 @@ def register(app: typer.Typer) -> None:
         # --- Agent-specific config ---
         if agent == "claude":
             adapter = ClaudeAdapter()
-            hook_action = adapter.patch_claude_settings(root, global_install=True)
-            console.print(f"\n[green]~/.claude/settings.json {hook_action}.[/]")
-            _install_slash_command(root, global_install=True)
+            if not dry_run:
+                hook_action = adapter.patch_claude_settings(root, global_install=True)
+                console.print(f"\n[green]~/.claude/settings.json {hook_action}.[/]")
+                _install_slash_command(root, global_install=True)
+            else:
+                console.print("\n[dim]Would patch: ~/.claude/settings.json (hooks)[/]")
+                console.print("[dim]Would install: ~/.claude/commands/agentpack.md (slash command)[/]")
 
         elif agent == "cursor":
             adapter = CursorAdapter()
-            rules_action = adapter.patch_cursor_rules(root)
-            console.print(f"\n[green].cursorrules {rules_action}.[/]")
-            mdc_action = adapter.patch_cursor_mdc(root)
-            console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
+            if not dry_run:
+                rules_action = adapter.patch_cursor_rules(root)
+                console.print(f"\n[green].cursorrules {rules_action}.[/]")
+                mdc_action = adapter.patch_cursor_mdc(root)
+                console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
+            else:
+                console.print("\n[dim]Would patch: .cursorrules, .cursor/rules/agentpack.mdc[/]")
 
         elif agent == "windsurf":
             adapter = WindsurfAdapter()
-            rules_action = adapter.patch_windsurfrules(root)
-            console.print(f"\n[green].windsurfrules {rules_action}.[/]")
+            if not dry_run:
+                rules_action = adapter.patch_windsurfrules(root)
+                console.print(f"\n[green].windsurfrules {rules_action}.[/]")
+            else:
+                console.print("\n[dim]Would patch: .windsurfrules[/]")
 
         elif agent == "codex":
             adapter = CodexAdapter()
-            action = adapter.patch_agents_md(root)
-            console.print(f"\n[green]AGENTS.md {action}.[/]")
+            if not dry_run:
+                action = adapter.patch_agents_md(root)
+                console.print(f"\n[green]AGENTS.md {action}.[/]")
+            else:
+                console.print("\n[dim]Would patch: AGENTS.md[/]")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
 
-        console.print("\n[bold green]Global install complete.[/]")
-        console.print("  Git hooks fire on commit/merge/checkout — [bold]only in opted-in repos[/].")
+        if dry_run:
+            console.print("\n[bold yellow]Dry run complete. Re-run without --dry-run to apply.[/]")
+        else:
+            console.print("\n[bold green]Global install complete.[/]")
+            console.print("  Git hooks fire on commit/merge/checkout — [bold]only in opted-in repos[/].")
+            if shell_hook:
+                console.print("  Shell hook repacks on cd — [bold]only in repos with .agentpack/config.toml[/].")
+            console.print("  To opt a repo in: [bold]cd repo && agentpack init[/]")
+
+    @app.command(name="global-uninstall")
+    def global_uninstall_cmd(
+        shell_hook: bool = typer.Option(True, "--shell-hook/--no-shell-hook", help="Remove cd hook from shell rc."),
+        git_template: bool = typer.Option(True, "--git-template/--no-git-template", help="Remove git template hooks."),
+    ) -> None:
+        """Remove agentpack global hooks (git templates + shell rc hook).
+
+        Per-project .agentpack/ directories and agent config files are not touched.
+        """
+        if git_template:
+            console.print("[bold]Removing git template hooks...[/]")
+            results = remove_git_template_hooks()
+            if results:
+                for name, action in results.items():
+                    if action != "unchanged":
+                        console.print(f"[green]~/.git-templates/hooks/{name} {action}.[/]")
+            else:
+                console.print("[dim]No git template hooks found.[/]")
+
         if shell_hook:
-            console.print("  Shell hook repacks on cd — [bold]only in repos with .agentpack/config.toml[/].")
-        console.print("  To opt a repo in: [bold]cd repo && agentpack init[/]")
+            console.print("\n[bold]Removing shell cd hook...[/]")
+            action, rc_path = remove_shell_hook()
+            if rc_path:
+                console.print(f"[green]{rc_path} {action}.[/]")
+            else:
+                console.print("[dim]No shell hook found (unknown shell).[/]")
+
+        console.print("\n[bold green]Global uninstall complete.[/]")
+        console.print("  Per-project [dim].agentpack/[/] directories are untouched.")
+        console.print("  To remove from a specific repo: delete [dim].agentpack/[/] and remove agent config.")
 
 
 def _print_auto_repack_results(results: dict[str, str]) -> None:

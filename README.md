@@ -130,10 +130,12 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 ## Install
 
 ```bash
-pip install agentpack
+pip install agentpack-cli
 ```
 
 Requires Python 3.10+.
+
+> **PyPI note:** The package is `agentpack-cli` (the name `agentpack` was already taken). The CLI command is still `agentpack`.
 
 ---
 
@@ -142,7 +144,7 @@ Requires Python 3.10+.
 ### Option A: Global install + per-project opt-in (recommended)
 
 ```bash
-pip install agentpack
+pip install agentpack-cli
 agentpack global-install --agent claude   # or: cursor, windsurf, codex
 source ~/.zshrc                           # reload shell once
 ```
@@ -304,7 +306,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install agentpack
+      - run: pip install agentpack-cli
 
       - name: Generate context pack
         run: |
@@ -360,6 +362,63 @@ Options:
 | `--no-pipx` | — | Skip pipx install (if agentpack already installed) |
 | `--no-shell-hook` | — | Skip shell rc patching |
 | `--no-git-template` | — | Skip git template hooks |
+| `--dry-run` | off | Show what would be changed without touching anything |
+
+Preview before committing:
+
+```bash
+agentpack global-install --dry-run
+```
+
+---
+
+### `agentpack global-uninstall`
+
+Remove all global hooks — git templates and shell rc. Per-project `.agentpack/` directories are untouched.
+
+```bash
+agentpack global-uninstall
+agentpack global-uninstall --no-shell-hook    # remove only git template hooks
+agentpack global-uninstall --no-git-template  # remove only shell hook
+```
+
+---
+
+### `agentpack doctor`
+
+Diagnose your agentpack installation — checks CLI, git template hooks, git config, shell hook, per-repo state, and agent config.
+
+```bash
+agentpack doctor
+```
+
+Example output:
+
+```
+CLI
+  ✓ agentpack found at /usr/local/bin/agentpack (0.1.0)
+
+Git template hooks (~/.git-templates/hooks/)
+  ✓ post-commit
+  ✓ post-merge
+  ✓ post-checkout
+
+git config init.templateDir
+  ✓ init.templateDir = /Users/you/.git-templates
+
+Shell cd hook
+  ✓ Hook present in /Users/you/.zshrc
+
+Per-repo state
+  ✓ .agentpack/config.toml present
+  ✓ context pack present (age: 2m)
+
+Agent config
+  ✓ CLAUDE.md (agentpack configured)
+  - .cursorrules not present (optional)
+
+All checks passed.
+```
 
 ---
 
@@ -792,6 +851,8 @@ src/agentpack/
     redactor.py                # secret redaction before context render
     git_hooks.py               # install/remove post-commit/merge/checkout hooks
     vscode_tasks.py            # install/remove .vscode/tasks.json entries
+    global_install.py          # global: git template hooks + shell rc hook
+    bootstrap.py               # is_initialized, bootstrap_if_needed
 
   analysis/
     python_imports.py          # ast-based import extraction
@@ -831,6 +892,100 @@ src/agentpack/
     summarize.py               # agentpack summarize
     monitor.py                 # agentpack monitor
     explain.py                 # agentpack explain
+    doctor.py                  # agentpack doctor
+```
+
+---
+
+## Practical examples
+
+### Bug fix: "I have a failing test, help me fix it"
+
+```bash
+# You're debugging a test failure in the auth module
+agentpack pack --agent claude --task "fix failing test in auth token validation" --print | claude
+```
+
+AgentPack selects: the failing test file (modified), `auth/token.py` (dep), `auth/session.py` (dep), `config/settings.py` (config), skips 180 unrelated files. Claude gets 12k tokens of precisely relevant context and starts debugging immediately.
+
+---
+
+### Feature: "Add rate limiting to the API"
+
+```bash
+# On a feature branch, nothing modified yet
+agentpack pack --agent claude --task "add rate limiting to REST API endpoints" --print | claude
+```
+
+Keyword expansion activates: "rate limiting" → `throttle`, `leaky`, `bucket`, `quota`. AgentPack scores: `middleware/` directory (path keyword `api`), existing `throttle.py` or `leaky_bucket.py` (content keyword), `routes/*.py` (deps). Claude gets the full middleware stack and starts implementing, not exploring.
+
+---
+
+### Code review: "Review my PR before I push"
+
+```bash
+# Review only what changed vs main
+agentpack pack --agent claude --task "code review auth refactor" --since main --print | claude
+```
+
+Only files touched in this branch are included (full content). Everything else is summaries or omitted. Claude reviews exactly the diff-visible code, not the whole codebase.
+
+---
+
+### Refactor: "Help me refactor the database layer"
+
+```bash
+agentpack pack --agent claude --task "refactor database connection pooling" --mode deep --print | claude
+```
+
+`--mode deep` adds: related docs, more full-content files, broader dep tree. Use when the task touches many files and you want Claude to see more context upfront.
+
+---
+
+### CI: automated context on every PR
+
+Add to `.github/workflows/agentpack.yml` — see the full example in [CI/CD: pack per PR](#cicd-pack-per-pr). Reviewers and CI bots get focused context without cloning the repo.
+
+---
+
+### Session mode: keep context fresh while you work
+
+```bash
+# Terminal 1: pack re-generates every time you save
+agentpack pack --agent claude --task "refactor auth" --session
+
+# Terminal 2: your editor
+# Save a file → pack regenerates automatically
+```
+
+---
+
+### Pipe into any LLM
+
+```bash
+# Claude CLI (piped)
+agentpack pack --task "fix SSE cancellation bug" --print | claude
+
+# OpenAI CLI
+agentpack pack --task "fix SSE cancellation bug" --print | llm "fix this"
+
+# Anthropic API via curl
+agentpack pack --task "debug memory leak" --print > /tmp/context.md
+# then reference /tmp/context.md in your API call
+```
+
+---
+
+### Debug why a file isn't showing up
+
+```bash
+agentpack explain --task "fix rate limiting in auth middleware"
+# Top selected files:
+#   1. src/auth/middleware.py  score=180  [full]     modified, filename keyword match
+#   2. src/auth/limiter.py     score=130  [symbols]  dep + content keyword "throttle"
+#   ...
+# Excluded:
+#   - src/payments/billing.py  score=8    score too low
 ```
 
 ---
@@ -928,7 +1083,7 @@ config_file     = 60   # was 25 — configs always matter here
 
 - **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls by default
 - **Non-destructive**: never overwrites user files; config patching only touches agentpack-managed blocks
-- **Agent-neutral**: architecture is generic; Claude, Cursor, Windsurf, and Codex are all first-class
+- **Agent-neutral**: architecture is generic; Claude is the primary target (deepest integration); Cursor, Windsurf, and Codex are supported but less battle-tested
 - **No daemons**: file watching is opt-in via `--session`; git hooks run in the background and are opt-in via `install`
 - **Honest**: packed token count reflects real content, not raw repo size
 
@@ -937,9 +1092,9 @@ config_file     = 60   # was 25 — configs always matter here
 ## Optional dependencies
 
 ```bash
-pip install "agentpack[llm]"      # anthropic — LLM summaries via Claude Haiku
-pip install "agentpack[watch]"    # watchdog — --session watch mode
-pip install "agentpack[all]"      # llm + watch
+pip install "agentpack-cli[llm]"      # anthropic — LLM summaries via Claude Haiku
+pip install "agentpack-cli[watch]"    # watchdog — --session watch mode
+pip install "agentpack-cli[all]"      # llm + watch
 ```
 
 ---
