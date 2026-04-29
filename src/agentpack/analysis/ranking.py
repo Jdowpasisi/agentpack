@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agentpack.core.models import FileInfo
+from agentpack.core.models import DependencyGraph, FileInfo
 from agentpack.core.config import ScoringWeights
 
 _STOPWORDS = {
@@ -277,12 +277,15 @@ def score_files(
     changed_paths: set[str],
     staged_paths: set[str],
     recently_modified: list[str],
-    dep_graph: dict[str, dict[str, list[str]]],
+    dep_graph: "DependencyGraph | dict",
     keywords: set[str],
     include_tests: bool = True,
     include_configs: bool = True,
     weights: ScoringWeights | None = None,
 ) -> list[tuple[FileInfo, float, list[str]]]:
+    from agentpack.core.models import DependencyGraph as _DG
+    if not isinstance(dep_graph, _DG):
+        dep_graph = _DG()
     w = weights or _DEFAULT_WEIGHTS
     all_paths = {f.path for f in files}
     results: list[tuple[FileInfo, float, list[str]]] = []
@@ -308,8 +311,8 @@ def score_files(
             score += w.filename_keyword
             reasons.append("filename keyword match")
 
-        graph_entry = dep_graph.get(fi.path, {})
-        sym_names = [s["name"] if isinstance(s, dict) else s.name for s in graph_entry.get("symbols", [])]
+        node = dep_graph.get(fi.path)
+        sym_names: list[str] = []  # symbols aren't stored on DependencyNode; scoring uses path/content only
         if _symbol_matches_keywords(sym_names, keywords):
             score += w.symbol_keyword
             reasons.append("symbol keyword match")
@@ -329,20 +332,20 @@ def score_files(
             except OSError:
                 pass
 
-        for dep_path in graph_entry.get("imports", []):
+        for dep_path in node.imports:
             if dep_path in changed_paths or _path_matches_keywords(dep_path, keywords):
                 score += w.direct_dep
                 reasons.append("direct dependency of changed file")
                 break
 
-        for other_path, other_entry in dep_graph.items():
-            if fi.path in other_entry.get("imports", []) and other_path in changed_paths:
+        for other_path, other_node in dep_graph.items():
+            if fi.path in other_node.imports and other_path in changed_paths:
                 score += w.reverse_dep
                 reasons.append("reverse dependency")
                 break
 
         if include_tests:
-            tests = graph_entry.get("tests", [])
+            tests = node.tests
             if tests and any(t in all_paths for t in tests):
                 score += w.related_test
                 reasons.append("has related tests")
