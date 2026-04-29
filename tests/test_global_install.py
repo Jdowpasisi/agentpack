@@ -3,7 +3,7 @@ import stat
 from pathlib import Path
 import pytest
 
-from agentpack.core.global_install import (
+from agentpack.integrations.global_install import (
     install_git_template_hooks,
     remove_git_template_hooks,
     install_shell_hook,
@@ -21,11 +21,8 @@ from agentpack.core.global_install import (
 
 class TestGitTemplateHooks:
     def test_creates_all_hooks(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "agentpack.core.global_install._GIT_TEMPLATE_DIR", tmp_path / ".git-templates"
-        )
-        from agentpack.core import global_install
-        global_install._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
+        import agentpack.integrations.global_install as gi
+        gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
 
         results = install_git_template_hooks()
         for name in _HOOK_SCRIPTS:
@@ -38,7 +35,7 @@ class TestGitTemplateHooks:
             assert ".agentpack/config.toml" in content
 
     def test_hooks_are_executable(self, tmp_path, monkeypatch):
-        import agentpack.core.global_install as gi
+        import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
         install_git_template_hooks()
         for name in _HOOK_SCRIPTS:
@@ -46,14 +43,14 @@ class TestGitTemplateHooks:
             assert hook.stat().st_mode & stat.S_IXUSR
 
     def test_idempotent(self, tmp_path, monkeypatch):
-        import agentpack.core.global_install as gi
+        import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
         install_git_template_hooks()
         results2 = install_git_template_hooks()
         assert all(v == "unchanged" for v in results2.values())
 
     def test_appends_to_existing_hook(self, tmp_path, monkeypatch):
-        import agentpack.core.global_install as gi
+        import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
         hooks_dir = tmp_path / ".git-templates" / "hooks"
         hooks_dir.mkdir(parents=True)
@@ -68,7 +65,7 @@ class TestGitTemplateHooks:
         assert _AGENTPACK_MARKER in content
 
     def test_remove_cleans_hooks(self, tmp_path, monkeypatch):
-        import agentpack.core.global_install as gi
+        import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
         install_git_template_hooks()
         remove_git_template_hooks()
@@ -77,7 +74,7 @@ class TestGitTemplateHooks:
             assert not hook.exists() or _AGENTPACK_MARKER not in hook.read_text()
 
     def test_remove_preserves_other_content(self, tmp_path, monkeypatch):
-        import agentpack.core.global_install as gi
+        import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
         hooks_dir = tmp_path / ".git-templates" / "hooks"
         hooks_dir.mkdir(parents=True)
@@ -168,7 +165,7 @@ class TestShellHook:
 
     def test_git_hooks_guard_on_config_toml(self, tmp_path):
         """Git template hooks must exit silently for repos that haven't opted in."""
-        import agentpack.core.global_install as gi
+        import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
         install_git_template_hooks()
         for name in _HOOK_SCRIPTS:

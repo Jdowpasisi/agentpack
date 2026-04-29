@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import pytest
 
-from agentpack.core.vscode_tasks import install_vscode_tasks, remove_vscode_tasks
+from agentpack.integrations.vscode_tasks import install_vscode_tasks, remove_vscode_tasks
 
 
 class TestInstallVscodeTasks:

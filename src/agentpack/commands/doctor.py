@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from agentpack.core.global_install import (
+from agentpack.integrations.global_install import (
     _GIT_TEMPLATE_DIR,
     _AGENTPACK_MARKER,
     _SHELL_MARKER_START,

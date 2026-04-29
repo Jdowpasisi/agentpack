@@ -5,11 +5,11 @@ from pathlib import Path
 
 import typer
 
-from agentpack.adapters.claude import ClaudeAdapter
-from agentpack.adapters.codex import CodexAdapter
-from agentpack.adapters.cursor import CursorAdapter
-from agentpack.adapters.windsurf import WindsurfAdapter
-from agentpack.core.global_install import (
+from agentpack.installers.claude import ClaudeInstaller
+from agentpack.installers.codex import CodexInstaller
+from agentpack.installers.cursor import CursorInstaller
+from agentpack.installers.windsurf import WindsurfInstaller
+from agentpack.integrations.global_install import (
     install_git_template_hooks,
     configure_git_template_dir,
     install_shell_hook,
@@ -32,11 +32,11 @@ def register(app: typer.Typer) -> None:
         root = _root()
 
         if agent == "claude":
-            adapter = ClaudeAdapter()
-            action = adapter.patch_claude_md(root)
+            installer = ClaudeInstaller()
+            action = installer.patch_claude_md(root)
             console.print(f"[green]CLAUDE.md {action}.[/]")
 
-            hook_action = adapter.patch_claude_settings(root, global_install)
+            hook_action = installer.patch_claude_settings(root, global_install)
             scope = "~/.claude/settings.json" if global_install else ".claude/settings.json"
             console.print(f"[green]{scope} {hook_action}.[/]")
 
@@ -44,26 +44,26 @@ def register(app: typer.Typer) -> None:
                 _install_slash_command(root, global_install)
 
         elif agent == "cursor":
-            adapter = CursorAdapter()
-            rules_action = adapter.patch_cursor_rules(root)
+            installer = CursorInstaller()
+            rules_action = installer.patch_cursor_rules(root)
             console.print(f"[green].cursorrules {rules_action}.[/]")
-            mdc_action = adapter.patch_cursor_mdc(root)
+            mdc_action = installer.patch_cursor_mdc(root)
             console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
-            _print_auto_repack_results(adapter.install_auto_repack(root))
+            _print_auto_repack_results(installer.install_auto_repack(root))
             console.print("  Run [bold]agentpack pack --agent cursor --task \"<task>\"[/] to generate context.")
 
         elif agent == "windsurf":
-            adapter = WindsurfAdapter()
-            rules_action = adapter.patch_windsurfrules(root)
+            installer = WindsurfInstaller()
+            rules_action = installer.patch_windsurfrules(root)
             console.print(f"[green].windsurfrules {rules_action}.[/]")
-            _print_auto_repack_results(adapter.install_auto_repack(root))
+            _print_auto_repack_results(installer.install_auto_repack(root))
             console.print("  Run [bold]agentpack pack --agent windsurf --task \"<task>\"[/] to generate context.")
 
         elif agent == "codex":
-            adapter = CodexAdapter()
-            action = adapter.patch_agents_md(root)
+            installer = CodexInstaller()
+            action = installer.patch_agents_md(root)
             console.print(f"[green]AGENTS.md {action}.[/]")
-            _print_auto_repack_results(adapter.install_auto_repack(root))
+            _print_auto_repack_results(installer.install_auto_repack(root))
             console.print("  Run [bold]agentpack pack --agent codex --task \"<task>\"[/] to generate context.")
 
         else:
@@ -143,9 +143,8 @@ def register(app: typer.Typer) -> None:
 
         # --- Agent-specific config ---
         if agent == "claude":
-            adapter = ClaudeAdapter()
             if not dry_run:
-                hook_action = adapter.patch_claude_settings(root, global_install=True)
+                hook_action = ClaudeInstaller().patch_claude_settings(root, global_install=True)
                 console.print(f"\n[green]~/.claude/settings.json {hook_action}.[/]")
                 _install_slash_command(root, global_install=True)
             else:
@@ -153,27 +152,25 @@ def register(app: typer.Typer) -> None:
                 console.print("[dim]Would install: ~/.claude/commands/agentpack.md (slash command)[/]")
 
         elif agent == "cursor":
-            adapter = CursorAdapter()
             if not dry_run:
-                rules_action = adapter.patch_cursor_rules(root)
+                inst = CursorInstaller()
+                rules_action = inst.patch_cursor_rules(root)
                 console.print(f"\n[green].cursorrules {rules_action}.[/]")
-                mdc_action = adapter.patch_cursor_mdc(root)
+                mdc_action = inst.patch_cursor_mdc(root)
                 console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
             else:
                 console.print("\n[dim]Would patch: .cursorrules, .cursor/rules/agentpack.mdc[/]")
 
         elif agent == "windsurf":
-            adapter = WindsurfAdapter()
             if not dry_run:
-                rules_action = adapter.patch_windsurfrules(root)
+                rules_action = WindsurfInstaller().patch_windsurfrules(root)
                 console.print(f"\n[green].windsurfrules {rules_action}.[/]")
             else:
                 console.print("\n[dim]Would patch: .windsurfrules[/]")
 
         elif agent == "codex":
-            adapter = CodexAdapter()
             if not dry_run:
-                action = adapter.patch_agents_md(root)
+                action = CodexInstaller().patch_agents_md(root)
                 console.print(f"\n[green]AGENTS.md {action}.[/]")
             else:
                 console.print("\n[dim]Would patch: AGENTS.md[/]")

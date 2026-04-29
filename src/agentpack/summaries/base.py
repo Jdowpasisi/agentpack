@@ -33,6 +33,7 @@ def build_all_summaries(
     root: Path,
     provider: str = "offline",
 ) -> dict[str, FileSummary]:
+    """Build summaries for packable files. Skips ignored and binary entries defensively."""
     result: dict[str, FileSummary] = {}
     for fi in files:
         if fi.ignored or fi.binary:

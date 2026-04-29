@@ -32,21 +32,27 @@ AgentPack solves this with a one-time offline analysis pass:
 The result: your agent starts every session with a focused, accurate picture of the relevant code — without you doing anything after opt-in.
 
 ```bash
-# One-time global setup
-pip install agentpack
-agentpack global-install --agent claude
+pip install agentpack-cli
 
-# Opt a project in (once per repo, ~5 seconds)
-cd your-project && agentpack init
-
-# From that point on — nothing. Every commit silently repacks.
-# Every Claude Code session gets focused context automatically.
+# Simplest: per-project setup, explicit control
+cd your-project
+agentpack init
+agentpack install --agent claude
+agentpack pack --task "fix auth session bug" --print | claude
 ```
 
-Or for piped/API workflows (no setup needed):
+Or without any setup at all:
 
 ```bash
 agentpack pack --agent claude --task "fix auth session bug" --print | claude
+```
+
+For power users who want background repacking on every commit and cd:
+
+```bash
+# Advanced: global automation (opt-in repos only — never touches repos without .agentpack/)
+agentpack global-install --agent claude --dry-run   # preview first
+agentpack global-install --agent claude
 ```
 
 Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, or any LLM via pipe/API.
@@ -141,28 +147,26 @@ Requires Python 3.10+.
 
 ## Quickstart
 
-### Option A: Global install + per-project opt-in (recommended)
+### Option A: Per-project setup (recommended for most users)
 
 ```bash
 pip install agentpack-cli
-agentpack global-install --agent claude   # or: cursor, windsurf, codex
-source ~/.zshrc                           # reload shell once
+cd your-project
+agentpack init
+agentpack install --agent claude   # or: cursor, windsurf, codex
 ```
 
-Then opt each project in:
+After `agentpack install --agent claude`:
+- `CLAUDE.md` tells Claude to read the context pack before each task
+- `.claude/settings.json` hooks auto-inject and auto-repack per session
+
+Pack and pipe:
 
 ```bash
-cd your-project && agentpack init
+agentpack pack --task "fix auth session bug" --print | claude
 ```
 
-That's the full setup. After `init`, agentpack runs entirely in the background:
-- **On every commit/merge** — git hooks silently repack context (only in opted-in repos)
-- **On `cd`** — shell hook repacks if stale (only in opted-in repos — never touches repos without `.agentpack/config.toml`)
-- **On session start** — Claude Code hook injects the pack into context automatically
-
-**Opt-in is explicit.** `global-install` does not auto-configure repos you haven't touched. No `.agentpack/` directories appear in repos you didn't run `agentpack init` in.
-
-### Option B: Per-project setup
+### Option B: Global automation (advanced — power users)
 
 ```bash
 cd your-project/
@@ -170,6 +174,28 @@ agentpack init
 agentpack summarize              # build offline summary cache once
 agentpack install --agent claude # configure your agent
 ```
+
+Install once, auto-repacks in every opted-in repo from then on:
+
+```bash
+pip install agentpack-cli
+agentpack global-install --agent claude --dry-run   # preview
+agentpack global-install --agent claude             # apply
+source ~/.zshrc
+```
+
+Then opt each project in once:
+
+```bash
+cd your-project && agentpack init
+```
+
+After that, agentpack runs entirely in the background:
+- **On every commit/merge** — git hooks silently repack (opted-in repos only)
+- **On `cd`** — shell hook repacks if stale (opted-in repos only — never touches repos without `.agentpack/config.toml`)
+- **On session start** — Claude Code hook injects context automatically
+
+**Opt-in is explicit.** `global-install` never auto-configures repos you haven't `agentpack init`'d.
 
 ### Option C: Piped / API / CI (no agent setup needed)
 
@@ -831,30 +857,38 @@ Works like `.gitignore`. Default rules exclude:
 
 ```
 src/agentpack/
-  cli.py                       # Typer CLI entry point
+  cli.py                       # Typer CLI entry point (thin — delegates to commands/)
 
   data/
     agentpack.md               # bundled /agentpack slash command for Claude CLI
 
+  application/
+    pack_service.py            # PackService: full pack pipeline orchestration
+                               # PackRequest / PackResult DTOs
+
+  domain/  (via core/models.py)
+    FileInfo, ScanResult       # scan output (packable / ignored / binary)
+    Symbol, FileSummary        # summary cache objects
+    SelectedFile, Receipt      # selection output with redaction_warnings
+    ContextPack                # final artifact with redaction_warnings
+
   core/
-    models.py                  # Pydantic: FileInfo, Symbol, FileSummary, ContextPack
+    models.py                  # Pydantic domain models (see above)
     config.py                  # TOML config + ScoringWeights
     ignore.py                  # .agentignore / gitignore-style matching
-    scanner.py                 # pathlib rglob, binary detection, token estimation
+    scanner.py                 # rglob → ScanResult (packable/ignored/binary split)
     snapshot.py                # JSON snapshots + merkle root hash
     diff.py                    # added / modified / deleted / unchanged diff
     git.py                     # subprocess git + task inference from branch/commits
     merkle.py                  # root hash: sort(path:hash) → sha256
     cache.py                   # summary cache keyed path+hash+provider+version
-    context_pack.py            # file selection algorithm + pack metadata
+    context_pack.py            # select_files: budget selection + secret redaction
     token_estimator.py         # tiktoken cl100k_base (approximate)
-    redactor.py                # secret redaction before context render
-    git_hooks.py               # install/remove post-commit/merge/checkout hooks
-    vscode_tasks.py            # install/remove .vscode/tasks.json entries
-    global_install.py          # global: git template hooks + shell rc hook
+    redactor.py                # redact_secrets: fires at content materialization
     bootstrap.py               # is_initialized, bootstrap_if_needed
 
   analysis/
+    dependency_graph.py        # build(): import/imported-by graph over packable files
     python_imports.py          # ast-based import extraction
     js_ts_imports.py           # regex import extraction (ESM + CJS)
     go_imports.py              # Go import / import(...) blocks
@@ -869,21 +903,32 @@ src/agentpack/
     llm.py                     # Claude Haiku API summaries (optional)
     base.py                    # cache-or-build orchestration
 
-  adapters/
-    base.py                    # abstract BaseAdapter
-    claude.py                  # CLAUDE.md + .claude/settings.json hooks
-    cursor.py                  # .cursorrules + .cursor/rules/*.mdc
-    windsurf.py                # .windsurfrules
-    codex.py                   # AGENTS.md
-    generic.py                 # context.md (any LLM)
+  adapters/                    # context rendering only — no installation logic
+    base.py                    # abstract BaseAdapter (output_path + render + write)
+    claude.py                  # renders context.claude.md via render_claude()
+    cursor.py                  # renders context.md via render_generic()
+    windsurf.py                # renders context.md
+    codex.py                   # renders context.md
+    generic.py                 # renders context.md (any LLM)
+
+  installers/                  # repo/tool configuration — separate from rendering
+    claude.py                  # ClaudeInstaller: CLAUDE.md + .claude/settings.json
+    cursor.py                  # CursorInstaller: .cursorrules + .mdc + auto-repack
+    windsurf.py                # WindsurfInstaller: .windsurfrules + auto-repack
+    codex.py                   # CodexInstaller: AGENTS.md + git hooks
+
+  integrations/                # system/tool integration (not core domain)
+    git_hooks.py               # install/remove .git/hooks post-commit/merge/checkout
+    vscode_tasks.py            # install/remove .vscode/tasks.json entries
+    global_install.py          # global: git template hooks + shell rc hook
 
   renderers/
-    markdown.py                # full/symbols/summary mode renderer + secret redaction
+    markdown.py                # renders pre-redacted ContextPack to markdown
     receipts.py                # context receipt formatter
 
-  commands/
-    pack.py                    # agentpack pack
-    install.py                 # agentpack install / global-install
+  commands/                    # CLI only — parse args, call services/installers
+    pack.py                    # agentpack pack → PackService.run()
+    install.py                 # agentpack install / global-install → installers/
     init.py                    # agentpack init
     scan.py                    # agentpack scan
     diff.py                    # agentpack diff
@@ -894,6 +939,14 @@ src/agentpack/
     explain.py                 # agentpack explain
     doctor.py                  # agentpack doctor
 ```
+
+### Key architectural properties
+
+- **Redaction at materialization**: secrets are stripped inside `select_files()` before content reaches any renderer or adapter. Every output format gets redacted content automatically — no per-renderer redaction needed.
+- **`ScanResult` splits cleanly**: `scan()` returns `ScanResult(packable, ignored, binary)` — downstream code only processes `packable` files, eliminating `if f.ignored or f.binary` guards throughout.
+- **`PackService` makes the pipeline explicit**: `commands/pack.py` is now CLI-only (parse → call service → print). The full pipeline lives in `application/pack_service.py` and is testable in isolation.
+- **`integrations/` vs `core/`**: git hooks, shell rc patching, and VS Code tasks are infrastructure concerns — they live in `integrations/`, not `core/`. `core/` is pure domain logic.
+- **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
 
 ---
 

@@ -17,12 +17,11 @@ def test_scan_excludes_ignored(tmp_path):
     (tmp_path / "node_modules" / "pkg.js").write_text("module.exports = {}")
 
     spec = _spec()
-    files = scan(tmp_path, spec)
-    paths = {f.path for f in files}
-    active_paths = {f.path for f in files if not f.ignored and not f.binary}
+    result = scan(tmp_path, spec)
+    packable_paths = {f.path for f in result.packable}
 
-    assert "src/main.py" in paths
-    assert not any("node_modules" in p for p in active_paths)
+    assert "src/main.py" in packable_paths
+    assert not any("node_modules" in p for p in packable_paths)
 
 
 def test_scan_marks_ignored(tmp_path):
@@ -30,9 +29,19 @@ def test_scan_marks_ignored(tmp_path):
     (tmp_path / "node_modules" / "x.js").write_text("x")
 
     spec = _spec()
-    files = scan(tmp_path, spec)
-    ignored = [f for f in files if f.ignored]
-    assert any("node_modules" in f.path for f in ignored)
+    result = scan(tmp_path, spec)
+    assert any("node_modules" in f.path for f in result.ignored)
+
+
+def test_scan_result_all_files(tmp_path):
+    (tmp_path / "main.py").write_text("x = 1")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "x.js").write_text("x")
+
+    spec = _spec()
+    result = scan(tmp_path, spec)
+    all_paths = {f.path for f in result.all_files}
+    assert "main.py" in all_paths
 
 
 def test_hash_changes_with_content(tmp_path):
@@ -55,9 +64,7 @@ def test_token_estimation(tmp_path):
     content = "x" * 400
     f.write_text(content)
     spec = _spec()
-    files = scan(tmp_path, spec)
-    fi = next(x for x in files if x.path == "big.py")
-    # tiktoken gives exact counts; len//4 is the fallback — either way > 0
+    result = scan(tmp_path, spec)
+    fi = next(x for x in result.packable if x.path == "big.py")
     assert fi.estimated_tokens > 0
-    # 400 chars of 'x' is ~50-100 tokens depending on estimator
     assert fi.estimated_tokens <= 400

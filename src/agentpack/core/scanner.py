@@ -6,7 +6,7 @@ from pathlib import Path
 import pathspec
 
 from agentpack.core.ignore import load_spec, is_ignored
-from agentpack.core.models import FileInfo
+from agentpack.core.models import FileInfo, ScanResult
 from agentpack.core.token_estimator import estimate_tokens
 
 BINARY_EXTENSIONS = {
@@ -79,8 +79,11 @@ def scan(
     root: Path,
     ignore_spec: pathspec.PathSpec,
     max_file_tokens: int = 4000,
-) -> list[FileInfo]:
-    files: list[FileInfo] = []
+) -> ScanResult:
+    packable: list[FileInfo] = []
+    ignored: list[FileInfo] = []
+    binary: list[FileInfo] = []
+
     for abs_path in root.rglob("*"):
         if not abs_path.is_file():
             continue
@@ -94,7 +97,7 @@ def scan(
         rel_str = str(rel)
 
         if is_ignored(ignore_spec, rel_str):
-            files.append(
+            ignored.append(
                 FileInfo(
                     path=rel_str,
                     abs_path=abs_path,
@@ -105,12 +108,10 @@ def scan(
             )
             continue
 
-        binary = _is_binary(abs_path)
-        size = abs_path.stat().st_size
-        lang = LANGUAGE_MAP.get(abs_path.suffix.lower())
-
-        if binary:
-            files.append(
+        if _is_binary(abs_path):
+            size = abs_path.stat().st_size
+            lang = LANGUAGE_MAP.get(abs_path.suffix.lower())
+            binary.append(
                 FileInfo(
                     path=rel_str,
                     abs_path=abs_path,
@@ -122,6 +123,9 @@ def scan(
             )
             continue
 
+        size = abs_path.stat().st_size
+        lang = LANGUAGE_MAP.get(abs_path.suffix.lower())
+
         try:
             text = abs_path.read_text(errors="replace")
         except OSError:
@@ -130,7 +134,7 @@ def scan(
         tokens = estimate_tokens(text)
         too_large = tokens > max_file_tokens
 
-        files.append(
+        packable.append(
             FileInfo(
                 path=rel_str,
                 abs_path=abs_path,
@@ -143,4 +147,4 @@ def scan(
             )
         )
 
-    return files
+    return ScanResult(packable=packable, ignored=ignored, binary=binary)

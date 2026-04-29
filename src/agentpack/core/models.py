@@ -3,6 +3,16 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class ScanResult(BaseModel):
+    packable: list["FileInfo"]
+    ignored: list["FileInfo"]
+    binary: list["FileInfo"]
+
+    @property
+    def all_files(self) -> list["FileInfo"]:
+        return self.packable + self.ignored + self.binary
+
+
 class FileInfo(BaseModel):
     path: str
     abs_path: Path
@@ -48,6 +58,7 @@ class SelectedFile(BaseModel):
     content: str | None = None
     summary: str | None = None
     symbols: list[Symbol] = []
+    redaction_warnings: list[str] = []
 
 
 class Receipt(BaseModel):
@@ -68,4 +79,5 @@ class ContextPack(BaseModel):
     changed_files: list[str]
     selected_files: list[SelectedFile]
     receipts: list[Receipt]
+    redaction_warnings: list[str] = []
     stale: bool = False

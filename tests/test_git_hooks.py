@@ -2,7 +2,7 @@ import stat
 from pathlib import Path
 import pytest
 
-from agentpack.core.git_hooks import install_git_hooks, remove_git_hooks, _HOOK_EVENTS
+from agentpack.integrations.git_hooks import install_git_hooks, remove_git_hooks, _HOOK_EVENTS
 
 
 def _make_git_repo(tmp_path: Path) -> Path:

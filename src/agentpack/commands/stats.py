@@ -18,15 +18,15 @@ def register(app: typer.Typer) -> None:
         cfg = load_config(root)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
 
-        files = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
         meta = load_pack_metadata(root)
 
-        raw = sum(f.estimated_tokens for f in files)
-        after_ignore = sum(f.estimated_tokens for f in files if not f.ignored and not f.binary)
+        raw = sum(f.estimated_tokens for f in scan_result.all_files)
+        after_ignore = sum(f.estimated_tokens for f in scan_result.packable)
         packed = meta.get("token_estimate", 0) if meta else 0
         saving = (1 - packed / raw) * 100 if raw > 0 else 0
 
-        ignored_count = sum(1 for f in files if f.ignored or f.binary)
+        ignored_count = len(scan_result.ignored) + len(scan_result.binary)
         included_count = 0
         summarized_count = 0
 
@@ -40,10 +40,8 @@ def register(app: typer.Typer) -> None:
                     + content.count("Included as: **symbols**")
                 )
 
-        # Estimate what manual assembly would cost: changed files full + deps summarized
-        # This is the honest comparison — nobody pipes the whole repo into Claude
-        full_files = [f for f in files if not f.ignored and not f.binary
-                      and f.estimated_tokens <= cfg.context.max_file_tokens]
+        full_files = [f for f in scan_result.packable
+                      if f.estimated_tokens <= cfg.context.max_file_tokens]
         manual_estimate = min(after_ignore, sum(f.estimated_tokens for f in full_files[:20]))
         vs_manual = (1 - packed / manual_estimate) * 100 if manual_estimate > 0 else 0
 
