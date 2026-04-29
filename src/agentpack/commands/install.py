@@ -6,11 +6,12 @@ from pathlib import Path
 import typer
 
 from agentpack.adapters.claude import ClaudeAdapter
+from agentpack.adapters.codex import CodexAdapter
 from agentpack.adapters.cursor import CursorAdapter
 from agentpack.adapters.windsurf import WindsurfAdapter
 from agentpack.commands._shared import console, _root
 
-_SUPPORTED_AGENTS = ("claude", "cursor", "windsurf")
+_SUPPORTED_AGENTS = ("claude", "cursor", "windsurf", "codex")
 
 
 def register(app: typer.Typer) -> None:
@@ -51,6 +52,13 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green].windsurfrules {rules_action}.[/]")
             console.print("  Windsurf will read [bold].agentpack/context.md[/] automatically.")
             console.print("  Run [bold]agentpack pack --agent windsurf --task \"<task>\"[/] to generate context.")
+
+        elif agent == "codex":
+            adapter = CodexAdapter()
+            action = adapter.patch_agents_md(root)
+            console.print(f"[green]AGENTS.md {action}.[/]")
+            console.print("  Codex will read [bold].agentpack/context.md[/] at the start of each task.")
+            console.print("  Run [bold]agentpack pack --agent codex --task \"<task>\"[/] to generate context.")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
@@ -109,6 +117,13 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green].windsurfrules {rules_action}.[/]")
             console.print("\n[bold green]Global install complete.[/]")
             console.print("  Run [bold]agentpack install --agent windsurf[/] in each project.")
+
+        elif agent == "codex":
+            adapter = CodexAdapter()
+            action = adapter.patch_agents_md(root)
+            console.print(f"[green]AGENTS.md {action}.[/]")
+            console.print("\n[bold green]Global install complete.[/]")
+            console.print("  Run [bold]agentpack install --agent codex[/] in each project.")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")

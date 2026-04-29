@@ -32,6 +32,7 @@ from agentpack.analysis.rust_imports import extract_imports as rust_imports
 from agentpack.analysis.java_imports import extract_imports as java_imports
 from agentpack.summaries.base import build_all_summaries
 from agentpack.adapters.claude import ClaudeAdapter
+from agentpack.adapters.codex import CodexAdapter
 from agentpack.adapters.cursor import CursorAdapter
 from agentpack.adapters.windsurf import WindsurfAdapter
 from agentpack.adapters.generic import GenericAdapter
@@ -41,7 +42,7 @@ from agentpack.commands._shared import console, _root
 def register(app: typer.Typer) -> None:
     @app.command()
     def pack(
-        agent: str = typer.Option("claude", "--agent", help="Target agent (claude|cursor|windsurf|generic)."),
+        agent: str = typer.Option("claude", "--agent", help="Target agent (claude|cursor|windsurf|codex|generic)."),
         task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
         mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
@@ -212,6 +213,8 @@ def _do_pack(
         adapter = CursorAdapter(cfg.agents.generic.output)
     elif agent == "windsurf":
         adapter = WindsurfAdapter(cfg.agents.generic.output)
+    elif agent == "codex":
+        adapter = CodexAdapter(cfg.agents.generic.output)
     else:
         adapter = GenericAdapter(cfg.agents.generic.output)
 
