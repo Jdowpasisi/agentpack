@@ -863,14 +863,18 @@ src/agentpack/
     agentpack.md               # bundled /agentpack slash command for Claude CLI
 
   application/
-    pack_service.py            # PackService: full pack pipeline orchestration
-                               # PackRequest / PackResult DTOs
+    pack_service.py            # PackPlanner: shared scan→rank→select pipeline
+                               # PackService: materializes plan → writes context file
+                               # AdapterRegistry: maps agent names to adapter instances
+                               # PackRequest / PackResult / PackPlan DTOs
 
   domain/  (via core/models.py)
     FileInfo, ScanResult       # scan output (packable / ignored / binary)
     Symbol, FileSummary        # summary cache objects
     SelectedFile, Receipt      # selection output with redaction_warnings
     ContextPack                # final artifact with redaction_warnings
+    DependencyNode             # typed graph node (path, imports, imported_by, tests)
+    DependencyGraph            # typed graph container (nodes dict + dict-like accessors)
 
   core/
     models.py                  # Pydantic domain models (see above)
@@ -888,7 +892,7 @@ src/agentpack/
     bootstrap.py               # is_initialized, bootstrap_if_needed
 
   analysis/
-    dependency_graph.py        # build(): import/imported-by graph over packable files
+    dependency_graph.py        # build(): returns typed DependencyGraph over packable files
     python_imports.py          # ast-based import extraction
     js_ts_imports.py           # regex import extraction (ESM + CJS)
     go_imports.py              # Go import / import(...) blocks
@@ -944,7 +948,10 @@ src/agentpack/
 
 - **Redaction at materialization**: secrets are stripped inside `select_files()` before content reaches any renderer or adapter. Every output format gets redacted content automatically — no per-renderer redaction needed.
 - **`ScanResult` splits cleanly**: `scan()` returns `ScanResult(packable, ignored, binary)` — downstream code only processes `packable` files, eliminating `if f.ignored or f.binary` guards throughout.
-- **`PackService` makes the pipeline explicit**: `commands/pack.py` is now CLI-only (parse → call service → print). The full pipeline lives in `application/pack_service.py` and is testable in isolation.
+- **`PackPlanner` owns shared planning**: `PackPlanner.plan()` runs scan → summarize → graph → rank → select and returns a `PackPlan`. Both `pack` and `explain` use the same planner — no duplicated pipeline logic, no drift.
+- **`PackService` materializes a plan**: takes a `PackPlan`, builds the `ContextPack` artifact, delegates rendering to `AdapterRegistry`, persists snapshot + metadata + metrics.
+- **`AdapterRegistry` maps agent → adapter**: adding a new agent output format requires one entry in `AdapterRegistry.get()`, not changes to `PackService`.
+- **`DependencyGraph` is typed**: `dependency_graph.build()` returns `DependencyGraph(nodes: dict[str, DependencyNode])` — no more `dict[str, dict]` with stringly-typed keys like `"imported_by"`. Typos are caught at the model layer.
 - **`integrations/` vs `core/`**: git hooks, shell rc patching, and VS Code tasks are infrastructure concerns — they live in `integrations/`, not `core/`. `core/` is pure domain logic.
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
 

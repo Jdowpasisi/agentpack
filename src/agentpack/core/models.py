@@ -81,3 +81,35 @@ class ContextPack(BaseModel):
     receipts: list[Receipt]
     redaction_warnings: list[str] = []
     stale: bool = False
+
+
+class DependencyNode(BaseModel):
+    path: str
+    imports: list[str] = []
+    imported_by: list[str] = []
+    tests: list[str] = []
+
+
+class DependencyGraph(BaseModel):
+    nodes: dict[str, DependencyNode] = {}
+
+    def get(self, path: str) -> DependencyNode:
+        return self.nodes.get(path, DependencyNode(path=path))
+
+    def __getitem__(self, path: str) -> DependencyNode:
+        return self.nodes[path]
+
+    def __setitem__(self, path: str, node: DependencyNode) -> None:
+        self.nodes[path] = node
+
+    def __contains__(self, path: object) -> bool:
+        return path in self.nodes
+
+    def __iter__(self):  # type: ignore[override]
+        return iter(self.nodes)
+
+    def __len__(self) -> int:
+        return len(self.nodes)
+
+    def items(self):  # type: ignore[override]
+        return self.nodes.items()

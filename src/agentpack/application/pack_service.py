@@ -14,7 +14,7 @@ from agentpack.core.snapshot import build_snapshot, save_snapshot, load_snapshot
 from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata
-from agentpack.core.models import ContextPack, ScanResult, SelectedFile, Receipt
+from agentpack.core.models import ContextPack, DependencyGraph, ScanResult, SelectedFile, Receipt
 from agentpack.core.token_estimator import estimate_tokens
 from agentpack.analysis.ranking import score_files, extract_keywords, enrich_keywords_from_files
 from agentpack.analysis.tests import find_related_tests
@@ -46,16 +46,30 @@ class PackResult:
     scan_result: ScanResult
 
 
-class PackService:
-    """Orchestrates the full pack pipeline: scan → summarize → graph → rank → select → render → persist."""
+@dataclass
+class PackPlan:
+    """Shared planning output used by both pack and explain."""
+    task: str
+    mode: str
+    budget: int
+    scan_result: ScanResult
+    summaries: dict[str, Any]
+    dep_graph: DependencyGraph
+    all_changed: set[str]
+    git_staged: set[str]
+    recently_modified: list[str]
+    keywords: set[str]
+    scored: list[tuple[Any, float, list[str]]]
+    selected: list[SelectedFile]
+    receipts: list[Receipt]
+    phase_times: dict[str, float]
+    current_snap: dict[str, Any] = field(default_factory=dict)
 
-    def run(self, request: PackRequest) -> PackResult:
-        from agentpack.adapters.claude import ClaudeAdapter
-        from agentpack.adapters.codex import CodexAdapter
-        from agentpack.adapters.cursor import CursorAdapter
-        from agentpack.adapters.windsurf import WindsurfAdapter
-        from agentpack.adapters.generic import GenericAdapter
 
+class PackPlanner:
+    """Runs scan → summarize → graph → rank → select; shared by pack and explain."""
+
+    def plan(self, request: PackRequest) -> PackPlan:
         root = request.root
         cfg = load_config(root)
         effective_budget = request.budget if request.budget > 0 else cfg.context.default_budget
@@ -104,10 +118,8 @@ class PackService:
         all_paths = {f.path for f in packable}
 
         for fi in packable:
-            graph_entry = dep_graph.get(fi.path, {})
             tests = find_related_tests(fi.path, all_paths)
-            graph_entry["tests"] = tests
-            dep_graph[fi.path] = graph_entry
+            dep_graph.nodes[fi.path].tests = tests
 
         scored = score_files(
             packable,
@@ -135,74 +147,118 @@ class PackService:
         )
         phase_times["select"] = time.perf_counter() - t0
 
-        all_tokens = sum(f.estimated_tokens for f in scan_result.all_files)
-        raw_tokens = sum(f.estimated_tokens for f in packable)
-        packed_tokens = sum(_sf_tokens(sf) for sf in selected)
-        saving_pct = (1 - packed_tokens / all_tokens) * 100 if all_tokens > 0 else 0.0
-        after_ignore = raw_tokens
+        current_snap = build_snapshot(packable)
 
-        all_redaction_warnings = [w for sf in selected for w in sf.redaction_warnings]
-
-        pack_obj = ContextPack(
+        return PackPlan(
             task=request.task,
-            agent=request.agent,
-            mode=request.mode,  # type: ignore[arg-type]
+            mode=request.mode,
             budget=effective_budget,
-            token_estimate=packed_tokens,
-            raw_repo_tokens=all_tokens,
-            after_ignore_tokens=after_ignore,
-            estimated_savings_percent=saving_pct,
-            changed_files=sorted(all_changed),
-            selected_files=selected,
-            receipts=receipts if cfg.context.include_receipts else [],
-            redaction_warnings=all_redaction_warnings,
-            stale=False,
+            scan_result=scan_result,
+            summaries=summaries,
+            dep_graph=dep_graph,
+            all_changed=all_changed,
+            git_staged=git_staged,
+            recently_modified=recently_modified,
+            keywords=keywords,
+            scored=scored,
+            selected=selected,
+            receipts=receipts,
+            phase_times=phase_times,
+            current_snap=current_snap,
         )
 
-        _adapters = {
+
+class AdapterRegistry:
+    """Maps agent names to adapter instances; extensible without touching PackService."""
+
+    @staticmethod
+    def get(agent: str, cfg: Any) -> Any:
+        from agentpack.adapters.claude import ClaudeAdapter
+        from agentpack.adapters.codex import CodexAdapter
+        from agentpack.adapters.cursor import CursorAdapter
+        from agentpack.adapters.windsurf import WindsurfAdapter
+        from agentpack.adapters.generic import GenericAdapter
+
+        adapters = {
             "claude": lambda: ClaudeAdapter(cfg.agents.claude.output),
             "cursor": lambda: CursorAdapter(cfg.agents.generic.output),
             "windsurf": lambda: WindsurfAdapter(cfg.agents.generic.output),
             "codex": lambda: CodexAdapter(cfg.agents.generic.output),
         }
-        adapter = _adapters.get(request.agent, lambda: GenericAdapter(cfg.agents.generic.output))()
+        return adapters.get(agent, lambda: GenericAdapter(cfg.agents.generic.output))()
+
+
+class PackService:
+    """Materializes a plan from PackPlanner into a written context file."""
+
+    def run(self, request: PackRequest) -> PackResult:
+        root = request.root
+        cfg = load_config(root)
+
+        plan = PackPlanner().plan(request)
+
+        packable = plan.scan_result.packable
+        all_tokens = sum(f.estimated_tokens for f in plan.scan_result.all_files)
+        raw_tokens = sum(f.estimated_tokens for f in packable)
+        packed_tokens = sum(_sf_tokens(sf) for sf in plan.selected)
+        saving_pct = (1 - packed_tokens / all_tokens) * 100 if all_tokens > 0 else 0.0
+
+        all_redaction_warnings = [w for sf in plan.selected for w in sf.redaction_warnings]
+
+        pack_obj = ContextPack(
+            task=request.task,
+            agent=request.agent,
+            mode=request.mode,  # type: ignore[arg-type]
+            budget=plan.budget,
+            token_estimate=packed_tokens,
+            raw_repo_tokens=all_tokens,
+            after_ignore_tokens=raw_tokens,
+            estimated_savings_percent=saving_pct,
+            changed_files=sorted(plan.all_changed),
+            selected_files=plan.selected,
+            receipts=plan.receipts if cfg.context.include_receipts else [],
+            redaction_warnings=all_redaction_warnings,
+            stale=False,
+        )
+
+        adapter = AdapterRegistry.get(request.agent, cfg)
 
         t0 = time.perf_counter()
         out_path = adapter.write(pack_obj, root)
-        phase_times["render"] = time.perf_counter() - t0
+        plan.phase_times["render"] = time.perf_counter() - t0
 
-        save_snapshot(current_snap, root)
+        save_snapshot(plan.current_snap, root)
         save_pack_metadata(
             root,
             context_path=str(out_path.relative_to(root)),
-            snapshot_root_hash=current_snap["root_hash"],
+            snapshot_root_hash=plan.current_snap["root_hash"],
             task=request.task,
             agent=request.agent,
             mode=request.mode,
-            budget=effective_budget,
+            budget=plan.budget,
             token_estimate=packed_tokens,
         )
         _record_metrics(
             root,
             task=request.task,
             mode=request.mode,
-            phase_times=phase_times,
+            phase_times=plan.phase_times,
             packed_tokens=packed_tokens,
             raw_tokens=all_tokens,
             saving_pct=saving_pct,
-            selected_count=len(selected),
-            changed_count=len(all_changed),
+            selected_count=len(plan.selected),
+            changed_count=len(plan.all_changed),
         )
 
         return PackResult(
             pack=pack_obj,
             out_path=out_path,
-            phase_times=phase_times,
+            phase_times=plan.phase_times,
             packed_tokens=packed_tokens,
             raw_tokens=all_tokens,
             saving_pct=saving_pct,
-            changed_files=sorted(all_changed),
-            scan_result=scan_result,
+            changed_files=sorted(plan.all_changed),
+            scan_result=plan.scan_result,
         )
 
 

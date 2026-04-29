@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentpack.core.models import FileInfo
+from agentpack.core.models import DependencyGraph, DependencyNode, FileInfo
 from agentpack.analysis.python_imports import extract_imports as py_imports
 from agentpack.analysis.python_imports import resolve_relative_import as py_resolve
 from agentpack.analysis.js_ts_imports import extract_imports as js_imports
@@ -16,7 +16,7 @@ def build(
     files: list[FileInfo],
     root: Path,
     summaries: dict | None = None,
-) -> dict[str, dict]:
+) -> DependencyGraph:
     """Build an import/imported-by graph over packable files.
 
     Args:
@@ -25,20 +25,22 @@ def build(
         summaries: Optional pre-built summary cache; cached imports avoid re-parsing.
 
     Returns:
-        Mapping of path → {imports, imported_by, tests} where tests starts empty
-        (caller fills it via find_related_tests).
+        DependencyGraph with typed DependencyNode entries. Caller fills tests
+        via find_related_tests after construction.
     """
-    graph: dict[str, dict] = {fi.path: {"imports": [], "imported_by": [], "tests": []} for fi in files}
+    graph = DependencyGraph(
+        nodes={fi.path: DependencyNode(path=fi.path) for fi in files}
+    )
     path_set = {fi.path for fi in files}
 
     for fi in files:
         if summaries and fi.path in summaries:
             cached_imports = summaries[fi.path].get("imports", [])
             if cached_imports:
-                graph[fi.path]["imports"] = cached_imports
+                graph.nodes[fi.path].imports = cached_imports
                 for dep in cached_imports:
                     if dep in graph:
-                        graph[dep]["imported_by"].append(fi.path)
+                        graph.nodes[dep].imported_by.append(fi.path)
                 continue
 
         raw_imports: list[str] = []
@@ -70,9 +72,9 @@ def build(
             else:
                 resolved.append(imp)
 
-        graph[fi.path]["imports"] = resolved
+        graph.nodes[fi.path].imports = resolved
         for dep in resolved:
             if dep in graph:
-                graph[dep]["imported_by"].append(fi.path)
+                graph.nodes[dep].imported_by.append(fi.path)
 
     return graph
