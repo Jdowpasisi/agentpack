@@ -4,20 +4,48 @@
 
 **Token-aware context packing for AI coding agents.**
 
-AgentPack scans your repo, builds an offline summary cache, then on each task packs only the relevant files into a tight context document — automatically selecting, ranking, and trimming to your token budget.
+---
 
-Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, or any LLM via pipe/API.
+## The problem
+
+Every time you start a task with an AI coding agent, it has no idea what's in your repo. It either:
+
+1. **Reads files on demand** (Claude Code, Cursor, Windsurf) — dozens of tool calls, paying exploration cost every session, every turn, forever.
+2. **Gets the whole repo dumped in** (repomix, gitingest) — 50k–500k tokens of noise, most of it irrelevant to the task at hand.
+3. **Gets nothing** — you hand-copy the 5 files you think matter and hope you got it right.
+
+None of these scale. On a 200-file codebase, option 1 wastes 5–10 turns just orienting. Option 2 degrades output quality (LLMs perform worse on long noisy context). Option 3 misses critical dependencies and configs constantly.
+
+**The root cause:** agents don't know *what's relevant to your current task* without doing the work to figure that out — which costs tokens, time, and money on every session.
+
+---
+
+## The solution
+
+AgentPack solves this with a one-time offline analysis pass:
+
+1. **Scans your repo once** — builds a summary cache of every file (signatures, imports, responsibilities). No API calls. Takes a few seconds.
+2. **On each task** — uses git diff + import graph traversal + keyword scoring to rank every file by relevance to what you're working on.
+3. **Packs a tight context document** — changed files get full content, dependencies get summaries, everything else gets dropped. Typically 8k–20k tokens for a 200-file repo.
+4. **Stays current** — auto-repacks silently on commit, so next session starts fresh.
+
+The result: your agent starts every session with a focused, accurate picture of the relevant code — without you doing anything.
 
 ```bash
-# Pipe directly into Claude (primary workflow)
-agentpack pack --agent claude --task "fix auth session bug" --print | claude
+# One-time global setup (works in every repo from that point on)
+agentpack global-install --agent claude
 
-# Or: configure your agent once, then just work
-agentpack install --agent cursor    # patches .cursorrules + git hooks + VS Code tasks
-agentpack install --agent windsurf  # patches .windsurfrules + git hooks + VS Code tasks
-agentpack install --agent codex     # patches AGENTS.md + git hooks
-agentpack install --agent claude    # patches CLAUDE.md + .claude/settings.json hooks
+# That's it. cd into any repo — agentpack silently bootstraps itself.
+# Every Claude Code session gets focused context automatically.
 ```
+
+Or for piped/API workflows:
+
+```bash
+agentpack pack --agent claude --task "fix auth session bug" --print | claude
+```
+
+Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, or any LLM via pipe/API.
 
 ---
 
@@ -107,14 +135,38 @@ Requires Python 3.10+.
 
 ## Quickstart
 
+### Option A: Global install (recommended — works in every repo forever)
+
+```bash
+pip install agentpack
+agentpack global-install --agent claude   # or: cursor, windsurf, codex
+```
+
+That's it. This:
+- Installs git template hooks into `~/.git-templates/` — git copies them into every future repo on `git init` or `git clone`
+- Patches your shell rc (`~/.zshrc` / `~/.bashrc`) with a `cd` hook — silently bootstraps agentpack the first time you enter any git repo
+- Configures your agent (Claude Code hooks, Cursor rules, etc.)
+
+From that point on: `cd` into any project → agentpack silently self-configures. No `init`, no `summarize`, no `install` per project.
+
+> Reload your shell once: `source ~/.zshrc`
+
+### Option B: Per-project setup
+
 ```bash
 cd your-project/
 agentpack init
 agentpack summarize              # build offline summary cache once
+agentpack install --agent claude # configure your agent
+```
+
+### Option C: Piped / API / CI (no agent setup needed)
+
+```bash
 agentpack pack --agent claude --task "fix auth session bug" --print | claude
 ```
 
-Or save to file and pipe later:
+Save to file:
 
 ```bash
 agentpack pack --agent claude --task "fix auth session bug"
@@ -272,6 +324,35 @@ No repo clone needed. Claude gets focused context for exactly the PR's changes.
 ---
 
 ## Commands
+
+### `agentpack global-install`
+
+Install once — works in every repo from that point on. The recommended first step.
+
+```bash
+agentpack global-install --agent claude    # Claude Code
+agentpack global-install --agent cursor    # Cursor
+agentpack global-install --agent windsurf  # Windsurf
+agentpack global-install --agent codex     # Codex
+```
+
+What it does:
+- **Git template hooks** (`~/.git-templates/hooks/`) — git copies these into every repo on `git init` / `git clone`. Triggers silent repack on `post-commit`, `post-merge`, `post-checkout`.
+- **Shell cd hook** (`~/.zshrc` or `~/.bashrc`) — runs `agentpack init --yes --silent` in the background the first time you `cd` into any git repo that isn't configured yet.
+- **Agent config** — same as `agentpack install --agent <x>` for the current project.
+
+All changes are idempotent, reversible, and non-destructive. Existing hooks and rc files are appended to, never overwritten.
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--agent` | `claude` | Target agent |
+| `--no-pipx` | — | Skip pipx install (if agentpack already installed) |
+| `--no-shell-hook` | — | Skip shell rc patching |
+| `--no-git-template` | — | Skip git template hooks |
+
+---
 
 ### `agentpack init`
 
