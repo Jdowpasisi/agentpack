@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import typer
-from agentpack.commands import init, scan, diff, status, stats, summarize, pack, install, monitor, explain
+from agentpack.commands import init, scan, diff, status, stats, summarize, pack, install, monitor, explain, doctor
 
 app = typer.Typer(help="AgentPack — token-aware context packing for AI coding agents.")
 
-for mod in [init, scan, diff, status, stats, summarize, pack, install, monitor, explain]:
+for mod in [init, scan, diff, status, stats, summarize, pack, install, monitor, explain, doctor]:
     mod.register(app)
 
 

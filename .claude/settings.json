@@ -1,12 +1,22 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f .agentpack/.context_injected"
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "result=$(agentpack status 2>&1); code=$?; if [ $code -ne 0 ]; then agentpack pack --task auto --mode balanced 2>/dev/null && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"UserPromptSubmit\", \"additionalContext\": \"agentpack context was stale and has been auto-repacked\"}}' || echo '{\"hookSpecificOutput\": {\"hookEventName\": \"UserPromptSubmit\", \"additionalContext\": \"agentpack context is STALE — run agentpack pack --task to refresh\"}}'; fi",
-            "timeout": 10,
+            "command": "python3 -c \"\nimport json, pathlib, subprocess, sys\nstatus = subprocess.run(['agentpack', 'status'], capture_output=True, text=True)\nrepacked = status.returncode != 0\nif repacked:\n    subprocess.run(['agentpack', 'pack', '--task', 'auto', '--mode', 'balanced'], capture_output=True)\nsentinel = pathlib.Path('.agentpack/.context_injected')\nalready_injected = sentinel.exists()\nif repacked or not already_injected:\n    p = pathlib.Path('.agentpack/context.claude.md')\n    if not p.exists(): sys.exit(0)\n    content = p.read_text()\n    if len(content) > 60000: content = content[:60000] + '\\n... [truncated]'\n    sentinel.write_text('1')\n    label = 'repacked and injected' if repacked else 'injected (session start)'\n    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': f'[agentpack: {label}]\\n\\n' + content}}))\n\"",
+            "timeout": 15,
             "statusMessage": "Checking agentpack freshness..."
           }
         ]
