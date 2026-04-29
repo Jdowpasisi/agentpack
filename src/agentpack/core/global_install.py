@@ -15,24 +15,22 @@ _AGENTPACK_MARKER = "# agentpack:global"
 _POST_CHECKOUT_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
-# Auto-bootstrap agentpack on first checkout of a repo.
-if [ ! -f .agentpack/config.toml ]; then
-  agentpack init --yes --silent 2>/dev/null &
-fi
+# Repack only if this repo has already been opted in to agentpack.
+[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
 """
 
 _POST_COMMIT_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
-# Auto-repack context after every commit.
-agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+# Repack only if this repo has already been opted in to agentpack.
+[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
 """
 
 _POST_MERGE_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
-# Auto-repack context after every merge/pull.
-agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+# Repack only if this repo has already been opted in to agentpack.
+[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
 """
 
 _HOOK_SCRIPTS = {
@@ -136,19 +134,22 @@ _SHELL_MARKER_END = "# agentpack:chpwd:end"
 _ZSH_HOOK = """\
 # agentpack:chpwd:start
 _agentpack_chpwd() {
-  if [ -f .git/HEAD ] && [ ! -f .agentpack/config.toml ]; then
-    agentpack init --yes --silent >/dev/null 2>&1 &
+  # Only act on repos explicitly opted in (have .agentpack/config.toml).
+  # Does NOT auto-init unknown repos — that's an explicit 'agentpack init' decision.
+  if [ -f .agentpack/config.toml ]; then
+    agentpack status >/dev/null 2>&1 || agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
   fi
 }
-add-zsh-hook chpwd _agentpack_chpwd
 autoload -Uz add-zsh-hook
+add-zsh-hook chpwd _agentpack_chpwd
 # agentpack:chpwd:end"""
 
 _BASH_HOOK = """\
 # agentpack:chpwd:start
 _agentpack_chpwd() {
-  if [ -f .git/HEAD ] && [ ! -f .agentpack/config.toml ]; then
-    agentpack init --yes --silent >/dev/null 2>&1 &
+  # Only act on repos explicitly opted in (have .agentpack/config.toml).
+  if [ -f .agentpack/config.toml ]; then
+    agentpack status >/dev/null 2>&1 || agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
   fi
 }
 if [[ "$PROMPT_COMMAND" != *"_agentpack_chpwd"* ]]; then

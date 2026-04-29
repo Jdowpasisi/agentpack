@@ -34,6 +34,8 @@ class TestGitTemplateHooks:
             content = hook.read_text()
             assert _AGENTPACK_MARKER in content
             assert "agentpack" in content
+            # Must guard on opted-in repos only
+            assert ".agentpack/config.toml" in content
 
     def test_hooks_are_executable(self, tmp_path, monkeypatch):
         import agentpack.core.global_install as gi
@@ -149,6 +151,34 @@ class TestShellHook:
         rc.write_text("# nothing here\n")
         action, _ = remove_shell_hook(rc)
         assert action == "unchanged"
+
+    def test_shell_hook_guards_on_config_toml(self, tmp_path):
+        """Hook must only act on repos with .agentpack/config.toml — never auto-init unknown repos."""
+        rc = tmp_path / ".zshrc"
+        install_shell_hook(rc)
+        content = rc.read_text()
+        assert ".agentpack/config.toml" in content
+        # The executable body must check config.toml before doing anything
+        # (comment lines referencing 'agentpack init' are acceptable)
+        body_lines = [
+            l for l in content.splitlines()
+            if not l.strip().startswith("#") and "agentpack init" in l
+        ]
+        assert body_lines == [], f"Shell hook body auto-inits without opt-in check: {body_lines}"
+
+    def test_git_hooks_guard_on_config_toml(self, tmp_path):
+        """Git template hooks must exit silently for repos that haven't opted in."""
+        import agentpack.core.global_install as gi
+        gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
+        install_git_template_hooks()
+        for name in _HOOK_SCRIPTS:
+            content = (tmp_path / ".git-templates" / "hooks" / name).read_text()
+            assert ".agentpack/config.toml" in content
+            body_lines = [
+                l for l in content.splitlines()
+                if not l.strip().startswith("#") and "agentpack init" in l
+            ]
+            assert body_lines == [], f"{name} auto-inits without opt-in check: {body_lines}"
 
 
 # ---------------------------------------------------------------------------
