@@ -11,11 +11,12 @@ _USE = re.compile(r"^\s*(?:pub\s+)?use\s+([\w::{}, ]+)\s*;", re.MULTILINE)
 _EXTERN = re.compile(r"^\s*extern\s+crate\s+(\w+)\s*;", re.MULTILINE)
 
 
-def extract_imports(path: Path) -> list[str]:
-    try:
-        text = path.read_text(errors="replace")
-    except OSError:
-        return []
+def extract_imports(path: Path, text: str | None = None) -> list[str]:
+    if text is None:
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            return []
 
     imports: list[str] = []
     for m in _MOD.finditer(text):

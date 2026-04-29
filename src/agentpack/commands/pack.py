@@ -123,7 +123,7 @@ def _do_pack(
 
     t0 = time.perf_counter()
     with console.status("[bold]Building dependency graph..."):
-        dep_graph = _build_dep_graph(files, root)
+        dep_graph = _build_dep_graph(files, root, summaries=summaries)
     phase_times["deps"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
@@ -410,7 +410,7 @@ def _pack_watch(
     observer.join()
 
 
-def _build_dep_graph(files: list, root: Path) -> dict[str, dict]:
+def _build_dep_graph(files: list, root: Path, summaries: dict | None = None) -> dict[str, dict]:
     graph: dict[str, dict] = {
         fi.path: {"imports": [], "imported_by": [], "tests": []} for fi in files
     }
@@ -420,19 +420,30 @@ def _build_dep_graph(files: list, root: Path) -> dict[str, dict]:
         if fi.ignored or fi.binary:
             continue
 
+        # Use cached imports from summary if available — avoids re-parsing
+        if summaries and fi.path in summaries:
+            cached_imports = summaries[fi.path].get("imports", [])
+            if cached_imports:
+                graph[fi.path]["imports"] = cached_imports
+                for dep in cached_imports:
+                    if dep in graph:
+                        graph[dep]["imported_by"].append(fi.path)
+                continue
+
         raw_imports: list[str] = []
         lang = fi.language
+        cached = fi.content  # may be None for ignored/binary
 
         if lang == "python":
-            raw_imports = py_imports(fi.abs_path)
+            raw_imports = py_imports(fi.abs_path, cached)
         elif lang in ("javascript", "typescript"):
-            raw_imports = js_imports(fi.abs_path)
+            raw_imports = js_imports(fi.abs_path, cached)
         elif lang == "go":
-            raw_imports = go_imports(fi.abs_path)
+            raw_imports = go_imports(fi.abs_path, cached)
         elif lang == "rust":
-            raw_imports = rust_imports(fi.abs_path)
+            raw_imports = rust_imports(fi.abs_path, cached)
         elif lang in ("java", "kotlin"):
-            raw_imports = java_imports(fi.abs_path)
+            raw_imports = java_imports(fi.abs_path, cached)
 
         resolved: list[str] = []
         for imp in raw_imports:

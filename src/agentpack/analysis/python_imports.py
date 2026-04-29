@@ -4,9 +4,10 @@ import ast
 from pathlib import Path
 
 
-def extract_imports(path: Path) -> list[str]:
+def extract_imports(path: Path, text: str | None = None) -> list[str]:
     try:
-        tree = ast.parse(path.read_text(errors="replace"))
+        source = text if text is not None else path.read_text(errors="replace")
+        tree = ast.parse(source)
     except SyntaxError:
         return []
 

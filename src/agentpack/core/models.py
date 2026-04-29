@@ -13,6 +13,7 @@ class FileInfo(BaseModel):
     ignored: bool = False
     binary: bool = False
     too_large: bool = False
+    content: str | None = None  # cached at scan time; avoids re-reads in scoring/selection
 
     model_config = {"arbitrary_types_allowed": True}
 
