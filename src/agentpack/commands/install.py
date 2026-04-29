@@ -6,17 +6,21 @@ from pathlib import Path
 import typer
 
 from agentpack.adapters.claude import ClaudeAdapter
+from agentpack.adapters.cursor import CursorAdapter
+from agentpack.adapters.windsurf import WindsurfAdapter
 from agentpack.commands._shared import console, _root
+
+_SUPPORTED_AGENTS = ("claude", "cursor", "windsurf")
 
 
 def register(app: typer.Typer) -> None:
     @app.command()
     def install(
-        agent: str = typer.Option("claude", "--agent", help="Target agent."),
-        slash_command: bool = typer.Option(True, "--slash-command/--no-slash-command", help="Install /agentpack slash command."),
-        global_install: bool = typer.Option(False, "--global/--local", help="Install globally (~/.claude/commands/) or locally (.claude/commands/)."),
+        agent: str = typer.Option("claude", "--agent", help=f"Target agent ({' | '.join(_SUPPORTED_AGENTS)})."),
+        slash_command: bool = typer.Option(True, "--slash-command/--no-slash-command", help="Install /agentpack slash command (Claude only)."),
+        global_install: bool = typer.Option(False, "--global/--local", help="Install globally or locally."),
     ) -> None:
-        """Patch CLAUDE.md and install the /agentpack slash command for Claude CLI."""
+        """Configure agentpack for your AI coding agent (Claude, Cursor, or Windsurf)."""
         root = _root()
 
         if agent == "claude":
@@ -25,19 +29,39 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green]CLAUDE.md {action}.[/]")
 
             hook_action = adapter.patch_claude_settings(root, global_install)
-            console.print(f"[green].claude/settings.json {hook_action}.[/]")
+            scope = "~/.claude/settings.json" if global_install else ".claude/settings.json"
+            console.print(f"[green]{scope} {hook_action}.[/]")
 
             if slash_command:
                 _install_slash_command(root, global_install)
+
+        elif agent == "cursor":
+            adapter = CursorAdapter()
+            # Write .cursorrules (legacy + v0.43+ .mdc)
+            rules_action = adapter.patch_cursor_rules(root)
+            console.print(f"[green].cursorrules {rules_action}.[/]")
+            mdc_action = adapter.patch_cursor_mdc(root)
+            console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
+            console.print("  Cursor will read [bold].agentpack/context.md[/] automatically.")
+            console.print("  Run [bold]agentpack pack --agent cursor --task \"<task>\"[/] to generate context.")
+
+        elif agent == "windsurf":
+            adapter = WindsurfAdapter()
+            rules_action = adapter.patch_windsurfrules(root)
+            console.print(f"[green].windsurfrules {rules_action}.[/]")
+            console.print("  Windsurf will read [bold].agentpack/context.md[/] automatically.")
+            console.print("  Run [bold]agentpack pack --agent windsurf --task \"<task>\"[/] to generate context.")
+
         else:
-            console.print(f"[yellow]No install action defined for agent: {agent}[/]")
+            console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
+            raise typer.Exit(1)
 
     @app.command(name="global-install")
     def global_install_cmd(
-        agent: str = typer.Option("claude", "--agent", help="Target agent."),
+        agent: str = typer.Option("claude", "--agent", help=f"Target agent ({' | '.join(_SUPPORTED_AGENTS)})."),
         pipx: bool = typer.Option(True, "--pipx/--no-pipx", help="Install via pipx for global availability."),
     ) -> None:
-        """Install agentpack globally (pipx) and set up the slash command system-wide."""
+        """Install agentpack globally (pipx) and configure the target agent system-wide."""
         import subprocess as sp
 
         if pipx:
@@ -59,9 +83,9 @@ def register(app: typer.Typer) -> None:
                     raise typer.Exit(1)
                 console.print("[green]Installed via pip --user.[/]")
 
-        # Install slash command and hooks globally
+        root = _root()
+
         if agent == "claude":
-            root = _root()
             adapter = ClaudeAdapter()
             hook_action = adapter.patch_claude_settings(root, global_install=True)
             console.print(f"[green]~/.claude/settings.json {hook_action}.[/]")
@@ -69,8 +93,26 @@ def register(app: typer.Typer) -> None:
             console.print("\n[bold green]Global install complete.[/]")
             console.print("  `agentpack` is available in any terminal.")
             console.print("  `/agentpack` is available in any Claude CLI session.")
+
+        elif agent == "cursor":
+            adapter = CursorAdapter()
+            rules_action = adapter.patch_cursor_rules(root)
+            console.print(f"[green].cursorrules {rules_action}.[/]")
+            mdc_action = adapter.patch_cursor_mdc(root)
+            console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
+            console.print("\n[bold green]Global install complete.[/]")
+            console.print("  Run [bold]agentpack install --agent cursor[/] in each project.")
+
+        elif agent == "windsurf":
+            adapter = WindsurfAdapter()
+            rules_action = adapter.patch_windsurfrules(root)
+            console.print(f"[green].windsurfrules {rules_action}.[/]")
+            console.print("\n[bold green]Global install complete.[/]")
+            console.print("  Run [bold]agentpack install --agent windsurf[/] in each project.")
+
         else:
-            console.print(f"[yellow]No slash command defined for agent: {agent}[/]")
+            console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
+            raise typer.Exit(1)
 
 
 def _install_slash_command(root: Path, global_install: bool) -> None:
