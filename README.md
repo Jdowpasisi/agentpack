@@ -29,17 +29,21 @@ AgentPack solves this with a one-time offline analysis pass:
 3. **Packs a tight context document** — changed files get full content, dependencies get summaries, everything else gets dropped. Typically 8k–20k tokens for a 200-file repo.
 4. **Stays current** — auto-repacks silently on commit, so next session starts fresh.
 
-The result: your agent starts every session with a focused, accurate picture of the relevant code — without you doing anything.
+The result: your agent starts every session with a focused, accurate picture of the relevant code — without you doing anything after opt-in.
 
 ```bash
-# One-time global setup (works in every repo from that point on)
+# One-time global setup
+pip install agentpack
 agentpack global-install --agent claude
 
-# That's it. cd into any repo — agentpack silently bootstraps itself.
+# Opt a project in (once per repo, ~5 seconds)
+cd your-project && agentpack init
+
+# From that point on — nothing. Every commit silently repacks.
 # Every Claude Code session gets focused context automatically.
 ```
 
-Or for piped/API workflows:
+Or for piped/API workflows (no setup needed):
 
 ```bash
 agentpack pack --agent claude --task "fix auth session bug" --print | claude
@@ -135,21 +139,26 @@ Requires Python 3.10+.
 
 ## Quickstart
 
-### Option A: Global install (recommended — works in every repo forever)
+### Option A: Global install + per-project opt-in (recommended)
 
 ```bash
 pip install agentpack
 agentpack global-install --agent claude   # or: cursor, windsurf, codex
+source ~/.zshrc                           # reload shell once
 ```
 
-That's it. This:
-- Installs git template hooks into `~/.git-templates/` — git copies them into every future repo on `git init` or `git clone`
-- Patches your shell rc (`~/.zshrc` / `~/.bashrc`) with a `cd` hook — silently bootstraps agentpack the first time you enter any git repo
-- Configures your agent (Claude Code hooks, Cursor rules, etc.)
+Then opt each project in:
 
-From that point on: `cd` into any project → agentpack silently self-configures. No `init`, no `summarize`, no `install` per project.
+```bash
+cd your-project && agentpack init
+```
 
-> Reload your shell once: `source ~/.zshrc`
+That's the full setup. After `init`, agentpack runs entirely in the background:
+- **On every commit/merge** — git hooks silently repack context (only in opted-in repos)
+- **On `cd`** — shell hook repacks if stale (only in opted-in repos — never touches repos without `.agentpack/config.toml`)
+- **On session start** — Claude Code hook injects the pack into context automatically
+
+**Opt-in is explicit.** `global-install` does not auto-configure repos you haven't touched. No `.agentpack/` directories appear in repos you didn't run `agentpack init` in.
 
 ### Option B: Per-project setup
 
@@ -337,11 +346,11 @@ agentpack global-install --agent codex     # Codex
 ```
 
 What it does:
-- **Git template hooks** (`~/.git-templates/hooks/`) — git copies these into every repo on `git init` / `git clone`. Triggers silent repack on `post-commit`, `post-merge`, `post-checkout`.
-- **Shell cd hook** (`~/.zshrc` or `~/.bashrc`) — runs `agentpack init --yes --silent` in the background the first time you `cd` into any git repo that isn't configured yet.
+- **Git template hooks** (`~/.git-templates/hooks/`) — git copies these into every repo on `git init` / `git clone`. On `post-commit`, `post-merge`, `post-checkout`: silently repacks **only if `.agentpack/config.toml` exists** — no-op in repos that haven't opted in.
+- **Shell cd hook** (`~/.zshrc` or `~/.bashrc`) — on `cd`, repacks if stale **only in opted-in repos**. Never touches repos without `.agentpack/config.toml`. Never auto-inits.
 - **Agent config** — same as `agentpack install --agent <x>` for the current project.
 
-All changes are idempotent, reversible, and non-destructive. Existing hooks and rc files are appended to, never overwritten.
+All changes are idempotent, reversible, and non-destructive. Existing hooks and rc files are appended to, never overwritten. Repos you haven't explicitly run `agentpack init` in are never touched.
 
 Options:
 

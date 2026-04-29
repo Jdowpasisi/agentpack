@@ -113,13 +113,14 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green]git config --global init.templateDir {git_cfg_action}.[/]")
             console.print("  Every future [bold]git init[/] or [bold]git clone[/] will auto-bootstrap agentpack.")
 
-        # --- Shell cd hook (fires when entering any git repo) ---
+        # --- Shell cd hook (fires when entering opted-in repos) ---
         if shell_hook:
             console.print("\n[bold]Setting up shell cd hook...[/]")
             action, rc_path = install_shell_hook()
             if rc_path:
                 console.print(f"[green]{rc_path} {action}.[/]")
-                console.print("  Agentpack will [bold]silently self-bootstrap[/] when you [bold]cd[/] into any git repo.")
+                console.print("  When you [bold]cd[/] into a repo with [dim].agentpack/config.toml[/], agentpack")
+                console.print("  silently repacks if stale. [dim]Non-configured repos are never touched.[/]")
                 console.print(f"  [dim]Reload with: source {rc_path}[/]")
             else:
                 console.print(f"[yellow]Shell hook: {action}[/]")
@@ -155,9 +156,10 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
 
         console.print("\n[bold green]Global install complete.[/]")
-        console.print("  agentpack now works in [bold]every repo[/] — no per-project setup needed.")
+        console.print("  Git hooks fire on commit/merge/checkout — [bold]only in opted-in repos[/].")
         if shell_hook:
-            console.print("  [dim]cd into any git repo to trigger auto-bootstrap.[/]")
+            console.print("  Shell hook repacks on cd — [bold]only in repos with .agentpack/config.toml[/].")
+        console.print("  To opt a repo in: [bold]cd repo && agentpack init[/]")
 
 
 def _print_auto_repack_results(results: dict[str, str]) -> None:
