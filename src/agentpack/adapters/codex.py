@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agentpack.adapters.base import BaseAdapter
 from agentpack.core.models import ContextPack
+from agentpack.core.git_hooks import install_git_hooks
 from agentpack.renderers.markdown import render_generic
 
 _AGENTPACK_BLOCK = """\
@@ -58,3 +59,10 @@ class CodexAdapter(BaseAdapter):
 
         agents_md.write_text(content.rstrip() + "\n\n" + _AGENTPACK_BLOCK + "\n")
         return "appended"
+
+    def install_auto_repack(self, root: Path) -> dict[str, str]:
+        """Install git hooks for auto-repack. Returns results dict."""
+        results: dict[str, str] = {}
+        hook_results = install_git_hooks(root, agent="codex")
+        results.update({f"git:{k}": v for k, v in hook_results.items()})
+        return results

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from agentpack.adapters.base import BaseAdapter
 from agentpack.core.models import ContextPack
+from agentpack.core.git_hooks import install_git_hooks
+from agentpack.core.vscode_tasks import install_vscode_tasks
 from agentpack.renderers.markdown import render_generic
 
 _AGENTPACK_BLOCK = """\
@@ -97,3 +99,11 @@ agentpack pack --agent cursor --task "<task>"
 
         mdc_path.write_text(content)
         return "created" if not mdc_path.exists() else "updated"
+
+    def install_auto_repack(self, root: Path) -> dict[str, str]:
+        """Install git hooks + VS Code tasks for auto-repack. Returns results dict."""
+        results: dict[str, str] = {}
+        hook_results = install_git_hooks(root, agent="cursor")
+        results.update({f"git:{k}": v for k, v in hook_results.items()})
+        results["vscode:tasks"] = install_vscode_tasks(root, agent="cursor")
+        return results

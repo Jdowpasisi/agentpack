@@ -21,7 +21,7 @@ def register(app: typer.Typer) -> None:
         slash_command: bool = typer.Option(True, "--slash-command/--no-slash-command", help="Install /agentpack slash command (Claude only)."),
         global_install: bool = typer.Option(False, "--global/--local", help="Install globally or locally."),
     ) -> None:
-        """Configure agentpack for your AI coding agent (Claude, Cursor, or Windsurf)."""
+        """Configure agentpack for your AI coding agent (Claude, Cursor, Windsurf, or Codex)."""
         root = _root()
 
         if agent == "claude":
@@ -38,26 +38,25 @@ def register(app: typer.Typer) -> None:
 
         elif agent == "cursor":
             adapter = CursorAdapter()
-            # Write .cursorrules (legacy + v0.43+ .mdc)
             rules_action = adapter.patch_cursor_rules(root)
             console.print(f"[green].cursorrules {rules_action}.[/]")
             mdc_action = adapter.patch_cursor_mdc(root)
             console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
-            console.print("  Cursor will read [bold].agentpack/context.md[/] automatically.")
+            _print_auto_repack_results(adapter.install_auto_repack(root))
             console.print("  Run [bold]agentpack pack --agent cursor --task \"<task>\"[/] to generate context.")
 
         elif agent == "windsurf":
             adapter = WindsurfAdapter()
             rules_action = adapter.patch_windsurfrules(root)
             console.print(f"[green].windsurfrules {rules_action}.[/]")
-            console.print("  Windsurf will read [bold].agentpack/context.md[/] automatically.")
+            _print_auto_repack_results(adapter.install_auto_repack(root))
             console.print("  Run [bold]agentpack pack --agent windsurf --task \"<task>\"[/] to generate context.")
 
         elif agent == "codex":
             adapter = CodexAdapter()
             action = adapter.patch_agents_md(root)
             console.print(f"[green]AGENTS.md {action}.[/]")
-            console.print("  Codex will read [bold].agentpack/context.md[/] at the start of each task.")
+            _print_auto_repack_results(adapter.install_auto_repack(root))
             console.print("  Run [bold]agentpack pack --agent codex --task \"<task>\"[/] to generate context.")
 
         else:
@@ -108,6 +107,7 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green].cursorrules {rules_action}.[/]")
             mdc_action = adapter.patch_cursor_mdc(root)
             console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
+            _print_auto_repack_results(adapter.install_auto_repack(root))
             console.print("\n[bold green]Global install complete.[/]")
             console.print("  Run [bold]agentpack install --agent cursor[/] in each project.")
 
@@ -115,6 +115,7 @@ def register(app: typer.Typer) -> None:
             adapter = WindsurfAdapter()
             rules_action = adapter.patch_windsurfrules(root)
             console.print(f"[green].windsurfrules {rules_action}.[/]")
+            _print_auto_repack_results(adapter.install_auto_repack(root))
             console.print("\n[bold green]Global install complete.[/]")
             console.print("  Run [bold]agentpack install --agent windsurf[/] in each project.")
 
@@ -122,12 +123,23 @@ def register(app: typer.Typer) -> None:
             adapter = CodexAdapter()
             action = adapter.patch_agents_md(root)
             console.print(f"[green]AGENTS.md {action}.[/]")
+            _print_auto_repack_results(adapter.install_auto_repack(root))
             console.print("\n[bold green]Global install complete.[/]")
             console.print("  Run [bold]agentpack install --agent codex[/] in each project.")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
+
+
+def _print_auto_repack_results(results: dict[str, str]) -> None:
+    for key, action in results.items():
+        if action == "unchanged":
+            continue
+        if key.startswith("git:"):
+            console.print(f"[green].git/hooks/{key[4:]} {action}.[/]")
+        elif key == "vscode:tasks":
+            console.print(f"[green].vscode/tasks.json {action}.[/]")
 
 
 def _install_slash_command(root: Path, global_install: bool) -> None:
