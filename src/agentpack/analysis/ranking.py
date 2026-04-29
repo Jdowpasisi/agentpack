@@ -70,6 +70,56 @@ _CONCEPT_MAP: dict[str, frozenset[str]] = {
 
     # search
     "search": frozenset({"index", "query", "fulltext", "elasticsearch", "solr", "lucene", "rank", "score"}),
+
+    # streaming / SSE / websocket
+    "stream": frozenset({"sse", "websocket", "ws", "chunk", "realtime", "push", "subscribe", "channel"}),
+    "sse": frozenset({"stream", "eventstream", "push", "realtime", "subscribe"}),
+    "websocket": frozenset({"stream", "ws", "socket", "realtime", "channel", "push"}),
+    "realtime": frozenset({"stream", "sse", "websocket", "push", "subscribe", "channel"}),
+
+    # webhooks / events
+    "webhook": frozenset({"event", "callback", "notify", "dispatch", "trigger", "listener", "handler"}),
+    "event": frozenset({"webhook", "listener", "handler", "dispatch", "emit", "publish", "subscribe", "bus"}),
+
+    # pagination
+    "pagination": frozenset({"page", "cursor", "offset", "limit", "paginate", "scroll", "infinite"}),
+    "paginate": frozenset({"page", "cursor", "offset", "limit", "pagination"}),
+
+    # validation / schema
+    "validation": frozenset({"validate", "schema", "sanitize", "constraint", "rule", "pydantic", "zod", "yup"}),
+    "validate": frozenset({"validation", "schema", "sanitize", "constraint"}),
+    "schema": frozenset({"validate", "model", "serializer", "deserializer", "marshal", "unmarshal"}),
+
+    # deployment / infra
+    "deploy": frozenset({"release", "rollout", "container", "docker", "k8s", "kubernetes", "terraform", "ci", "cd"}),
+    "docker": frozenset({"container", "image", "compose", "deploy", "k8s", "registry"}),
+    "kubernetes": frozenset({"k8s", "pod", "deployment", "service", "ingress", "helm", "container"}),
+
+    # email / notifications
+    "email": frozenset({"smtp", "sendgrid", "mailgun", "ses", "template", "notification", "mailer"}),
+    "notification": frozenset({"email", "push", "sms", "alert", "webhook", "event"}),
+
+    # payment / billing
+    "payment": frozenset({"stripe", "paypal", "billing", "invoice", "charge", "subscription", "checkout"}),
+    "billing": frozenset({"payment", "subscription", "invoice", "charge", "plan", "tier"}),
+
+    # file / upload
+    "file": frozenset({"upload", "download", "storage", "s3", "blob", "multipart", "attachment", "disk"}),
+
+    # test / testing
+    "test": frozenset({"spec", "fixture", "mock", "stub", "assert", "expect", "describe", "jest", "pytest"}),
+    "mock": frozenset({"stub", "spy", "patch", "fixture", "test", "fake"}),
+
+    # config / env
+    "config": frozenset({"env", "settings", "environment", "dotenv", "toml", "yaml", "ini", "conf"}),
+    "env": frozenset({"config", "settings", "environment", "dotenv", "variable"}),
+
+    # serialization
+    "serialize": frozenset({"json", "marshal", "encode", "decode", "pickle", "protobuf", "msgpack"}),
+    "deserialize": frozenset({"json", "unmarshal", "decode", "parse", "protobuf"}),
+
+    # health check / liveness
+    "health": frozenset({"ping", "liveness", "readiness", "probe", "heartbeat", "status", "check"}),
 }
 
 _VARIANTS: dict[str, str] = {
@@ -173,11 +223,16 @@ def enrich_keywords_from_files(
 
     for path in changed_paths:
         fi = path_map.get(path)
-        if fi is None or not fi.abs_path.exists():
+        if fi is None:
             continue
-        try:
-            text = fi.abs_path.read_text(errors="replace")
-        except OSError:
+        if fi.content is not None:
+            text = fi.content
+        elif fi.abs_path.exists():
+            try:
+                text = fi.abs_path.read_text(errors="replace")
+            except OSError:
+                continue
+        else:
             continue
         # Extract camelCase/snake_case identifiers and plain words
         tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9_]{2,}", text)
@@ -259,7 +314,12 @@ def score_files(
             score += w.symbol_keyword
             reasons.append("symbol keyword match")
 
-        if fi.abs_path.exists():
+        if fi.content is not None:
+            hits = _content_matches_keywords(fi.content, keywords)
+            if hits > 0:
+                score += min(w.content_keyword_max, hits * w.content_keyword_per_hit)
+                reasons.append(f"content keyword match ({hits})")
+        elif fi.abs_path.exists():
             try:
                 text = fi.abs_path.read_text(errors="replace")
                 hits = _content_matches_keywords(text, keywords)
