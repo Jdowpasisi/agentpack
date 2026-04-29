@@ -14,7 +14,7 @@ from agentpack.core.snapshot import build_snapshot, save_snapshot, load_snapshot
 from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata
-from agentpack.core.models import ContextPack, DependencyGraph, ScanResult, SelectedFile, Receipt
+from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
 from agentpack.core.token_estimator import estimate_tokens
 from agentpack.analysis.ranking import score_files, extract_keywords, enrich_keywords_from_files
 from agentpack.analysis.tests import find_related_tests
@@ -47,6 +47,22 @@ class PackResult:
 
 
 @dataclass
+class ChangeSet:
+    """Result of change detection: snapshot diff combined with git diff."""
+    all_changed: set[str]
+    git_staged: set[str]
+    recently_modified: list[str]
+    current_snap: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RankResult:
+    """Result of keyword extraction and file scoring."""
+    keywords: set[str]
+    scored: list[tuple[Any, float, list[str]]]
+
+
+@dataclass
 class PackPlan:
     """Shared planning output used by both pack and explain."""
     task: str
@@ -64,6 +80,73 @@ class PackPlan:
     receipts: list[Receipt]
     phase_times: dict[str, float]
     current_snap: dict[str, Any] = field(default_factory=dict)
+
+
+class ChangeDetector:
+    """Combines snapshot diff + git diff → ChangeSet of changed paths."""
+
+    def detect(
+        self,
+        packable: list[FileInfo],
+        root: Path,
+        since: str | None,
+    ) -> ChangeSet:
+        current_snap = build_snapshot(packable)
+        previous_snap = load_snapshot(root)
+        snap_diff = diff_snapshots(previous_snap, current_snap)
+        changed_from_snap: set[str] = set(snap_diff.added + snap_diff.modified)
+
+        git_changed: set[str] = set()
+        git_staged: set[str] = set()
+        recently_modified: list[str] = []
+
+        if git.is_git_repo(root):
+            if since:
+                git_changed = git.changed_files_since(root, since)
+            else:
+                git_changed = git.changed_files(root)
+            git_staged = git_changed
+            recently_modified = git.recently_modified_files(root)
+
+        return ChangeSet(
+            all_changed=changed_from_snap | git_changed,
+            git_staged=git_staged,
+            recently_modified=recently_modified,
+            current_snap=current_snap,
+        )
+
+
+class FileRanker:
+    """Extracts keywords from the task and scores files against them."""
+
+    def rank(
+        self,
+        packable: list[FileInfo],
+        changes: ChangeSet,
+        dep_graph: DependencyGraph,
+        task: str,
+        cfg: Any,
+    ) -> RankResult:
+        keywords = extract_keywords(task)
+        keywords = enrich_keywords_from_files(keywords, changes.all_changed, packable)
+        all_paths = {f.path for f in packable}
+
+        for fi in packable:
+            tests = find_related_tests(fi.path, all_paths)
+            dep_graph.nodes[fi.path].tests = tests
+
+        scored = score_files(
+            packable,
+            changed_paths=changes.all_changed,
+            staged_paths=changes.git_staged,
+            recently_modified=changes.recently_modified,
+            dep_graph=dep_graph,
+            keywords=keywords,
+            include_tests=cfg.context.include_tests,
+            include_configs=cfg.context.include_configs,
+            weights=cfg.scoring,
+        )
+        return RankResult(keywords=keywords, scored=scored)
 
 
 class PackPlanner:
@@ -92,62 +175,25 @@ class PackPlanner:
         phase_times["deps"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        current_snap = build_snapshot(packable)
-        previous_snap = load_snapshot(root)
-        snap_diff = diff_snapshots(previous_snap, current_snap)
-        changed_from_snap: set[str] = set(snap_diff.added + snap_diff.modified)
-
-        git_changed: set[str] = set()
-        git_staged: set[str] = set()
-        recently_modified: list[str] = []
-
-        if git.is_git_repo(root):
-            if request.since:
-                git_changed = git.changed_files_since(root, request.since)
-            else:
-                git_changed = git.changed_files(root)
-            git_staged = git_changed
-            recently_modified = git.recently_modified_files(root)
-
-        all_changed = changed_from_snap | git_changed
+        changes = ChangeDetector().detect(packable, root, request.since)
         phase_times["changes"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        keywords = extract_keywords(request.task)
-        keywords = enrich_keywords_from_files(keywords, all_changed, packable)
-        all_paths = {f.path for f in packable}
-
-        for fi in packable:
-            tests = find_related_tests(fi.path, all_paths)
-            dep_graph.nodes[fi.path].tests = tests
-
-        scored = score_files(
-            packable,
-            changed_paths=all_changed,
-            staged_paths=git_staged,
-            recently_modified=recently_modified,
-            dep_graph=dep_graph,
-            keywords=keywords,
-            include_tests=cfg.context.include_tests,
-            include_configs=cfg.context.include_configs,
-            weights=cfg.scoring,
-        )
+        rank_result = FileRanker().rank(packable, changes, dep_graph, request.task, cfg)
         phase_times["rank"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         selected, receipts = select_files(
             files=packable,
-            scored=scored,
-            changed_paths=all_changed,
+            scored=rank_result.scored,
+            changed_paths=changes.all_changed,
             summaries=summaries,
             mode=request.mode,  # type: ignore[arg-type]
             budget=effective_budget,
             max_file_tokens=cfg.context.max_file_tokens,
-            keywords=keywords,
+            keywords=rank_result.keywords,
         )
         phase_times["select"] = time.perf_counter() - t0
-
-        current_snap = build_snapshot(packable)
 
         return PackPlan(
             task=request.task,
@@ -156,15 +202,15 @@ class PackPlanner:
             scan_result=scan_result,
             summaries=summaries,
             dep_graph=dep_graph,
-            all_changed=all_changed,
-            git_staged=git_staged,
-            recently_modified=recently_modified,
-            keywords=keywords,
-            scored=scored,
+            all_changed=changes.all_changed,
+            git_staged=changes.git_staged,
+            recently_modified=changes.recently_modified,
+            keywords=rank_result.keywords,
+            scored=rank_result.scored,
             selected=selected,
             receipts=receipts,
             phase_times=phase_times,
-            current_snap=current_snap,
+            current_snap=changes.current_snap,
         )
 
 
