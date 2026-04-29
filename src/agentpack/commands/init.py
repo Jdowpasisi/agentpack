@@ -17,9 +17,13 @@ def register(app: typer.Typer) -> None:
         mode: Optional[str] = typer.Option(None, "--mode", help="Default pack mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Default token budget (0 = keep default 25000)."),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive prompts, use defaults."),
+        silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
         share_cache: bool = typer.Option(False, "--share-cache", help="Commit summary cache to git (recommended for teams)."),
     ) -> None:
         """Initialize AgentPack in the current directory."""
+        if silent:
+            yes = True
+            console.quiet = True
         root = _root()
         agentpack_dir = root / ".agentpack"
         agentpack_dir.mkdir(exist_ok=True)

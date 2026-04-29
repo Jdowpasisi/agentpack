@@ -9,6 +9,11 @@ from agentpack.adapters.claude import ClaudeAdapter
 from agentpack.adapters.codex import CodexAdapter
 from agentpack.adapters.cursor import CursorAdapter
 from agentpack.adapters.windsurf import WindsurfAdapter
+from agentpack.core.global_install import (
+    install_git_template_hooks,
+    configure_git_template_dir,
+    install_shell_hook,
+)
 from agentpack.commands._shared import console, _root
 
 _SUPPORTED_AGENTS = ("claude", "cursor", "windsurf", "codex")
@@ -67,8 +72,15 @@ def register(app: typer.Typer) -> None:
     def global_install_cmd(
         agent: str = typer.Option("claude", "--agent", help=f"Target agent ({' | '.join(_SUPPORTED_AGENTS)})."),
         pipx: bool = typer.Option(True, "--pipx/--no-pipx", help="Install via pipx for global availability."),
+        shell_hook: bool = typer.Option(True, "--shell-hook/--no-shell-hook", help="Add cd hook to shell rc for auto-bootstrap."),
+        git_template: bool = typer.Option(True, "--git-template/--no-git-template", help="Install git template hooks for every new repo."),
     ) -> None:
-        """Install agentpack globally (pipx) and configure the target agent system-wide."""
+        """Install agentpack once — works in every repo from that point on.
+
+        Sets up git template hooks (fired on every git init/clone) and a shell
+        cd hook so agentpack auto-bootstraps silently whenever you enter a git
+        repo for the first time. No per-project setup required after this.
+        """
         import subprocess as sp
 
         if pipx:
@@ -90,46 +102,62 @@ def register(app: typer.Typer) -> None:
                     raise typer.Exit(1)
                 console.print("[green]Installed via pip --user.[/]")
 
+        # --- Git template hooks (fire on every future git init / clone) ---
+        if git_template:
+            console.print("\n[bold]Setting up git template hooks...[/]")
+            hook_results = install_git_template_hooks()
+            for name, action in hook_results.items():
+                if action != "unchanged":
+                    console.print(f"[green]~/.git-templates/hooks/{name} {action}.[/]")
+            git_cfg_action = configure_git_template_dir()
+            console.print(f"[green]git config --global init.templateDir {git_cfg_action}.[/]")
+            console.print("  Every future [bold]git init[/] or [bold]git clone[/] will auto-bootstrap agentpack.")
+
+        # --- Shell cd hook (fires when entering any git repo) ---
+        if shell_hook:
+            console.print("\n[bold]Setting up shell cd hook...[/]")
+            action, rc_path = install_shell_hook()
+            if rc_path:
+                console.print(f"[green]{rc_path} {action}.[/]")
+                console.print("  Agentpack will [bold]silently self-bootstrap[/] when you [bold]cd[/] into any git repo.")
+                console.print(f"  [dim]Reload with: source {rc_path}[/]")
+            else:
+                console.print(f"[yellow]Shell hook: {action}[/]")
+
         root = _root()
 
+        # --- Agent-specific config ---
         if agent == "claude":
             adapter = ClaudeAdapter()
             hook_action = adapter.patch_claude_settings(root, global_install=True)
-            console.print(f"[green]~/.claude/settings.json {hook_action}.[/]")
+            console.print(f"\n[green]~/.claude/settings.json {hook_action}.[/]")
             _install_slash_command(root, global_install=True)
-            console.print("\n[bold green]Global install complete.[/]")
-            console.print("  `agentpack` is available in any terminal.")
-            console.print("  `/agentpack` is available in any Claude CLI session.")
 
         elif agent == "cursor":
             adapter = CursorAdapter()
             rules_action = adapter.patch_cursor_rules(root)
-            console.print(f"[green].cursorrules {rules_action}.[/]")
+            console.print(f"\n[green].cursorrules {rules_action}.[/]")
             mdc_action = adapter.patch_cursor_mdc(root)
             console.print(f"[green].cursor/rules/agentpack.mdc {mdc_action}.[/]")
-            _print_auto_repack_results(adapter.install_auto_repack(root))
-            console.print("\n[bold green]Global install complete.[/]")
-            console.print("  Run [bold]agentpack install --agent cursor[/] in each project.")
 
         elif agent == "windsurf":
             adapter = WindsurfAdapter()
             rules_action = adapter.patch_windsurfrules(root)
-            console.print(f"[green].windsurfrules {rules_action}.[/]")
-            _print_auto_repack_results(adapter.install_auto_repack(root))
-            console.print("\n[bold green]Global install complete.[/]")
-            console.print("  Run [bold]agentpack install --agent windsurf[/] in each project.")
+            console.print(f"\n[green].windsurfrules {rules_action}.[/]")
 
         elif agent == "codex":
             adapter = CodexAdapter()
             action = adapter.patch_agents_md(root)
-            console.print(f"[green]AGENTS.md {action}.[/]")
-            _print_auto_repack_results(adapter.install_auto_repack(root))
-            console.print("\n[bold green]Global install complete.[/]")
-            console.print("  Run [bold]agentpack install --agent codex[/] in each project.")
+            console.print(f"\n[green]AGENTS.md {action}.[/]")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
+
+        console.print("\n[bold green]Global install complete.[/]")
+        console.print("  agentpack now works in [bold]every repo[/] — no per-project setup needed.")
+        if shell_hook:
+            console.print("  [dim]cd into any git repo to trigger auto-bootstrap.[/]")
 
 
 def _print_auto_repack_results(results: dict[str, str]) -> None:
