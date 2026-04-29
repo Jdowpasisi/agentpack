@@ -68,8 +68,20 @@ class ClaudeInstaller:
 
         hooks = existing.setdefault("hooks", {})
 
+        # SessionStart: delete sentinel + kick off background repack so first prompt
+        # gets fresh context without blocking the session.
+        sentinel_cmd = (
+            "rm -f .agentpack/.context_injected"
+            " && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &"
+        )
         session_start = hooks.setdefault("SessionStart", [])
-        sentinel_cmd = "rm -f .agentpack/.context_injected"
+        # Replace any stale agentpack session hooks (old cmd only deleted sentinel).
+        for entry in session_start:
+            entry["hooks"] = [
+                h for h in entry.get("hooks", [])
+                if not (".context_injected" in h.get("command", "") and "rm -f" in h.get("command", ""))
+            ]
+        session_start[:] = [e for e in session_start if e.get("hooks")]
         already_has_session_hook = any(
             any(h.get("command", "") == sentinel_cmd for h in entry.get("hooks", []))
             for entry in session_start
@@ -77,26 +89,43 @@ class ClaudeInstaller:
         if not already_has_session_hook:
             session_start.append({"hooks": [{"type": "command", "command": sentinel_cmd}]})
 
-        user_prompt = hooks.setdefault("UserPromptSubmit", [])
+        # UserPromptSubmit: hash-gated injection.
+        # - Always runs `agentpack status` (cheap; uses cached file hashes).
+        # - Stale → background repack, no injection this turn.
+        # - Fresh + new pack hash → inject once, write hash to sentinel.
+        # - Fresh + same hash → skip (already injected this pack version).
         inject_command = (
             "python3 -c \"\n"
-            "import json, pathlib, subprocess, sys\n"
-            "status = subprocess.run(['agentpack', 'status'], capture_output=True, text=True)\n"
-            "repacked = status.returncode != 0\n"
-            "if repacked:\n"
-            "    subprocess.run(['agentpack', 'pack', '--task', 'auto', '--mode', 'balanced'], capture_output=True)\n"
+            "import hashlib, json, pathlib, subprocess, sys\n"
+            "snap = pathlib.Path('.agentpack/snapshots/latest.json')\n"
+            "current_hash = hashlib.md5(snap.read_bytes()).hexdigest() if snap.exists() else None\n"
             "sentinel = pathlib.Path('.agentpack/.context_injected')\n"
-            "already_injected = sentinel.exists()\n"
-            "if repacked or not already_injected:\n"
-            "    p = pathlib.Path('.agentpack/context.claude.md')\n"
-            "    if not p.exists(): sys.exit(0)\n"
-            "    content = p.read_text()\n"
-            "    if len(content) > 60000: content = content[:60000] + '\\n... [truncated]'\n"
-            "    sentinel.write_text('1')\n"
-            "    label = 'repacked and injected' if repacked else 'injected (session start)'\n"
-            "    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': f'[agentpack: {label}]\\n\\n' + content}}))\n"
+            "injected_hash = sentinel.read_text().strip() if sentinel.exists() else None\n"
+            "status = subprocess.run(['agentpack', 'status'], capture_output=True, text=True)\n"
+            "if status.returncode != 0:\n"
+            "    subprocess.Popen(['agentpack', 'pack', '--task', 'auto', '--mode', 'balanced'],\n"
+            "                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "    sys.exit(0)\n"
+            "if current_hash == injected_hash:\n"
+            "    sys.exit(0)\n"
+            "p = pathlib.Path('.agentpack/context.claude.md')\n"
+            "if not p.exists(): sys.exit(0)\n"
+            "content = p.read_text()\n"
+            "if len(content) > 60000: content = content[:60000] + '\\n... [truncated]'\n"
+            "sentinel.write_text(current_hash or '1')\n"
+            "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',\n"
+            "    'additionalContext': '[agentpack: context injected]\\n\\n' + content}}))\n"
             "\""
         )
+        user_prompt = hooks.setdefault("UserPromptSubmit", [])
+        # Replace any stale agentpack inject hooks (identified by signature strings).
+        for entry in user_prompt:
+            entry["hooks"] = [
+                h for h in entry.get("hooks", [])
+                if "context.claude.md" not in h.get("command", "")
+                and ".context_injected" not in h.get("command", "")
+            ]
+        user_prompt[:] = [e for e in user_prompt if e.get("hooks")]
         already_has_prompt_hook = any(
             any(h.get("command", "") == inject_command for h in entry.get("hooks", []))
             for entry in user_prompt
@@ -107,13 +136,12 @@ class ClaudeInstaller:
                     "type": "command",
                     "command": inject_command,
                     "timeout": 15,
-                    "statusMessage": "Checking agentpack freshness...",
+                    "statusMessage": "Checking agentpack context...",
                 }]
             })
 
-        action = "unchanged"
-        if not already_has_session_hook or not already_has_prompt_hook:
-            settings_path.write_text(json.dumps(existing, indent=2) + "\n")
-            action = "updated" if settings_path.exists() else "created"
-
-        return action
+        new_content = json.dumps(existing, indent=2) + "\n"
+        if settings_path.exists() and settings_path.read_text() == new_content:
+            return "unchanged"
+        settings_path.write_text(new_content)
+        return "updated"
