@@ -80,9 +80,17 @@ def load_config(root: Path) -> Config:
     path = config_path(root)
     if not path.exists():
         return DEFAULT_CONFIG
-    with path.open("rb") as f:
-        data: dict[str, Any] = tomllib.load(f)
-    return Config.model_validate(data)
+    try:
+        with path.open("rb") as f:
+            data: dict[str, Any] = tomllib.load(f)
+        return Config.model_validate(data)
+    except Exception:
+        import warnings
+        warnings.warn(
+            f"Failed to parse {path} — using defaults. Fix or delete the file.",
+            stacklevel=2,
+        )
+        return DEFAULT_CONFIG
 
 
 def save_config(cfg: Config, root: Path) -> None:

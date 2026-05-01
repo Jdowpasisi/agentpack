@@ -9,11 +9,15 @@ _AGENTPACK_BLOCK = """\
 <!-- agentpack:start -->
 ## AgentPack Context
 
-Before working on any task, read the generated context pack:
+Before working on any task:
 
-- `.agentpack/context.md`
+1. Ensure the context pack exists and is fresh:
+   ```bash
+   agentpack pack --agent codex --task auto --mode balanced
+   ```
+2. Read `.agentpack/context.md` in full before starting work.
 
-Regenerate it with:
+Regenerate any time the task or files change:
 
 ```bash
 agentpack pack --agent codex --task "<task>"

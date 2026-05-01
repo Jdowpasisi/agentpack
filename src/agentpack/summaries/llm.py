@@ -34,18 +34,40 @@ def summarize_with_claude(
     except OSError:
         content = ""
 
-    client = anthropic.Anthropic()
-    message = client.messages.create(
-        model=model,
-        max_tokens=300,
-        system=_SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": f"File: {path}\nLanguage: {language or 'unknown'}\n\n```\n{content}\n```",
-            }
-        ],
-    )
+    import os
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise EnvironmentError(
+            "ANTHROPIC_API_KEY is not set. "
+            "Set it or use --summary-provider offline (the default)."
+        )
+
+    try:
+        client = anthropic.Anthropic()
+        message = client.messages.create(
+            model=model,
+            max_tokens=300,
+            system=_SYSTEM_PROMPT,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"File: {path}\nLanguage: {language or 'unknown'}\n\n```\n{content}\n```",
+                }
+            ],
+        )
+    except anthropic.AuthenticationError as exc:
+        raise EnvironmentError(
+            f"Anthropic authentication failed — check ANTHROPIC_API_KEY. ({exc})"
+        ) from exc
+    except anthropic.RateLimitError as exc:
+        raise RuntimeError(
+            f"Anthropic rate limit hit while summarising {path}. "
+            "Wait and retry, or use --summary-provider offline."
+        ) from exc
+    except anthropic.APIStatusError as exc:
+        raise RuntimeError(
+            f"Anthropic API error while summarising {path}: {exc}"
+        ) from exc
+
     summary_text = message.content[0].text if message.content else ""
 
     symbols = extract_symbols(abs_path, language)

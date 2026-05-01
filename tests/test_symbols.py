@@ -47,3 +47,36 @@ def test_js_class(tmp_path):
     syms = extract_js_symbols(f)
     names = [s.name for s in syms]
     assert "AuthService" in names
+
+
+def test_js_arrow_function_detected(tmp_path):
+    f = tmp_path / "mod.js"
+    f.write_text("const handleClick = (e) => { console.log(e); }\n")
+    syms = extract_js_symbols(f)
+    names = [s.name for s in syms]
+    assert "handleClick" in names
+
+
+def test_js_arrow_function_no_params(tmp_path):
+    f = tmp_path / "mod.js"
+    f.write_text("const init = () => { return 42; }\n")
+    syms = extract_js_symbols(f)
+    names = [s.name for s in syms]
+    assert "init" in names
+
+
+def test_js_non_arrow_assignment_not_extracted(tmp_path):
+    # This is NOT an arrow function — should not be extracted as a function symbol
+    f = tmp_path / "mod.js"
+    f.write_text("const result = (a + b) * c;\n")
+    syms = extract_js_symbols(f)
+    names = [s.name for s in syms]
+    assert "result" not in names
+
+
+def test_js_async_arrow_function(tmp_path):
+    f = tmp_path / "mod.ts"
+    f.write_text("export const fetchUser = async (id: string) => {\n  return db.find(id);\n};\n")
+    syms = extract_js_symbols(f)
+    names = [s.name for s in syms]
+    assert "fetchUser" in names

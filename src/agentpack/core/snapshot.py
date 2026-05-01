@@ -54,4 +54,7 @@ def load_snapshot(root: Path) -> dict[str, Any] | None:
     path = _latest_path(root)
     if not path.exists():
         return None
-    return json.loads(path.read_text())
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
