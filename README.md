@@ -1,6 +1,8 @@
 # AgentPack
 
-> **Status: alpha (v0.1.0).** Works, tested, used in real sessions. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.0).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+>
+> **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
 **Token-aware context packing for AI coding agents.**
 
@@ -269,7 +271,7 @@ Configures:
 |---|---|---|---|---|
 | Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` |
 | Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` |
-| Auto-repack when stale | ✅ hook (per prompt) | ✅ git hooks | ✅ git hooks | ✅ git hooks |
+| Auto-repack when stale | ✅ hook (snapshot hash, ~1ms when fresh) | ✅ git hooks | ✅ git hooks | ✅ git hooks |
 | Manual repack shortcut | ✅ `/agentpack` slash cmd | ✅ VS Code task | ✅ VS Code task | `agentpack pack` |
 
 ---
@@ -442,9 +444,20 @@ Per-repo state
 Agent config
   ✓ CLAUDE.md (agentpack configured)
   - .cursorrules not present (optional)
+  ✓ Claude hooks present (local): .claude/settings.json
+  ! ~/.claude/settings.json has no agentpack hooks — run: agentpack install --agent claude --global
+  ! Hooks local-only — context won't auto-inject in other repos. Run: agentpack install --agent claude --global
 
-All checks passed.
+Slash command (/agentpack)
+  ✓ Slash command installed (local): .claude/commands/agentpack.md
+  - Slash command not installed globally — run: agentpack install --agent claude --global
+
+Some checks failed. Run the suggested commands above to fix.
 ```
+
+The new checks in `doctor`:
+- **Local vs global hooks**: warns when Claude hooks are only in the per-project `.claude/settings.json` — context won't auto-inject in other repos
+- **Slash command presence**: checks both local (`.claude/commands/`) and global (`~/.claude/commands/`) installations
 
 ---
 
@@ -786,9 +799,10 @@ Works like `.gitignore`. Default rules exclude:
           │                 ─  Rust regex            │
           │                 ─  Java/Kotlin regex     │
           │                                         │
-          │  Symbol extract  ── Python AST          │
-          │    (body via       ── JS/TS regex       │
-          │  ast.get_source_segment — no re-read)   │
+          │  Symbol extract  ── Python AST (full)   │
+          │    (body via       ── JS/TS (functions, │
+          │  ast.get_source_segment)   classes,     │
+          │                    ── arrow fns w/ =>)  │
           │                                         │
           │  Test detection  ── name heuristics     │
           │  Task keywords   ── stopwords + variants│
@@ -1146,6 +1160,17 @@ config_file     = 60   # was 25 — configs always matter here
 - **Agent-neutral**: architecture is generic; Claude is the primary target (deepest integration); Cursor, Windsurf, and Codex are supported but less battle-tested
 - **No daemons**: file watching is opt-in via `--session`; git hooks run in the background and are opt-in via `install`
 - **Honest**: packed token count reflects real content, not raw repo size
+
+---
+
+## Known limitations
+
+- **Windows**: not supported. Git hooks use POSIX shell (`#!/bin/sh`, `>/dev/null 2>&1 &`). The Claude Code session hooks use `python3` and `rm -f`. Contributions welcome.
+- **Monorepos**: single-root repos only. If you `agentpack pack` from a monorepo root, all packages are scanned together with no workspace awareness. Workaround: `cd packages/my-pkg && agentpack init && agentpack pack`.
+- **Symbol extraction**: Python (AST, full) and JavaScript/TypeScript (regex, arrow functions + classes) are well-supported. Go, Rust, Java, Kotlin have import graph traversal but no symbol extraction — they fall back to file-level summaries.
+- **Secret redaction**: covers AWS keys, GitHub tokens, OpenAI/Anthropic keys, JWTs, and private key blocks. Not a substitute for a dedicated secrets scanner on sensitive repos.
+- **Token estimates**: uses tiktoken `cl100k_base` — approximate, not exact for Claude's billing.
+- **Large repos (>5k files)**: global auto-bootstrap is skipped for repos over 5,000 files to avoid hangs. Run `agentpack init` explicitly in large codebases.
 
 ---
 

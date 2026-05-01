@@ -88,8 +88,10 @@ def _args_str(args: ast.arguments) -> str:
 _JS_FUNC = re.compile(
     r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(",
 )
+# Require => on the same line to avoid matching non-arrow assignments like:
+#   const result = (a + b)
 _JS_ARROW = re.compile(
-    r"(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(",
+    r"(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>",
 )
 _JS_CLASS = re.compile(r"(?:export\s+)?class\s+(\w+)")
 

@@ -23,7 +23,14 @@ def load_summary(
     cache_file = _cache_dir(root) / f"{key}.json"
     if not cache_file.exists():
         return None
-    return FileSummary.model_validate_json(cache_file.read_text())
+    try:
+        return FileSummary.model_validate_json(cache_file.read_text())
+    except Exception:
+        try:
+            cache_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
 
 
 def save_summary(root: Path, summary: FileSummary) -> None:

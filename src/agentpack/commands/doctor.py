@@ -116,19 +116,51 @@ def register(app: typer.Typer) -> None:
 
         claude_settings = root / ".claude" / "settings.json"
         global_claude_settings = Path.home() / ".claude" / "settings.json"
-        if claude_settings.exists() or global_claude_settings.exists():
-            path = claude_settings if claude_settings.exists() else global_claude_settings
+        import json as _json
+        _local_has_hooks = False
+        _global_has_hooks = False
+        if claude_settings.exists():
             try:
-                import json
-                data = json.loads(path.read_text())
+                data = _json.loads(claude_settings.read_text())
                 hooks = data.get("hooks", {})
-                has_hooks = "UserPromptSubmit" in hooks or "SessionStart" in hooks
-                if has_hooks:
-                    console.print(f"  [green]✓[/] Claude hooks present in {path}")
+                if "UserPromptSubmit" in hooks or "SessionStart" in hooks:
+                    console.print(f"  [green]✓[/] Claude hooks present (local): {claude_settings}")
+                    _local_has_hooks = True
                 else:
-                    console.print(f"  [yellow]![/] Claude hooks missing in {path} — run: agentpack install --agent claude")
+                    console.print(f"  [yellow]![/] Claude hooks missing (local) — run: agentpack install --agent claude")
+                    ok = False
             except Exception:
-                console.print(f"  [yellow]![/] Could not parse {path}")
+                console.print(f"  [yellow]![/] Could not parse {claude_settings}")
+        else:
+            console.print("  [dim]-[/] .claude/settings.json not present (run: agentpack install --agent claude)")
+        if global_claude_settings.exists():
+            try:
+                data = _json.loads(global_claude_settings.read_text())
+                hooks = data.get("hooks", {})
+                if "UserPromptSubmit" in hooks or "SessionStart" in hooks:
+                    console.print(f"  [green]✓[/] Claude hooks present (global): {global_claude_settings}")
+                    _global_has_hooks = True
+                else:
+                    console.print(f"  [yellow]![/] Claude hooks missing (global) — run: agentpack install --agent claude --global")
+            except Exception:
+                console.print(f"  [yellow]![/] Could not parse {global_claude_settings}")
+        else:
+            console.print("  [dim]-[/] ~/.claude/settings.json has no agentpack hooks — run: agentpack install --agent claude --global")
+        if _local_has_hooks and not _global_has_hooks:
+            console.print("  [yellow]![/] Hooks local-only — context won't auto-inject in other repos. Run: agentpack install --agent claude --global")
+
+        # --- Slash command ---
+        console.print("\n[bold]Slash command (/agentpack)[/]")
+        local_cmd = root / ".claude" / "commands" / "agentpack.md"
+        global_cmd = Path.home() / ".claude" / "commands" / "agentpack.md"
+        if local_cmd.exists():
+            console.print(f"  [green]✓[/] Slash command installed (local): {local_cmd}")
+        else:
+            console.print("  [dim]-[/] Slash command not installed locally — run: agentpack install --agent claude")
+        if global_cmd.exists():
+            console.print(f"  [green]✓[/] Slash command installed (global): {global_cmd}")
+        else:
+            console.print("  [dim]-[/] Slash command not installed globally — run: agentpack install --agent claude --global")
 
         _print_summary(ok)
 

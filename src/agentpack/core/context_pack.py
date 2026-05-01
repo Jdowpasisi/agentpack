@@ -75,7 +75,10 @@ def load_pack_metadata(root: Path) -> dict[str, Any] | None:
     path = _metadata_path(root)
     if not path.exists():
         return None
-    return json.loads(path.read_text())
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def _extract_relevant_symbol_bodies(
