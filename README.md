@@ -644,6 +644,67 @@ Use `--omitted` to see what was left out and why. Use `--file` when a file you e
 
 ---
 
+### `agentpack benchmark`
+
+Measure token efficiency, file selection quality, and speed across tasks.
+
+```bash
+agentpack benchmark --task "fix auth token expiry"         # single task
+agentpack benchmark --task "fix auth bug" --compare        # compare minimal/balanced/deep
+agentpack benchmark --init                                 # scaffold .agentpack/benchmark.toml
+agentpack benchmark                                        # run all cases in benchmark.toml
+```
+
+Output per case:
+
+```
+fix auth token expiry  mode=balanced
+
+   packed tokens     29,357
+   raw tokens       187,998
+   saving             84.4%
+   files selected       234
+   changed covered    2/2  (100%)
+   total time          0.45s
+
+   phase    time
+   scan     0.257s
+   rank     0.027s
+   select   0.009s
+
+  top files: src/auth/token.py, src/auth/session.py, ...
+```
+
+**Compare mode** shows all three modes side-by-side:
+
+```
+Mode comparison: fix auth token expiry
+
+   mode        tokens   saving   files   time
+   minimal     29,882    84.1%     253   0.34s
+   balanced    29,882    84.1%     253   0.24s
+   deep         7,563    96.0%      43   0.24s
+```
+
+**With expected files** (add to `benchmark.toml`), you get precision/recall/F1:
+
+```toml
+[[cases]]
+task = "fix auth token expiry"
+mode = "balanced"
+expected_files = [
+  "src/auth/token.py",
+  "src/auth/session.py",
+]
+```
+
+```
+  precision 100.0%  recall 100.0%  F1 100.0%
+  hit: src/auth/session.py, src/auth/token.py
+```
+
+---
+
 ### `agentpack scan`
 
 Scan the repo and report file statistics.
@@ -1022,6 +1083,7 @@ src/agentpack/
     session.py                 # agentpack session start/stop/status/refresh
     watch.py                   # agentpack watch — file watcher with debounce
     claude_cmd.py              # agentpack claude — refresh + launch claude
+    benchmark.py               # agentpack benchmark — token efficiency + selection quality
 ```
 
 ### Key architectural properties
