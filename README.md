@@ -190,68 +190,32 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 
 ## Quickstart
 
-### Option A: Per-project setup (recommended for most users)
-
 ```bash
 pip install agentpack-cli
 cd your-project
 agentpack init
 agentpack install --agent claude   # or: cursor, windsurf, codex
+agentpack session start            # generate initial context
+agentpack watch                    # in another terminal — keeps context fresh
 ```
 
-After `agentpack install --agent claude`:
-- `CLAUDE.md` tells Claude to read the context pack before each task
-- `.claude/settings.json` hooks auto-inject and auto-repack per session
+Then open Claude / Cursor / Codex and write your task normally.
 
-Pack and pipe:
-
-```bash
-agentpack pack --task "fix auth session bug" --print | claude
-```
-
-### Option B: Global automation (advanced — power users)
-
-```bash
-cd your-project/
-agentpack init
-agentpack summarize              # build offline summary cache once
-agentpack install --agent claude # configure your agent
-```
-
-Install once, auto-repacks in every opted-in repo from then on:
-
-```bash
-pip install agentpack-cli
-agentpack global-install --agent claude --dry-run   # preview
-agentpack global-install --agent claude             # apply
-source ~/.zshrc
-```
-
-Then opt each project in once:
-
-```bash
-cd your-project && agentpack init
-```
-
-After that, agentpack runs entirely in the background:
-- **On every commit/merge** — git hooks silently repack (opted-in repos only)
-- **On `cd`** — shell hook repacks if stale (opted-in repos only — never touches repos without `.agentpack/config.toml`)
-- **On session start** — Claude Code hook injects context automatically
-
-**Opt-in is explicit.** `global-install` never auto-configures repos you haven't `agentpack init`'d.
-
-### Option C: Piped / API / CI (no agent setup needed)
+**Just want to pipe?**
 
 ```bash
 agentpack pack --agent claude --task "fix auth session bug" --print | claude
 ```
 
-Save to file:
+**Power users (global automation):**
 
 ```bash
-agentpack pack --agent claude --task "fix auth session bug"
-claude < .agentpack/context.claude.md
+agentpack global-install --agent claude --dry-run   # preview
+agentpack global-install --agent claude             # apply
+source ~/.zshrc
 ```
+
+Then opt each project in: `cd your-project && agentpack init`. After that git hooks repack on commit and the Claude Code hook injects context on every session start — no manual steps.
 
 ---
 
@@ -1036,7 +1000,12 @@ src/agentpack/
 
   renderers/
     markdown.py                # renders pre-redacted ContextPack to markdown
+    compact.py                 # compact protocol format for session context files
     receipts.py                # context receipt formatter
+
+  session/
+    state.py                   # SessionState dataclass + load/save/create/stop helpers
+    __init__.py                # re-exports from state.py
 
   commands/                    # CLI only — parse args, call services/installers
     pack.py                    # agentpack pack → PackService.run()
@@ -1050,6 +1019,9 @@ src/agentpack/
     monitor.py                 # agentpack monitor
     explain.py                 # agentpack explain
     doctor.py                  # agentpack doctor
+    session.py                 # agentpack session start/stop/status/refresh
+    watch.py                   # agentpack watch — file watcher with debounce
+    claude_cmd.py              # agentpack claude — refresh + launch claude
 ```
 
 ### Key architectural properties
@@ -1119,11 +1091,13 @@ Add to `.github/workflows/agentpack.yml` — see the full example in [CI/CD: pac
 ### Session mode: keep context fresh while you work
 
 ```bash
-# Terminal 1: pack re-generates every time you save
-agentpack pack --agent claude --task "refactor auth" --session
+# Terminal 1: start a session and watch for changes
+agentpack session start --task "refactor auth"
+agentpack watch   # in a second terminal — refreshes context on every save
 
-# Terminal 2: your editor
-# Save a file → pack regenerates automatically
+# Terminal 2: your editor / agent
+# Save a file → context.md regenerates automatically
+# Change task: edit .agentpack/task.md → watch picks it up
 ```
 
 ---
@@ -1209,10 +1183,11 @@ agentpack pack --task "fix bug" --budget 40000   # explicit token cap
 ### Watch mode for active sessions
 
 ```bash
-agentpack pack --task "refactor auth" --session
+agentpack session start --task "refactor auth"
+agentpack watch   # in another terminal
 ```
 
-Repacks every time you save a file.
+Refreshes `.agentpack/context.md` every time you save a file. Change the task by editing `.agentpack/task.md` — watch picks it up automatically.
 
 ### Debug file selection with `explain`
 
@@ -1252,7 +1227,7 @@ config_file     = 60   # was 25 — configs always matter here
 - **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls by default
 - **Non-destructive**: never overwrites user files; config patching only touches agentpack-managed blocks
 - **Agent-neutral**: architecture is generic; Claude is the primary target (deepest integration); Cursor, Windsurf, and Codex are supported but less battle-tested
-- **No daemons**: file watching is opt-in via `--session`; git hooks run in the background and are opt-in via `install`
+- **No daemons**: file watching is opt-in via `agentpack watch`; session management is opt-in via `agentpack session start`; git hooks run in the background and are opt-in via `install`
 - **Honest**: packed token count reflects real content, not raw repo size
 
 ---
@@ -1272,7 +1247,7 @@ config_file     = 60   # was 25 — configs always matter here
 
 ```bash
 pip install "agentpack-cli[llm]"      # anthropic — LLM summaries via Claude Haiku
-pip install "agentpack-cli[watch]"    # watchdog — --session watch mode
+pip install "agentpack-cli[watch]"    # watchdog — faster file watching for agentpack watch
 pip install "agentpack-cli[all]"      # llm + watch
 ```
 
