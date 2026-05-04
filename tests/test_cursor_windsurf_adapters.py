@@ -19,7 +19,7 @@ class TestCursorAdapter:
         assert action == "created"
         content = (tmp_path / ".cursorrules").read_text()
         assert "agentpack:rule:start" in content
-        assert "agentpack pack" in content
+        assert "agentpack session refresh" in content
 
     def test_patch_cursor_rules_idempotent(self, tmp_path):
         adapter = CursorAdapter()
@@ -45,7 +45,7 @@ class TestCursorAdapter:
         assert action == "updated"
         content = rules.read_text()
         assert "Old text" not in content
-        assert "agentpack pack" in content
+        assert "agentpack session refresh" in content
 
     def test_patch_cursor_mdc_creates(self, tmp_path):
         adapter = CursorAdapter()
@@ -55,7 +55,7 @@ class TestCursorAdapter:
         assert mdc.exists()
         content = mdc.read_text()
         assert "alwaysApply: true" in content
-        assert "agentpack pack" in content
+        assert "agentpack session refresh" in content
 
     def test_patch_cursor_mdc_idempotent(self, tmp_path):
         adapter = CursorAdapter()
@@ -79,7 +79,7 @@ class TestWindsurfAdapter:
         assert action == "created"
         content = (tmp_path / ".windsurfrules").read_text()
         assert "agentpack:rule:start" in content
-        assert "agentpack pack" in content
+        assert "agentpack session refresh" in content
 
     def test_patch_windsurfrules_idempotent(self, tmp_path):
         adapter = WindsurfAdapter()
@@ -105,7 +105,7 @@ class TestWindsurfAdapter:
         assert action == "updated"
         content = rules.read_text()
         assert "Old text" not in content
-        assert "agentpack pack" in content
+        assert "agentpack session refresh" in content
 
     def test_output_path(self, tmp_path):
         adapter = WindsurfAdapter()

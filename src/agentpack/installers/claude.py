@@ -8,18 +8,20 @@ _AGENTPACK_BLOCK = """\
 <!-- agentpack:start -->
 ## AgentPack Context
 
-Before working on larger tasks, read the generated context pack:
+AgentPack keeps context fresh automatically. When a session is running:
 
-- `.agentpack/context.claude.md`
+1. Check `.agentpack/session.json` — if `"active": true`, read `.agentpack/context.md`.
+2. For a new task, update `.agentpack/task.md` with a one-line task summary.
+3. After task update, re-read `.agentpack/context.md` (refreshed by watch mode).
+4. Prefer files listed in context, but verify with actual code before editing.
 
-Regenerate it with:
+If no session is running, generate context manually:
 
 ```bash
 agentpack pack --agent claude --task "<task>"
 ```
 
-Use the context pack as the primary task-specific repo context.
-
+Then read `.agentpack/context.claude.md`.
 <!-- agentpack:end -->"""
 
 _BLOCK_RE = re.compile(

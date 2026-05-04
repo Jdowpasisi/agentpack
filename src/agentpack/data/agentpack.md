@@ -20,6 +20,23 @@ Pack the repo context and immediately start working on the task.
 /agentpack install
 ```
 
+## Session Mode (recommended)
+
+If a session is already running (`.agentpack/session.json` exists and active):
+
+1. Read `.agentpack/context.md` — context is already fresh.
+2. Set the current task in `.agentpack/task.md` if different from current work.
+3. Proceed with the task using the context you just read.
+
+To start a session:
+
+```bash
+agentpack session start
+agentpack watch   # in another terminal, keeps context fresh
+```
+
+Then use normal prompts — context stays current automatically.
+
 ## Process
 
 ### Step 1: Check agentpack is installed
