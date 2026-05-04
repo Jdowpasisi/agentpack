@@ -11,8 +11,8 @@ _AGENTPACK_BLOCK = """\
 AgentPack keeps context fresh automatically. When a session is running:
 
 1. Check `.agentpack/session.json` — if `"active": true`, read `.agentpack/context.md`.
-2. For a new task, update `.agentpack/task.md` with a one-line task summary.
-3. After task update, re-read `.agentpack/context.md` (refreshed by watch mode).
+2. When the user gives you a new coding task, write a one-line summary to `.agentpack/task.md`.
+3. Re-read `.agentpack/context.md` after watch mode refreshes it (a few seconds).
 4. Prefer files listed in context, but verify with actual code before editing.
 
 If no session is running, generate context manually:

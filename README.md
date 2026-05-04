@@ -163,7 +163,7 @@ agentpack watch            # in another terminal — refreshes context on file/t
 Then open Claude Code / Cursor / Codex and write your coding task normally.
 
 - AgentPack keeps `.agentpack/context.md` fresh while `watch` is running.
-- To change the task, edit `.agentpack/task.md` — watch auto-refreshes.
+- To change the task: `agentpack session refresh --task "new task"` — or just tell Claude and it updates `task.md` itself.
 - Check session state: `agentpack session status`
 - Force a refresh: `agentpack session refresh`
 - Stop: `agentpack session stop`
@@ -574,7 +574,7 @@ agentpack session stop                       # mark session inactive
 
 `session start` creates:
 - `.agentpack/session.json` — session state
-- `.agentpack/task.md` — edit this to change the current task
+- `.agentpack/task.md` — current task (written by Claude or `session refresh --task`)
 - `.agentpack/context.md` — readable context pack
 - `.agentpack/context.compact.md` — compact protocol format
 
@@ -1097,7 +1097,7 @@ agentpack watch   # in a second terminal — refreshes context on every save
 
 # Terminal 2: your editor / agent
 # Save a file → context.md regenerates automatically
-# Change task: edit .agentpack/task.md → watch picks it up
+# Change task: agentpack session refresh --task "new task"
 ```
 
 ---
@@ -1187,7 +1187,7 @@ agentpack session start --task "refactor auth"
 agentpack watch   # in another terminal
 ```
 
-Refreshes `.agentpack/context.md` every time you save a file. Change the task by editing `.agentpack/task.md` — watch picks it up automatically.
+Refreshes `.agentpack/context.md` every time you save a file. Change the task with `agentpack session refresh --task "..."` — or tell Claude and it writes `task.md` itself.
 
 ### Debug file selection with `explain`
 
