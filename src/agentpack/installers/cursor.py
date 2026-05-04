@@ -8,9 +8,9 @@ from agentpack.integrations.vscode_tasks import install_vscode_tasks
 
 _CURSOR_RULE = """\
 <!-- agentpack:rule:start -->
-Always read `.agentpack/context.md` at the start of every conversation for
-task-specific repo context. If it looks stale, run:
-  agentpack pack --agent cursor --task "<task>"
+If `.agentpack/session.json` exists and active, read `.agentpack/context.md` at the start of every conversation.
+For a new task, update `.agentpack/task.md` with a one-line summary.
+If context is stale or missing: agentpack session refresh
 <!-- agentpack:rule:end -->"""
 
 _RULE_RE = re.compile(
@@ -49,17 +49,16 @@ class CursorInstaller:
 
         content = """\
 ---
-description: AgentPack context injection
+description: AgentPack session context injection
 alwaysApply: true
 ---
 
-Always read `.agentpack/context.md` at the start of every conversation for
-task-specific repo context. If it looks stale or the changed files list is
-empty when you expect changes, run:
+When working in this repository:
 
-```bash
-agentpack pack --agent cursor --task "<task>"
-```
+1. Check `.agentpack/session.json` — if `"active": true`, read `.agentpack/context.md` before editing code.
+2. For a new user task, write a one-line summary to `.agentpack/task.md`.
+3. Prefer files with high AgentPack scores as starting points.
+4. If context seems unrelated to the task, run: `agentpack session refresh`
 """
         already = mdc_path.exists()
         if already and mdc_path.read_text() == content:

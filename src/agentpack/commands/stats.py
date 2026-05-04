@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import typer
 from rich.table import Table
+from rich import box
 
 from agentpack.core.config import load_config
 from agentpack.core.ignore import load_spec
@@ -13,7 +17,7 @@ from agentpack.commands._shared import console, _root
 def register(app: typer.Typer) -> None:
     @app.command()
     def stats() -> None:
-        """Show token-saving statistics."""
+        """Show token-saving statistics and session info."""
         root = _root()
         cfg = load_config(root)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
@@ -29,6 +33,7 @@ def register(app: typer.Typer) -> None:
         ignored_count = len(scan_result.ignored) + len(scan_result.binary)
         included_count = 0
         summarized_count = 0
+        top_files: list[tuple[str, str]] = []
 
         if meta:
             context_path = root / meta.get("context_path", "")
@@ -45,16 +50,89 @@ def register(app: typer.Typer) -> None:
         manual_estimate = min(after_ignore, sum(f.estimated_tokens for f in full_files[:20]))
         vs_manual = (1 - packed / manual_estimate) * 100 if manual_estimate > 0 else 0
 
-        table = Table(title="Token Stats", show_header=True)
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", justify="right")
-        table.add_row("Raw repo tokens", f"{raw:,}")
-        table.add_row("After ignore", f"{after_ignore:,}")
-        table.add_row("Packed tokens", f"[bold]{packed:,}[/]")
-        table.add_row("vs. raw repo", f"[dim]{saving:.1f}% smaller[/]")
-        table.add_row("vs. manual assembly (~20 files)", f"[green]{vs_manual:.1f}% smaller[/]")
-        table.add_row("Files ignored", f"{ignored_count:,}")
-        table.add_row("Files included (full)", f"{included_count:,}")
-        table.add_row("Files summarized", f"{summarized_count:,}")
-        console.print(table)
-        console.print("[dim]'manual assembly' = hand-picking the 20 most relevant full files[/]")
+        # --- Session info ---
+        from agentpack.session.state import load_session, CONTEXT_FILE
+        session = load_session(root)
+
+        if session:
+            sess_tbl = Table(title="Session", box=box.SIMPLE, show_header=False, padding=(0, 2))
+            sess_tbl.add_column(style="dim")
+            sess_tbl.add_column(style="bold")
+            sess_tbl.add_row("active", "[green]yes[/]" if session.active else "[red]no[/]")
+            sess_tbl.add_row("agent", session.agent)
+            sess_tbl.add_row("mode", session.mode)
+            if session.started_at:
+                sess_tbl.add_row("started", session.started_at[:19].replace("T", " "))
+            if session.last_refresh_at:
+                sess_tbl.add_row("last refresh", session.last_refresh_at[:19].replace("T", " "))
+            sess_tbl.add_row("refreshes", str(session.refresh_count))
+            console.print(sess_tbl)
+            console.print()
+
+        # --- Last context top files ---
+        metrics_path = root / ".agentpack" / "metrics.jsonl"
+        last_selected: list[dict] = []
+        if metrics_path.exists():
+            lines = [l.strip() for l in metrics_path.read_text().splitlines() if l.strip()]
+            if lines:
+                try:
+                    last_record = json.loads(lines[-1])
+                    # metrics don't store per-file data — use context file for top files
+                except Exception:
+                    pass
+
+        context_path_obj = root / CONTEXT_FILE
+        if context_path_obj.exists():
+            top_files = _parse_top_files(context_path_obj)
+
+        # --- Token table ---
+        token_tbl = Table(title="Last Context", box=box.SIMPLE, show_header=False, padding=(0, 2))
+        token_tbl.add_column(style="dim")
+        token_tbl.add_column(justify="right", style="bold")
+        token_tbl.add_row("raw repo tokens", f"{raw:,}")
+        token_tbl.add_row("after ignore", f"{after_ignore:,}")
+        token_tbl.add_row("packed tokens", f"{packed:,}")
+        token_tbl.add_row("vs raw repo", f"[green]{saving:.1f}% smaller[/]")
+        token_tbl.add_row("vs manual (~20 files)", f"[green]{vs_manual:.1f}% smaller[/]")
+        token_tbl.add_row("files ignored", f"{ignored_count:,}")
+        token_tbl.add_row("files full", f"{included_count:,}")
+        token_tbl.add_row("files summarized", f"{summarized_count:,}")
+        console.print(token_tbl)
+
+        if top_files:
+            console.print()
+            top_tbl = Table(title="Top Included", box=box.SIMPLE, show_header=True, padding=(0, 1))
+            top_tbl.add_column("#", width=3, style="dim")
+            top_tbl.add_column("file", style="cyan", max_width=55)
+            top_tbl.add_column("mode", width=8)
+            top_tbl.add_column("why", style="dim", max_width=35)
+            for i, (path, mode, why) in enumerate(top_files[:10], 1):
+                top_tbl.add_row(str(i), path, mode, why)
+            console.print(top_tbl)
+
+        console.print("[dim]'manual' = hand-picking 20 most relevant full files[/]")
+
+
+def _parse_top_files(context_path: Path) -> list[tuple[str, str, str]]:
+    """Parse top selected files from context.md. Returns list of (path, mode, why)."""
+    results: list[tuple[str, str, str]] = []
+    try:
+        content = context_path.read_text(encoding="utf-8")
+        # Parse the Selected Files table: | `path` | mode | score | why |
+        in_table = False
+        for line in content.splitlines():
+            if line.startswith("| File") or line.startswith("|---|"):
+                in_table = True
+                continue
+            if in_table:
+                if not line.startswith("|"):
+                    break
+                parts = [p.strip() for p in line.split("|") if p.strip()]
+                if len(parts) >= 3:
+                    path = parts[0].strip("`")
+                    mode = parts[1]
+                    why = parts[3] if len(parts) > 3 else ""
+                    results.append((path, mode, why))
+    except Exception:
+        pass
+    return results

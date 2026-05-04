@@ -51,6 +51,9 @@ dev = [
   "mypy"
 ]
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

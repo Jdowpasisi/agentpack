@@ -36,12 +36,15 @@ The result: your agent starts every session with a focused, accurate picture of 
 ```bash
 pip install agentpack-cli
 
-# Simplest: per-project setup, explicit control
+# Session mode: start once, then work normally
 cd your-project
 agentpack init
 agentpack install --agent claude
-agentpack pack --task "fix auth session bug" --print | claude
+agentpack session start
+agentpack watch   # in another terminal — keeps context fresh automatically
 ```
+
+Then open Claude / Cursor / Codex and write your task normally. AgentPack keeps `.agentpack/context.md` current.
 
 Or without any setup at all:
 
@@ -144,6 +147,44 @@ pip install agentpack-cli
 Requires Python 3.10+.
 
 > **PyPI note:** The package is `agentpack-cli` (the name `agentpack` was already taken). The CLI command is still `agentpack`.
+
+---
+
+## Start Once, Then Work Normally
+
+The recommended workflow for repeated development sessions:
+
+```bash
+agentpack install          # configure your agent (once per project)
+agentpack session start    # create session state + generate initial context
+agentpack watch            # in another terminal — refreshes context on file/task changes
+```
+
+Then open Claude Code / Cursor / Codex and write your coding task normally.
+
+- AgentPack keeps `.agentpack/context.md` fresh while `watch` is running.
+- To change the task, edit `.agentpack/task.md` — watch auto-refreshes.
+- Check session state: `agentpack session status`
+- Force a refresh: `agentpack session refresh`
+- Stop: `agentpack session stop`
+
+### Agent integration matrix
+
+| Agent | Automation level | Method |
+|---|---|---|
+| Claude Code (hook) | Highest | `UserPromptSubmit` hook auto-injects context |
+| Claude Code (session) | High | `session start` + `watch` + read `context.md` |
+| Codex | Medium | `AGENTS.md` + `session start` + `watch` |
+| Cursor | Medium | `.cursor/rules/agentpack.mdc` + `session start` + `watch` |
+| Windsurf | Medium | `.windsurfrules` + `session start` + `watch` |
+| Generic / piped | Basic | `watch` mode + read `context.md` |
+
+### Honest limitations
+
+- AgentPack cannot intercept prompts inside IDEs — Cursor/Windsurf rely on rules being followed.
+- Claude wrapper (`agentpack claude`) is the most deterministic integration.
+- If the task changes drastically mid-session, context needs one refresh cycle.
+- AgentPack-selected files are ranked starting points, not absolute truth.
 
 ---
 
@@ -553,32 +594,89 @@ Options:
 
 ---
 
+### `agentpack session`
+
+Manage AgentPack sessions — the "start once, work normally" workflow.
+
+```bash
+agentpack session start                      # create session, generate initial context
+agentpack session start --agent claude       # set agent (claude|cursor|codex|generic)
+agentpack session start --task "fix bug"     # set initial task
+agentpack session status                     # show session state + context size
+agentpack session refresh                    # regenerate context now
+agentpack session refresh --task "new task"  # change task + refresh
+agentpack session stop                       # mark session inactive
+```
+
+`session start` creates:
+- `.agentpack/session.json` — session state
+- `.agentpack/task.md` — edit this to change the current task
+- `.agentpack/context.md` — readable context pack
+- `.agentpack/context.compact.md` — compact protocol format
+
+---
+
+### `agentpack watch`
+
+Watch for file and task changes, refresh context automatically.
+
+```bash
+agentpack watch                        # uses session agent/mode if session active
+agentpack watch --debounce 3.0         # wait 3s after last change before refresh
+```
+
+Uses `watchdog` if installed, falls back to polling. Context is refreshed whenever source files or `.agentpack/task.md` change.
+
+Install watchdog for better performance:
+```bash
+pip install "agentpack-cli[watch]"
+```
+
+---
+
+### `agentpack claude`
+
+Launch Claude CLI with an up-to-date context.
+
+```bash
+agentpack claude
+```
+
+Requires an active session (`agentpack session start`). Refreshes context, prints the context path, then launches `claude` if found. Transparent about what it does — no fake prompt injection.
+
+---
+
 ### `agentpack explain`
 
-Debug file selection: show which files would be selected, why, and what was excluded — without writing a context pack.
+Debug file selection — show which files would be selected, why, and what was excluded — without writing a context pack.
 
 ```bash
 agentpack explain --task "fix auth session bug"
 agentpack explain --task auto
+agentpack explain --file src/auth/session.py   # per-file score breakdown
+agentpack explain --omitted                    # top-10 excluded files
 ```
 
-Output:
+Per-file breakdown (`--file`):
 
 ```
-Top selected files (ranked):
-  1. src/auth/session.py        score=180  [full]     modified, filename keyword match
-  2. src/auth/token.py          score=130  [symbols]  direct dependency of changed file
-  3. tests/auth/test_session.py score=95   [summary]  test for src/auth/session.py
+src/auth/session.py
+  selected:  yes
+  score:     310
+  include:   full
+  tokens:    4,200
 
-Files near budget cutoff:
-  4. src/config/security.py     score=45   [summary]  content keyword match (2)
+  signals:
+    +100  modified
+    +80   filename keyword match
+    +60   content keyword match (6)
+    +50   direct dependency of changed file
+    +35   has related tests
 
-Excluded (top 5):
-  - src/unrelated_big.py        score=12   budget exhausted
-  - src/utils.py                score=8    score too low
+  symbols: create_session, revoke_session, validate_session
 ```
 
-Use this when a file you expected isn't showing up, or to tune `.agentignore` and scoring weights.
+Use `--omitted` to see what was left out and why. Use `--file` when a file you expected isn't showing up.
 
 ---
 
@@ -598,17 +696,13 @@ Tokens after ignore:  210,000
 
 ### `agentpack stats`
 
-Show token statistics for the last pack.
+Show session state and token statistics for the last pack.
 
+```bash
+agentpack stats
 ```
-Raw repo tokens:        940,000
-After ignore:           210,000
-Packed tokens:           24,000
-vs. manual assembly:    ~65,000
-Files ignored:            1,230
-Files included (full):       18
-Files summarized:            12
-```
+
+When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files by score.
 
 ---
 
