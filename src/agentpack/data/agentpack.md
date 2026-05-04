@@ -1,10 +1,10 @@
 ---
-description: Pack repo context and immediately start working on the task. Runs agentpack init + pack, reads the context, and begins helping — no manual piping needed.
+description: Pack repo context and immediately start working on the task. Supports session mode (start once, work normally) and manual pack mode. Reads context and begins helping — no manual piping needed.
 ---
 
 # AgentPack
 
-Pack the repo context and immediately start working on the task.
+Pack repo context and immediately start working on the task.
 
 ## Usage
 
@@ -18,31 +18,72 @@ Pack the repo context and immediately start working on the task.
 /agentpack diff
 /agentpack summarize
 /agentpack install
+/agentpack session start
+/agentpack session status
+/agentpack session refresh --task "new task"
+/agentpack session stop
+/agentpack watch
+/agentpack claude
+/agentpack explain --task auto
+/agentpack explain --file src/auth/session.py
+/agentpack explain --omitted
 ```
 
 ## Session Mode (recommended)
 
-If a session is already running (`.agentpack/session.json` exists and active):
+If a session is already running (`.agentpack/session.json` exists and `"active": true`):
 
 1. Read `.agentpack/context.md` — context is already fresh.
-2. Set the current task in `.agentpack/task.md` if different from current work.
-3. Proceed with the task using the context you just read.
+2. If the user gives a new coding task, write a one-line summary to `.agentpack/task.md`.
+3. Re-read `.agentpack/context.md` after watch mode refreshes it (a few seconds).
+4. Proceed with the task using the context you just read.
 
 To start a session:
 
 ```bash
-agentpack session start
-agentpack watch   # in another terminal, keeps context fresh
+agentpack session start                     # creates session + generates initial context
+agentpack session start --agent claude      # specify agent
+agentpack session start --task "fix bug"    # set initial task
+
+agentpack watch                             # in another terminal — auto-refreshes on changes
 ```
 
-Then use normal prompts — context stays current automatically.
+To check session state:
+
+```bash
+agentpack session status    # shows active, agent, mode, last refresh, refresh count
+agentpack stats             # shows session panel + token stats + top files
+```
+
+To force a refresh:
+
+```bash
+agentpack session refresh
+agentpack session refresh --task "new task description"
+```
+
+To stop:
+
+```bash
+agentpack session stop
+```
+
+Then use normal prompts — context stays current while `watch` is running.
+
+## Manual Pack Mode (no session)
+
+```bash
+agentpack pack --agent claude --task "<task>" --mode balanced
+```
+
+Then read `.agentpack/context.claude.md` in full.
 
 ## Process
 
 ### Step 1: Check agentpack is installed
 
 ```bash
-agentpack --version 2>/dev/null || pip install agentpack
+agentpack --help 2>/dev/null || pip install agentpack-cli
 ```
 
 ### Step 2: Initialize if not already done
@@ -51,22 +92,19 @@ agentpack --version 2>/dev/null || pip install agentpack
 test -f .agentpack/config.toml || agentpack init --yes
 ```
 
-### Step 3: Determine the task
+### Step 3: Determine workflow
 
-- If `--task "..."` provided → use it exactly
-- If `--task auto` or no `--task` → run `agentpack pack --task auto` (infers from branch + changed files + recent commit)
+**Session active** (`.agentpack/session.json` exists, `"active": true`):
+- Read `.agentpack/context.md`
+- Update `.agentpack/task.md` if task changed
+- Proceed immediately
 
-### Step 4: Run pack
+**No session**:
+- Run `agentpack session start` or `agentpack pack --task auto`
+- Read the context file
+- Proceed
 
-```bash
-agentpack pack --agent claude --task "<task>" --mode balanced
-```
-
-### Step 5: Read the context pack
-
-Read `.agentpack/context.claude.md` in full. Do NOT ask the user to pipe it.
-
-### Step 6: Immediately start working
+### Step 4: Immediately start working
 
 Using the context you just read:
 
@@ -78,24 +116,45 @@ Do not say "context pack ready" and stop. Do not tell the user to run more comma
 
 ## Stale pack handling
 
-If `agentpack status` exits non-zero, re-run pack before reading context. Do not ask the user — just re-pack and proceed.
+If `agentpack status` exits non-zero or context seems unrelated to the task:
+- Run `agentpack session refresh` (if session active)
+- Or run `agentpack pack --task auto` (manual mode)
+- Re-read the context, then proceed
+
+Do not ask the user — just refresh and proceed.
+
+## Debugging selection
+
+```bash
+agentpack explain --task auto                          # show ranked file list
+agentpack explain --file src/auth/session.py           # per-file score breakdown
+agentpack explain --omitted                            # see what was excluded and why
+```
 
 ## Subcommand routing
 
 | User types | Action |
 |---|---|
-| `/agentpack --task "..."` | init + pack + read + work |
-| `/agentpack` | init + pack with `--task auto` + read + work |
+| `/agentpack --task "..."` | check session or pack + read + work |
+| `/agentpack` | check session or pack with `--task auto` + read + work |
+| `/agentpack session start` | `agentpack session start` |
+| `/agentpack session status` | `agentpack session status` |
+| `/agentpack session refresh` | `agentpack session refresh` |
+| `/agentpack session stop` | `agentpack session stop` |
+| `/agentpack watch` | `agentpack watch` (foreground, Ctrl+C to stop) |
+| `/agentpack claude` | `agentpack claude` (refresh + launch claude) |
 | `/agentpack init` | `agentpack init` only |
 | `/agentpack status` | check staleness |
-| `/agentpack stats` | token savings |
+| `/agentpack stats` | session info + token savings |
 | `/agentpack diff` | changed files |
 | `/agentpack summarize` | rebuild offline summary cache |
 | `/agentpack install` | `agentpack install --agent claude` |
+| `/agentpack explain` | show ranked file selection |
 
 ## Notes
 
-- All pack/scan/diff are local — no API calls
-- `--task auto` infers from branch name → changed file paths → recent commit (in priority order)
+- All commands are local — no API calls
+- `--task auto` infers from branch name → changed file paths → recent commit
 - Changed files are highest priority in context
+- Session context files: `.agentpack/context.md` (readable), `.agentpack/context.compact.md` (compact)
 - Never overwrite `.agentignore` or `config.toml` without `--force`
