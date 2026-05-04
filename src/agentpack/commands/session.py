@@ -62,9 +62,9 @@ def register(app: typer.Typer) -> None:
 
         console.print()
         console.print("[bold]Next:[/]")
+        console.print("  - Run [bold]agentpack watch[/] in another terminal to auto-refresh context.")
         console.print("  - Open Claude / Cursor / Codex and ask your task normally.")
-        console.print(f"  - Edit [bold]{TASK_FILE}[/] to set your current task.")
-        console.print("  - Run [bold]agentpack watch[/] to auto-refresh context on file changes.")
+        console.print("  - To change the task: [bold]agentpack session refresh --task \"new task\"[/]")
         console.print()
 
     @session_app.command("stop")
