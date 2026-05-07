@@ -51,6 +51,9 @@ Gemfile.lock
 *.csv
 *.jsonl
 *.parquet
+
+# claude code internals
+.claude/worktrees/
 """
 
 

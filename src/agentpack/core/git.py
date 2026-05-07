@@ -77,7 +77,8 @@ def changed_files_since(root: Path, ref: str) -> set[str]:
 def infer_task_from_git(root: Path) -> str:
     """Infer a task description from branch name, changed files, and recent commits.
 
-    Priority: branch name (explicit intent) → changed file paths (current work) → recent commit.
+    Priority: branch name + changed files → branch name → changed files →
+              recent commit messages (up to 3) → recently modified files → fallback.
     """
     branch: str | None = None
     branch_out = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
@@ -91,9 +92,9 @@ def infer_task_from_git(root: Path) -> str:
     changed = changed_files(root)
     file_topic = _topic_from_paths(changed) if changed else None
 
-    # Fallback: most recent non-merge commit
-    commit: str | None = None
-    log_out = _run(["git", "log", "--oneline", "-5"], root)
+    # Collect recent non-merge commit messages (up to 3) for richer fallback
+    commit_msgs: list[str] = []
+    log_out = _run(["git", "log", "--oneline", "-10"], root)
     if log_out:
         for line in log_out.splitlines():
             line = line.strip()
@@ -101,17 +102,29 @@ def infer_task_from_git(root: Path) -> str:
                 continue
             msg = line.split(" ", 1)[1] if " " in line else line
             if not msg.lower().startswith("merge "):
-                commit = msg
+                commit_msgs.append(msg)
+            if len(commit_msgs) == 3:
                 break
+
+    # When branch is clean (no changed files), fall back to recently touched files
+    # so keyword scoring has something to work with beyond the branch name alone.
+    if not file_topic and not branch:
+        recent = recently_modified_files(root, n=10)
+        file_topic = _topic_from_paths(set(recent)) if recent else None
 
     if branch and file_topic:
         return f"{branch}: {file_topic}"
+    if branch and commit_msgs:
+        # Augment bare branch name with latest commit context
+        return f"{branch}: {commit_msgs[0]}"
     if branch:
         return branch
+    if file_topic and commit_msgs:
+        return f"{file_topic}: {commit_msgs[0]}"
     if file_topic:
         return file_topic
-    if commit:
-        return commit
+    if commit_msgs:
+        return "; ".join(commit_msgs[:2])
     return "general development"
 
 

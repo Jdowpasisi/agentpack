@@ -12,26 +12,28 @@ from pathlib import Path
 _GIT_TEMPLATE_DIR = Path.home() / ".git-templates"
 _AGENTPACK_MARKER = "# agentpack:global"
 
+_REPACK_CMD = """\
+  ( agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+    _ap_pid=$! ; ( sleep 30 && kill $_ap_pid 2>/dev/null ) &
+  )"""
+
 _POST_CHECKOUT_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
 # Repack only if this repo has already been opted in to agentpack.
-[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
-"""
+[ -f .agentpack/config.toml ] && """ + _REPACK_CMD.strip() + "\n"
 
 _POST_COMMIT_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
 # Repack only if this repo has already been opted in to agentpack.
-[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
-"""
+[ -f .agentpack/config.toml ] && """ + _REPACK_CMD.strip() + "\n"
 
 _POST_MERGE_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
 # Repack only if this repo has already been opted in to agentpack.
-[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
-"""
+[ -f .agentpack/config.toml ] && """ + _REPACK_CMD.strip() + "\n"
 
 _HOOK_SCRIPTS = {
     "post-checkout": _POST_CHECKOUT_SCRIPT,
@@ -142,7 +144,11 @@ _agentpack_chpwd() {
   # Only act on repos explicitly opted in (have .agentpack/config.toml).
   # Does NOT auto-init unknown repos — that's an explicit 'agentpack init' decision.
   if [ -f .agentpack/config.toml ]; then
-    agentpack status >/dev/null 2>&1 || agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+    if [ ! -f .agentpack/context.md ] && [ ! -f .agentpack/session.json ]; then
+      agentpack session start --silent >/dev/null 2>&1 &
+    else
+      agentpack status >/dev/null 2>&1 || agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+    fi
   fi
 }
 autoload -Uz add-zsh-hook
@@ -154,7 +160,11 @@ _BASH_HOOK = """\
 _agentpack_chpwd() {
   # Only act on repos explicitly opted in (have .agentpack/config.toml).
   if [ -f .agentpack/config.toml ]; then
-    agentpack status >/dev/null 2>&1 || agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+    if [ ! -f .agentpack/context.md ] && [ ! -f .agentpack/session.json ]; then
+      agentpack session start --silent >/dev/null 2>&1 &
+    else
+      agentpack status >/dev/null 2>&1 || agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+    fi
   fi
 }
 if [[ "$PROMPT_COMMAND" != *"_agentpack_chpwd"* ]]; then

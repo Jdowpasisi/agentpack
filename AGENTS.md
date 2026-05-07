@@ -1,19 +1,11 @@
 <!-- agentpack:start -->
 ## AgentPack Context
 
-Before working on any task:
+If `.agentpack/session.json` exists and `"active": true`:
 
-1. Ensure the context pack exists and is fresh:
-   ```bash
-   agentpack pack --agent codex --task auto --mode balanced
-   ```
-2. Read `.agentpack/context.md` in full before starting work.
-
-Regenerate any time the task or files change:
-
-```bash
-agentpack pack --agent codex --task "<task>"
-```
-
-Use the context pack as the primary task-specific repo context.
+1. Read `.agentpack/context.md` before making code changes.
+2. For a new coding task, write a one-line summary to `.agentpack/task.md`.
+3. Re-read `.agentpack/context.md` after watch mode refreshes it.
+4. Use AgentPack-selected files as starting points, not as absolute truth.
+5. If context is missing or stale: `agentpack session refresh`
 <!-- agentpack:end -->

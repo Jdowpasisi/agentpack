@@ -117,6 +117,11 @@ def _watch_with_watchdog(
     try:
         while True:
             time.sleep(0.5)
+            current_state = load_session(root)
+            if current_state is not None and not current_state.active:
+                console.print("\n[dim]Session stopped — watch exiting.[/]")
+                observer.stop()
+                break
             if _pending[0]:
                 now = time.monotonic()
                 if now - _last_refresh[0] >= debounce:
@@ -164,6 +169,10 @@ def _watch_polling(
     try:
         while True:
             time.sleep(_POLL_INTERVAL)
+            current_state = load_session(root)
+            if current_state is not None and not current_state.active:
+                console.print("\n[dim]Session stopped — watch exiting.[/]")
+                break
             curr = _collect_mtimes()
             changed = {p for p, m in curr.items() if prev.get(p) != m}
             changed |= set(prev) - set(curr)

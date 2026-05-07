@@ -25,9 +25,12 @@ def register(app: typer.Typer) -> None:
         mode: str = typer.Option("balanced", "--mode", help="Pack mode (minimal|balanced|deep)."),
         task: str = typer.Option("", "--task", help="Initial task description."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = config default)."),
+        silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
     ) -> None:
         """Start a session: create state files and generate initial context."""
         root = _root()
+        if silent:
+            console.quiet = True
         state = create_session(root, agent=agent, mode=mode)
 
         if task:
