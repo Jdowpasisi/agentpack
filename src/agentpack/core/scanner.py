@@ -7,7 +7,7 @@ import pathspec
 
 from agentpack.core.ignore import load_spec, is_ignored
 from agentpack.core.models import FileInfo, ScanResult
-from agentpack.core.token_estimator import estimate_tokens
+from agentpack.core.token_estimator import estimate_tokens, estimate_tokens_bytes
 
 BINARY_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg",
@@ -54,7 +54,7 @@ LANGUAGE_MAP: dict[str, str] = {
     ".xml": "xml",
 }
 
-ALWAYS_SKIP = {".git", ".agentpack"}
+ALWAYS_SKIP = {".git", ".agentpack", ".claude"}
 
 
 def file_hash(path: Path) -> str:
@@ -79,10 +79,13 @@ def scan(
     root: Path,
     ignore_spec: pathspec.PathSpec,
     max_file_tokens: int = 4000,
+    previous_snapshot: dict | None = None,
 ) -> ScanResult:
     packable: list[FileInfo] = []
     ignored: list[FileInfo] = []
     binary: list[FileInfo] = []
+
+    prev_files: dict[str, dict] = (previous_snapshot or {}).get("files", {})
 
     for abs_path in root.rglob("*"):
         if not abs_path.is_file():
@@ -125,6 +128,27 @@ def scan(
 
         size = abs_path.stat().st_size
         lang = LANGUAGE_MAP.get(abs_path.suffix.lower())
+        fhash = file_hash(abs_path)
+
+        # Unchanged file: reuse cached token count, skip content read.
+        # Content is loaded lazily by context_pack.select_files() when needed.
+        prev = prev_files.get(rel_str)
+        if prev and prev.get("hash") == fhash:
+            cached_tokens = prev.get("estimated_tokens", estimate_tokens_bytes(size))
+            too_large = cached_tokens > max_file_tokens
+            packable.append(
+                FileInfo(
+                    path=rel_str,
+                    abs_path=abs_path,
+                    language=lang,
+                    size_bytes=size,
+                    estimated_tokens=cached_tokens,
+                    hash=fhash,
+                    too_large=too_large,
+                    content=None,
+                )
+            )
+            continue
 
         try:
             text = abs_path.read_text(errors="replace")
@@ -141,7 +165,7 @@ def scan(
                 language=lang,
                 size_bytes=size,
                 estimated_tokens=tokens,
-                hash=file_hash(abs_path),
+                hash=fhash,
                 too_large=too_large,
                 content=text,
             )

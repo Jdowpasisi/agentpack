@@ -90,9 +90,11 @@ class ChangeDetector:
         packable: list[FileInfo],
         root: Path,
         since: str | None,
+        previous_snap: dict | None = None,
     ) -> ChangeSet:
         current_snap = build_snapshot(packable)
-        previous_snap = load_snapshot(root)
+        if previous_snap is None:
+            previous_snap = load_snapshot(root)
         snap_diff = diff_snapshots(previous_snap, current_snap)
         changed_from_snap: set[str] = set(snap_diff.added + snap_diff.modified)
 
@@ -160,7 +162,8 @@ class PackPlanner:
         phase_times: dict[str, float] = {}
 
         t0 = time.perf_counter()
-        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        previous_snap = load_snapshot(root)
+        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens, previous_snapshot=previous_snap)
         phase_times["scan"] = time.perf_counter() - t0
 
         packable = scan_result.packable
@@ -175,7 +178,7 @@ class PackPlanner:
         phase_times["deps"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        changes = ChangeDetector().detect(packable, root, request.since)
+        changes = ChangeDetector().detect(packable, root, request.since, previous_snap=previous_snap)
         phase_times["changes"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
