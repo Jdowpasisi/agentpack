@@ -1,5 +1,10 @@
 # AgentPack
 
+[![PyPI version](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
+[![Python versions](https://img.shields.io/pypi/pyversions/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
+
 > **Status: alpha (v0.1.0).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
@@ -351,10 +356,19 @@ Token counts use tiktoken `cl100k_base` — a close approximation to Claude's ac
 
 ## CI/CD: pack per PR
 
-Add to `.github/workflows/agentpack.yml`:
+### agentpack's own CI
+
+agentpack uses two workflows:
+
+- **`ci.yml`** — runs tests on Python 3.10–3.13 on every push and pull request to `main`
+- **`release.yml`** — runs tests then publishes to PyPI on every `v*` tag push (uses PyPI trusted publishing)
+
+### Add context packing to your repo
+
+Add to `.github/workflows/agentpack-context.yml`:
 
 ```yaml
-name: AgentPack context
+name: AgentPack context pack
 
 on:
   pull_request:
@@ -1179,7 +1193,7 @@ agentpack pack --agent claude --task "refactor database connection pooling" --mo
 
 ### CI: automated context on every PR
 
-Add to `.github/workflows/agentpack.yml` — see the full example in [CI/CD: pack per PR](#cicd-pack-per-pr). Reviewers and CI bots get focused context without cloning the repo.
+Add to `.github/workflows/agentpack-context.yml` — see the full example in [CI/CD: pack per PR](#cicd-pack-per-pr). Reviewers and CI bots get focused context without cloning the repo.
 
 ---
 
