@@ -64,6 +64,39 @@ Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, or any L
 
 ---
 
+## AgentPack Results (7 days, 21 sessions)
+
+### Token Compression
+
+| Metric | Value |
+|--------|-------|
+| Sessions | 21 |
+| Avg compression | 99.3% |
+| Min / Max | 98.7% → 99.9% |
+| Total raw (theoretical) | 116.9M tokens |
+| Total packed (actual) | 683K tokens |
+
+Per session: ~4.1M raw repo → ~35K packed context.
+
+### Cost (Sonnet 4.6, input tokens only)
+
+| Scenario | Cost |
+|----------|------|
+| Full repo dumped each run | ~$350 |
+| With AgentPack | ~$2.05 |
+| **Realistic** (10% manual cherry-pick baseline) | **~$33 saved** |
+
+> Honest note: raw_tokens = full repo estimate. Real savings depend on how much context you'd pass manually. Compression ratio (99%+) is verifiable; dollar figure is scenario-dependent.
+
+### Quality Signal
+
+- 42 commits in 7 days (~6/day) vs 4.9/day before
+- Shift from single-file fixes → multi-system coordinated fixes
+- AgentPack provides dependent files + callers in context → fixes root cause, not symptom
+- Correlation observed, causation not isolated
+
+---
+
 ## When it helps
 
 | Workflow | Value |
