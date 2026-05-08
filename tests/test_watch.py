@@ -42,7 +42,11 @@ def test_should_not_ignore_source_files() -> None:
     assert _should_ignore("src/auth/session.py") is False
     assert _should_ignore("README.md") is False
     assert _should_ignore(".agentpack/task.md") is False
-    assert _should_ignore(".agentpack/session.json") is False
+
+
+def test_should_ignore_agentpack_internal_files() -> None:
+    assert _should_ignore(".agentpack/session.json") is True
+    assert _should_ignore(".agentpack/activity.log") is True
 
 
 def test_should_not_ignore_nested_source() -> None:
