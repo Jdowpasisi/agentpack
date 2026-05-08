@@ -118,7 +118,6 @@ def register(app: typer.Typer) -> None:
         mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
-        summary_provider: str = typer.Option("offline", "--summary-provider", help="Summary provider (offline|claude)."),
         file: Optional[str] = typer.Option(None, "--file", help="Show detailed score breakdown for a specific file."),
         omitted: bool = typer.Option(False, "--omitted", is_flag=True, help="Show top-10 excluded files and why."),
     ) -> None:
@@ -138,7 +137,6 @@ def register(app: typer.Typer) -> None:
             budget=budget,
             since=since,
             refresh=False,
-            summary_provider=summary_provider,
         )
 
         with console.status("[bold]Planning..."):

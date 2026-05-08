@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import concurrent.futures
+import multiprocessing
+import os
 from pathlib import Path
 
 from agentpack.core.models import FileInfo, FileSummary
@@ -7,23 +10,19 @@ from agentpack.core import cache as summary_cache
 from agentpack.summaries import offline
 
 
-_LLM_PROVIDERS = {"claude", "openai"}
+def _build_one(path: str, abs_path_str: str, language: str | None, file_hash: str) -> FileSummary:
+    return offline.summarize(path, Path(abs_path_str), language, file_hash)
 
 
-def get_or_build_summary(fi: FileInfo, root: Path, provider: str = "offline") -> FileSummary:
+def get_or_build_summary(fi: FileInfo, root: Path) -> FileSummary:
     if fi.hash is None:
         return offline.summarize(fi.path, fi.abs_path, fi.language, "")
 
-    cached = summary_cache.load_summary(root, fi.path, fi.hash, provider)
+    cached = summary_cache.load_summary(root, fi.path, fi.hash, "offline")
     if cached:
         return cached
 
-    if provider in _LLM_PROVIDERS:
-        from agentpack.summaries import llm as llm_mod
-        summary = llm_mod.summarize(fi.path, fi.abs_path, fi.language, fi.hash, provider=provider)
-    else:
-        summary = offline.summarize(fi.path, fi.abs_path, fi.language, fi.hash)
-
+    summary = offline.summarize(fi.path, fi.abs_path, fi.language, fi.hash)
     summary_cache.save_summary(root, summary)
     return summary
 
@@ -31,12 +30,64 @@ def get_or_build_summary(fi: FileInfo, root: Path, provider: str = "offline") ->
 def build_all_summaries(
     files: list[FileInfo],
     root: Path,
-    provider: str = "offline",
 ) -> dict[str, FileSummary]:
     """Build summaries for packable files. Skips ignored and binary entries defensively."""
+    packable = [fi for fi in files if not (fi.ignored or fi.binary)]
     result: dict[str, FileSummary] = {}
-    for fi in files:
-        if fi.ignored or fi.binary:
-            continue
-        result[fi.path] = get_or_build_summary(fi, root, provider)
+    cache_misses: list[FileInfo] = []
+
+    # Pass 1: check cache concurrently (I/O-bound)
+    def _check_cache(fi: FileInfo) -> FileSummary | None:
+        if fi.hash is None:
+            return None
+        return summary_cache.load_summary(root, fi.path, fi.hash, "offline")
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(32, os.cpu_count() or 4)
+    ) as executor:
+        cache_futures = {executor.submit(_check_cache, fi): fi for fi in packable}
+        for fut in concurrent.futures.as_completed(cache_futures):
+            fi = cache_futures[fut]
+            cached = fut.result()
+            if cached is not None:
+                result[fi.path] = cached
+            else:
+                cache_misses.append(fi)
+
+    if not cache_misses:
+        return result
+
+    # Pass 2: build summaries for cache misses
+    if len(cache_misses) >= 50:
+        ctx = multiprocessing.get_context("spawn")
+        executor_cls = concurrent.futures.ProcessPoolExecutor
+        executor_kwargs: dict = {
+            "max_workers": min(os.cpu_count() or 4, 8),
+            "mp_context": ctx,
+        }
+    else:
+        executor_cls = concurrent.futures.ThreadPoolExecutor
+        executor_kwargs = {"max_workers": min(32, os.cpu_count() or 4)}
+
+    with executor_cls(**executor_kwargs) as executor:
+        build_futures = {
+            executor.submit(
+                _build_one,
+                fi.path,
+                str(fi.abs_path),
+                fi.language,
+                fi.hash if fi.hash is not None else "",
+            ): fi
+            for fi in cache_misses
+        }
+        for fut in concurrent.futures.as_completed(build_futures):
+            fi = build_futures[fut]
+            try:
+                summary = fut.result()
+            except Exception:
+                summary = offline.summarize(fi.path, fi.abs_path, fi.language, fi.hash or "")
+            result[fi.path] = summary
+            if fi.hash is not None:
+                summary_cache.save_summary(root, summary)
+
     return result

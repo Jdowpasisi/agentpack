@@ -177,7 +177,6 @@ def _run_refresh(
             budget=budget,
             since=None,
             refresh=False,
-            summary_provider="offline",
         ))
 
         # Write context files atomically — avoids partial reads if interrupted mid-write

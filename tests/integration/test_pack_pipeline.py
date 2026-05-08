@@ -49,7 +49,6 @@ def _pack(root: Path, task: str = "fix auth token", agent: str = "claude") -> ob
         budget=50000,
         since=None,
         refresh=False,
-        summary_provider="offline",
     ))
 
 
@@ -205,7 +204,6 @@ class TestBudgetEnforcement:
             budget=500,
             since=None,
             refresh=False,
-            summary_provider="offline",
         ))
         assert result.packed_tokens <= 500
 
@@ -219,7 +217,6 @@ class TestBudgetEnforcement:
             budget=0,
             since=None,
             refresh=False,
-            summary_provider="offline",
         ))
         # budget=0 → uses config default (50000) — result must be valid
         assert result.packed_tokens >= 0
@@ -239,7 +236,6 @@ def _make_request(root: Path, task: str = "fix auth", budget: int = 50000, mode:
         budget=budget,
         since=None,
         refresh=False,
-        summary_provider="offline",
     )
 
 
