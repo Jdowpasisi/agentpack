@@ -72,9 +72,12 @@ class ClaudeInstaller:
 
         # SessionStart: delete sentinel + kick off background repack so first prompt
         # gets fresh context without blocking the session.
+        # Use session refresh if session exists (respects task.md), else fall back to pack.
         sentinel_cmd = (
             "rm -f .agentpack/.context_injected"
-            " && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &"
+            " && ([ -f .agentpack/session.json ]"
+            " && agentpack session refresh >/dev/null 2>&1"
+            " || agentpack pack --task auto --mode balanced >/dev/null 2>&1) &"
         )
         session_start = hooks.setdefault("SessionStart", [])
         # Replace any stale agentpack session hooks (old cmd only deleted sentinel).

@@ -47,6 +47,7 @@ def test_run_refresh_writes_context_files(tmp_path: Path) -> None:
 
     with patch("agentpack.application.pack_service.PackService") as MockPS, \
          patch("agentpack.renderers.markdown.render_generic", return_value="# Context\n\ncontent"), \
+         patch("agentpack.renderers.markdown.render_claude", return_value="# Claude\n\ncontent"), \
          patch("agentpack.renderers.compact.render_compact", return_value="# Compact\n\ncontent"):
         MockPS.return_value.run.return_value = mock_result
         result = _run_refresh(tmp_path, agent="generic", mode="balanced", budget=0)
@@ -71,6 +72,7 @@ def test_run_refresh_reads_task_from_task_md(tmp_path: Path) -> None:
 
     with patch("agentpack.application.pack_service.PackService") as MockPS, \
          patch("agentpack.renderers.markdown.render_generic", return_value=""), \
+         patch("agentpack.renderers.markdown.render_claude", return_value=""), \
          patch("agentpack.renderers.compact.render_compact", return_value=""):
         MockPS.return_value.run.side_effect = capture_run
         _run_refresh(tmp_path, agent="generic", mode="balanced", budget=0)
@@ -86,6 +88,7 @@ def test_run_refresh_fallback_when_no_task_md(tmp_path: Path, monkeypatch) -> No
     with patch("agentpack.application.pack_service.PackService") as MockPS, \
          patch("agentpack.core.git.is_git_repo", return_value=False), \
          patch("agentpack.renderers.markdown.render_generic", return_value=""), \
+         patch("agentpack.renderers.markdown.render_claude", return_value=""), \
          patch("agentpack.renderers.compact.render_compact", return_value=""):
         MockPS.return_value.run.return_value = _make_mock_result()
         result = _run_refresh(tmp_path, agent="generic", mode="balanced", budget=0)
@@ -108,6 +111,7 @@ def test_run_refresh_uses_git_infer_when_no_task(tmp_path: Path) -> None:
          patch("agentpack.core.git.is_git_repo", return_value=True), \
          patch("agentpack.core.git.infer_task_from_git", return_value="inferred: fix bug"), \
          patch("agentpack.renderers.markdown.render_generic", return_value=""), \
+         patch("agentpack.renderers.markdown.render_claude", return_value=""), \
          patch("agentpack.renderers.compact.render_compact", return_value=""):
         MockPS.return_value.run.side_effect = capture_run
         _run_refresh(tmp_path, agent="generic", mode="balanced", budget=0)

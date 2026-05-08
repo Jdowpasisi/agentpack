@@ -41,12 +41,13 @@ The result: your agent starts every session with a focused, accurate picture of 
 ```bash
 pip install agentpack-cli
 
-# Session mode: start once, then work normally
+# One-time setup per project
 cd your-project
-agentpack init
-agentpack install          # auto-detects your IDE
-agentpack session start
-agentpack watch   # in another terminal — keeps context fresh automatically
+agentpack init             # creates config, session, task.md — nothing else needed
+agentpack install          # auto-detects your IDE (optional but recommended)
+
+# Every terminal session
+agentpack watch            # keeps context fresh automatically — that's it
 ```
 
 Then open Claude Code / Cursor / Windsurf / Codex / Antigravity and write your task normally. AgentPack keeps `.agentpack/context.md` current.
@@ -181,17 +182,20 @@ Requires Python 3.10+.
 
 ## Start Once, Then Work Normally
 
-The recommended workflow for repeated development sessions:
+The full workflow:
 
 ```bash
-agentpack install          # configure your agent (once per project)
-agentpack session start    # create session state + generate initial context
-agentpack watch            # in another terminal — refreshes context on file/task changes
+# One-time project setup
+agentpack init             # creates config, session, task.md
+agentpack install          # configure your agent (optional but recommended)
+
+# Every terminal session — just one command
+agentpack watch            # auto-resumes session, refreshes context on file/task changes
 ```
 
 Then open Claude Code / Cursor / Codex and write your coding task normally.
 
-- AgentPack keeps `.agentpack/context.md` fresh while `watch` is running.
+- AgentPack keeps `.agentpack/context.md` and `.agentpack/context.claude.md` fresh while `watch` is running.
 - To change the task: `agentpack session refresh --task "new task"` — or just tell Claude and it updates `task.md` itself.
 - Check session state: `agentpack session status`
 - Force a refresh: `agentpack session refresh`
@@ -202,11 +206,11 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 | Agent | Automation level | Method |
 |---|---|---|
 | Claude Code (hook) | Highest | `UserPromptSubmit` hook auto-injects context |
-| Claude Code (session) | High | `session start` + `watch` + read `context.md` |
-| Codex | Medium | `AGENTS.md` + `session start` + `watch` |
-| Cursor | Medium | `.cursor/rules/agentpack.mdc` + `session start` + `watch` |
-| Windsurf | Medium | `.windsurfrules` + `session start` + `watch` |
-| Antigravity | Medium | `.agent/skills/agentpack/SKILL.md` + `GEMINI.md` + `session start` + `watch` |
+| Claude Code (session) | High | `init` + `watch` + read `context.md` |
+| Codex | Medium | `AGENTS.md` + `init` + `watch` |
+| Cursor | Medium | `.cursor/rules/agentpack.mdc` + `init` + `watch` |
+| Windsurf | Medium | `.windsurfrules` + `init` + `watch` |
+| Antigravity | Medium | `.agent/skills/agentpack/SKILL.md` + `GEMINI.md` + `init` + `watch` |
 | Generic | Basic | `watch` mode + read `context.md` |
 
 ### Honest limitations
@@ -223,10 +227,9 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 ```bash
 pip install agentpack-cli
 cd your-project
-agentpack init
+agentpack init             # one-time setup: config + session + task.md
 agentpack install          # auto-detects your IDE (Claude Code, Cursor, Windsurf, Codex, Antigravity)
-agentpack session start    # generate initial context
-agentpack watch            # in another terminal — keeps context fresh
+agentpack watch            # in another terminal — keeps context fresh automatically
 ```
 
 Then open your agent and write your task normally.
@@ -602,22 +605,23 @@ Options:
 
 ### `agentpack session`
 
-Manage AgentPack sessions — the "start once, work normally" workflow.
+Optional session management. `agentpack init` bootstraps the session automatically — `session start` is only needed to change agent/mode after init or force a fresh pack.
 
 ```bash
-agentpack session start                      # create session, generate initial context
+agentpack session start                      # re-run to change agent/mode or force refresh
 agentpack session start --agent claude       # set agent (claude|cursor|codex|generic)
-agentpack session start --task "fix bug"     # set initial task
+agentpack session start --task "fix bug"     # change task + refresh context
 agentpack session status                     # show session state + context size
 agentpack session refresh                    # regenerate context now
 agentpack session refresh --task "new task"  # change task + refresh
 agentpack session stop                       # mark session inactive
 ```
 
-`session start` creates:
+`agentpack init` creates (idempotently):
 - `.agentpack/session.json` — session state
-- `.agentpack/task.md` — current task (written by Claude or `session refresh --task`)
-- `.agentpack/context.md` — readable context pack
+- `.agentpack/task.md` — current task (edit directly or use `session refresh --task`)
+- `.agentpack/context.md` — readable context pack (updated by `watch`)
+- `.agentpack/context.claude.md` — Claude Code format (always written alongside context.md)
 - `.agentpack/context.compact.md` — compact protocol format
 
 ---
@@ -648,7 +652,7 @@ Launch Claude CLI with an up-to-date context.
 agentpack claude
 ```
 
-Requires an active session (`agentpack session start`). Refreshes context, prints the context path, then launches `claude` if found. Transparent about what it does — no fake prompt injection.
+Requires an initialized project (`agentpack init`). Refreshes context, prints the context path, then launches `claude` if found. Transparent about what it does — no fake prompt injection.
 
 ---
 
@@ -1200,13 +1204,14 @@ Add to `.github/workflows/agentpack-context.yml` — see the full example in [CI
 ### Session mode: keep context fresh while you work
 
 ```bash
-# Terminal 1: start a session and watch for changes
-agentpack session start --task "refactor auth"
-agentpack watch   # in a second terminal — refreshes context on every save
+# One-time project setup
+agentpack init --task "refactor auth"   # or edit .agentpack/task.md directly
 
-# Terminal 2: your editor / agent
-# Save a file → context.md regenerates automatically
-# Change task: agentpack session refresh --task "new task"
+# Every terminal session — just one command
+agentpack watch   # auto-resumes session, refreshes context on every save
+
+# Change task mid-session
+agentpack session refresh --task "new task"
 ```
 
 ---
@@ -1276,8 +1281,8 @@ agentpack pack --task "fix bug" --budget 40000   # explicit token cap
 ### Watch mode for active sessions
 
 ```bash
-agentpack session start --task "refactor auth"
-agentpack watch   # in another terminal
+agentpack init                  # one-time setup (creates session + task.md)
+agentpack watch                 # in another terminal — auto-resumes each time
 ```
 
 Refreshes `.agentpack/context.md` every time you save a file. Change the task with `agentpack session refresh --task "..."` — or tell Claude and it writes `task.md` itself.
@@ -1320,7 +1325,7 @@ config_file     = 60   # was 25 — configs always matter here
 - **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls by default
 - **Non-destructive**: never overwrites user files; config patching only touches agentpack-managed blocks
 - **Agent-neutral**: architecture is generic; Claude Code is the primary target (deepest integration); Cursor, Windsurf, Codex, and Antigravity are supported but less battle-tested
-- **No daemons**: file watching is opt-in via `agentpack watch`; session management is opt-in via `agentpack session start`; git hooks run in the background and are opt-in via `install`
+- **No daemons**: file watching is opt-in via `agentpack watch`; git hooks run in the background and are opt-in via `install`
 - **Honest**: packed token count reflects real content, not raw repo size
 
 ---
