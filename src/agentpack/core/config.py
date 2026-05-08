@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 class ProjectConfig(BaseModel):
     root: str = "."
     ignore_file: str = ".agentignore"
+    include_globs: list[str] = Field(default_factory=list)
+    exclude_globs: list[str] = Field(default_factory=list)
 
 
 class ContextConfig(BaseModel):
@@ -73,6 +75,41 @@ class Config(BaseModel):
 
 
 DEFAULT_CONFIG = Config()
+
+CONFIG_TEMPLATE = """\
+[project]
+# Restrict packing to these glob patterns (empty = all files).
+# Example: include_globs = ["app/**", "packages/core/**"]
+include_globs = []
+# Always exclude these patterns on top of .agentignore.
+# Example: exclude_globs = ["migrations/**", "generated/**", "snapshots/**"]
+exclude_globs = []
+
+[context]
+default_budget = 25000   # token budget per pack
+default_mode = "balanced"  # minimal | balanced | deep
+max_file_tokens = 4000   # files larger than this are summarised, not inlined
+include_tests = true
+include_configs = true
+include_receipts = true
+
+[scoring]
+# Scoring weights — higher wins budget allocation.
+# Tune these to make agentpack favour your team's file layout.
+modified              = 100
+staged                = 90
+filename_keyword      = 80
+symbol_keyword        = 70
+content_keyword_per_hit = 10
+content_keyword_max   = 60
+direct_dep            = 50
+reverse_dep           = 40
+related_test          = 35
+config_file           = 25
+recently_modified     = 20
+large_unrelated_penalty = -50
+ignored_penalty       = -100
+"""
 
 
 def config_path(root: Path) -> Path:

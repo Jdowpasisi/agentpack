@@ -36,6 +36,18 @@ generated/
 .env.*
 *.pem
 *.key
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.p12
+*.pfx
+*.jks
+.npmrc
+.pypirc
+.netrc
+*.tfvars
+terraform.tfvars
 
 # lock files
 package-lock.json
@@ -55,6 +67,15 @@ Gemfile.lock
 # claude code internals
 .claude/worktrees/
 """
+
+
+SENSITIVE_PATTERNS = pathspec.PathSpec.from_lines("gitignore", [
+    ".env", ".env.*", "*.pem", "*.key",
+    "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+    "*.p12", "*.pfx", "*.jks",
+    ".npmrc", ".pypirc", ".netrc",
+    "*.tfvars", "terraform.tfvars",
+])
 
 
 def load_spec(ignore_path: Path) -> pathspec.PathSpec:

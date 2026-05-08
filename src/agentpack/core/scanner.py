@@ -75,17 +75,29 @@ def _is_binary(path: Path) -> bool:
         return True
 
 
+def _build_glob_specs(
+    include_globs: list[str],
+    exclude_globs: list[str],
+) -> tuple[pathspec.PathSpec | None, pathspec.PathSpec | None]:
+    inc = pathspec.PathSpec.from_lines("gitignore", include_globs) if include_globs else None
+    exc = pathspec.PathSpec.from_lines("gitignore", exclude_globs) if exclude_globs else None
+    return inc, exc
+
+
 def scan(
     root: Path,
     ignore_spec: pathspec.PathSpec,
     max_file_tokens: int = 4000,
     previous_snapshot: dict | None = None,
+    include_globs: list[str] | None = None,
+    exclude_globs: list[str] | None = None,
 ) -> ScanResult:
     packable: list[FileInfo] = []
     ignored: list[FileInfo] = []
     binary: list[FileInfo] = []
 
     prev_files: dict[str, dict] = (previous_snapshot or {}).get("files", {})
+    inc_spec, exc_spec = _build_glob_specs(include_globs or [], exclude_globs or [])
 
     for abs_path in root.rglob("*"):
         if not abs_path.is_file():
@@ -98,6 +110,20 @@ def scan(
             continue
 
         rel_str = str(rel)
+
+        if inc_spec is not None and not inc_spec.match_file(rel_str):
+            ignored.append(FileInfo(
+                path=rel_str, abs_path=abs_path,
+                size_bytes=abs_path.stat().st_size, estimated_tokens=0, ignored=True,
+            ))
+            continue
+
+        if exc_spec is not None and exc_spec.match_file(rel_str):
+            ignored.append(FileInfo(
+                path=rel_str, abs_path=abs_path,
+                size_bytes=abs_path.stat().st_size, estimated_tokens=0, ignored=True,
+            ))
+            continue
 
         if is_ignored(ignore_spec, rel_str):
             ignored.append(

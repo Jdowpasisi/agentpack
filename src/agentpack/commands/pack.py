@@ -11,6 +11,7 @@ from rich.table import Table
 from rich import box
 
 from agentpack.core import git
+from agentpack.core.ignore import SENSITIVE_PATTERNS
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
 from agentpack.commands._shared import console, _root
 
@@ -101,7 +102,7 @@ def _print_pack_summary(result: PackResult) -> None:
         files_tbl.add_row(
             f"{sf.path}{changed_marker}",
             f"[{style}]{sf.include_mode}[/]",
-            sf.reasons[0] if sf.reasons else "",
+            ", ".join(sf.reasons) if sf.reasons else "",
         )
     if len(selected) > 20:
         files_tbl.add_row(f"[dim]... {len(selected) - 20} more[/]", "", "")
@@ -127,6 +128,25 @@ def _print_pack_summary(result: PackResult) -> None:
     if changed_files:
         console.print(f"\n[bold]Changed files[/] ({len(changed_files)}):")
         console.print(changed_lines)
+
+    redaction_warnings = result.pack.redaction_warnings
+    if redaction_warnings:
+        console.print(f"\n[bold yellow]⚠ Secrets redacted ({len(redaction_warnings)}):[/]")
+        for w in redaction_warnings[:10]:
+            console.print(f"  [yellow]{w}[/]")
+        if len(redaction_warnings) > 10:
+            console.print(f"  [dim]... {len(redaction_warnings) - 10} more[/]")
+
+    sensitive_excluded = [
+        fi.path for fi in result.scan_result.ignored
+        if SENSITIVE_PATTERNS.match_file(fi.path)
+    ]
+    if sensitive_excluded:
+        console.print(f"\n[bold green]✓ Sensitive files excluded ({len(sensitive_excluded)}):[/]")
+        for p in sensitive_excluded[:10]:
+            console.print(f"  [dim]{p}[/]")
+        if len(sensitive_excluded) > 10:
+            console.print(f"  [dim]... {len(sensitive_excluded) - 10} more[/]")
 
     console.print(f"\n[bold]Next step:[/]")
     console.print(f"  [bold white]claude < {out_path}[/]")

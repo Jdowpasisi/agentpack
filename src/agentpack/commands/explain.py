@@ -204,11 +204,12 @@ def register(app: typer.Typer) -> None:
         console.print("[bold]Top selected files (ranked):[/]")
         for i, sf in enumerate(selected, 1):
             score_val, reasons = score_map.get(sf.path, (sf.score, sf.reasons))
-            reason_str = reasons[0] if reasons else ""
+            reason_str = ", ".join(reasons) if reasons else ""
+            mode_color = "green" if sf.include_mode == "full" else "yellow" if sf.include_mode == "symbols" else "dim"
             console.print(
                 f"  [bold]{i}.[/] {sf.path:<50} "
                 f"[dim]score={score_val:.0f}[/]  "
-                f"[[{'green' if sf.include_mode == 'full' else 'yellow' if sf.include_mode == 'symbols' else 'dim'}]{sf.include_mode}[/]]  "
+                f"[[{mode_color}]{sf.include_mode}[/]]  "
                 f"[dim]{reason_str}[/]"
             )
 

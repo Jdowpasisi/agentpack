@@ -28,6 +28,18 @@ generated/
 .env.*
 *.pem
 *.key
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.p12
+*.pfx
+*.jks
+.npmrc
+.pypirc
+.netrc
+*.tfvars
+terraform.tfvars
 
 # lock files
 package-lock.json

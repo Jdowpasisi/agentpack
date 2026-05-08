@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -174,17 +175,16 @@ def _run_refresh(
             summary_provider="offline",
         ))
 
-        # Write readable context
+        # Write context files atomically — avoids partial reads if interrupted mid-write
         from agentpack.renderers.markdown import render_generic
         context_text = render_generic(result.pack)
         context_path = root / CONTEXT_FILE
         context_path.parent.mkdir(parents=True, exist_ok=True)
-        context_path.write_text(context_text, encoding="utf-8")
+        _atomic_write(context_path, context_text)
 
-        # Write compact context
         compact_text = render_compact(result.pack)
         compact_path = root / COMPACT_FILE
-        compact_path.write_text(compact_text, encoding="utf-8")
+        _atomic_write(compact_path, compact_text)
 
         return {
             "files": len(result.pack.selected_files),
@@ -194,6 +194,26 @@ def _run_refresh(
     except Exception as e:
         console.print(f"[red]Error during refresh: {e}[/]")
         return None
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write to a temp file in the same dir, then rename — atomic on POSIX."""
+    import tempfile
+    dir_ = path.parent
+    try:
+        fd, tmp = tempfile.mkstemp(dir=dir_, prefix=".tmp_")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except OSError:
+        path.write_text(text, encoding="utf-8")
 
 
 def _now_iso() -> str:
