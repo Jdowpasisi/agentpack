@@ -222,6 +222,7 @@ class AdapterRegistry:
 
     @staticmethod
     def get(agent: str, cfg: Any) -> Any:
+        from agentpack.adapters.antigravity import AntigravityAdapter
         from agentpack.adapters.claude import ClaudeAdapter
         from agentpack.adapters.codex import CodexAdapter
         from agentpack.adapters.cursor import CursorAdapter
@@ -229,6 +230,7 @@ class AdapterRegistry:
         from agentpack.adapters.generic import GenericAdapter
 
         adapters = {
+            "antigravity": lambda: AntigravityAdapter(),
             "claude": lambda: ClaudeAdapter(cfg.agents.claude.output),
             "cursor": lambda: CursorAdapter(cfg.agents.generic.output),
             "windsurf": lambda: WindsurfAdapter(cfg.agents.generic.output),

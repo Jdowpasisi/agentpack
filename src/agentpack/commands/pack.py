@@ -18,12 +18,11 @@ from agentpack.commands._shared import console, _root
 def register(app: typer.Typer) -> None:
     @app.command()
     def pack(
-        agent: str = typer.Option("claude", "--agent", help="Target agent (claude|cursor|windsurf|codex|generic)."),
+        agent: str = typer.Option("claude", "--agent", help="Target agent (claude|cursor|windsurf|codex|antigravity|generic)."),
         task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
         mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
-        print_output: bool = typer.Option(False, "--print", help="Print context to stdout."),
         refresh: bool = typer.Option(False, "--refresh", help="Rebuild summaries before packing."),
         summary_provider: str = typer.Option("offline", "--summary-provider", help="Summary provider (offline|claude)."),
         watch: bool = typer.Option(False, "--watch", help="Watch for file changes and re-pack automatically."),
@@ -52,8 +51,6 @@ def register(app: typer.Typer) -> None:
             summary_provider=summary_provider,
         ))
         _print_pack_summary(result)
-        if print_output:
-            print(result.out_path.read_text())
 
 
 def _resolve_task(task: str) -> str:
@@ -123,7 +120,6 @@ def _print_pack_summary(result: PackResult) -> None:
 
     console.print(f"\n[bold]Next step:[/]")
     console.print(f"  [bold white]claude < {out_path}[/]")
-    console.print(f"  [dim]or: agentpack pack --task \"{task}\" --print | claude[/]")
     console.print()
 
 

@@ -51,12 +51,6 @@ agentpack watch   # in another terminal — keeps context fresh automatically
 
 Then open Claude / Cursor / Codex and write your task normally. AgentPack keeps `.agentpack/context.md` current.
 
-Or without any setup at all:
-
-```bash
-agentpack pack --agent claude --task "fix auth session bug" --print | claude
-```
-
 For power users who want background repacking on every commit and cd:
 
 ```bash
@@ -106,8 +100,7 @@ Per session: ~4.1M raw repo → ~35K packed context.
 
 | Workflow | Value |
 |---|---|
-| `agentpack pack --print \| claude` — piped, no tools | **High** — Claude has no file access; pack is its only context |
-| `claude < .agentpack/context.claude.md` — stdin | **High** — same |
+| `claude < .agentpack/context.claude.md` — stdin | **High** — Claude has no file access; pack is its only context |
 | Claude API calls without tool use | **High** — same |
 | CI: generate pack per PR, attach as artifact | **High** — reviewers get instant focused context |
 | Cursor / Windsurf / Codex sessions | **Medium** — context auto-injected on startup, repacked on commit |
@@ -138,11 +131,11 @@ The other difference: all three pack uniformly (full content or nothing). AgentP
 
 Different category. Aider is an interactive pair programmer — it reads, edits, and commits files directly. Its repo-map is genuinely smart. If you want an AI coding assistant making actual edits, aider is excellent.
 
-AgentPack is not a coding assistant. It's a context preparation tool. The output is a markdown file you pipe somewhere.
+AgentPack is not a coding assistant. It's a context preparation tool. The output is a markdown file you can pass as context.
 
 **Use aider if:** you want interactive, supervised AI coding sessions in a terminal.
 
-**Use agentpack if:** you're driving Claude via pipe or API without an interactive session — CI, scripts, batch workflows.
+**Use agentpack if:** you're working on large repos and want automatic, task-driven file selection — CI, scripts, batch workflows, or interactive sessions.
 
 ### Claude Code / Cursor / Windsurf / Codex (agentic IDEs)
 
@@ -154,7 +147,6 @@ AgentPack's value here is different: `agentpack install --agent <x>` configures 
 
 | Scenario | repomix | gitingest | code2prompt | aider | agentpack |
 |---|---|---|---|---|---|
-| Piped CLI (`... \| claude`) | ✓ dump | ✓ dump | ✓ dump | ✗ | ✓ task-filtered |
 | API call without tool use | ✓ dump | ✗ | ✓ | ✗ | ✓ task-filtered |
 | CI per-PR context | ✓ dump | ✗ | ✓ | ✗ | ✓ task-filtered |
 | Auto task inference from git | ✗ | ✗ | ✗ | partial | ✓ |
@@ -238,12 +230,6 @@ agentpack watch                    # in another terminal — keeps context fresh
 ```
 
 Then open Claude / Cursor / Codex and write your task normally.
-
-**Just want to pipe?**
-
-```bash
-agentpack pack --agent claude --task "fix auth session bug" --print | claude
-```
 
 **Power users (global automation):**
 
@@ -568,10 +554,6 @@ Run this once after `init`. After that, pack automatically rebuilds summaries on
 Generate a context pack.
 
 ```bash
-# Pipe directly into Claude (primary workflow)
-agentpack pack --agent claude --task "fix auth session bug" --print | claude
-
-# Save to file
 agentpack pack --agent claude --task "fix auth session bug"
 claude < .agentpack/context.claude.md
 
@@ -591,7 +573,6 @@ Options:
 | `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
 | `--budget` | 25000 | Token budget |
 | `--since` | — | Only include files changed since this git ref |
-| `--print` | off | Print to stdout (use with pipe) |
 | `--session` | off | Re-pack on every file change (watch mode) |
 | `--refresh` | off | Force rebuild summaries before packing |
 
