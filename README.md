@@ -44,22 +44,22 @@ pip install agentpack-cli
 # Session mode: start once, then work normally
 cd your-project
 agentpack init
-agentpack install --agent claude
+agentpack install          # auto-detects your IDE
 agentpack session start
 agentpack watch   # in another terminal — keeps context fresh automatically
 ```
 
-Then open Claude / Cursor / Codex and write your task normally. AgentPack keeps `.agentpack/context.md` current.
+Then open Claude Code / Cursor / Windsurf / Codex / Antigravity and write your task normally. AgentPack keeps `.agentpack/context.md` current.
 
 For power users who want background repacking on every commit and cd:
 
 ```bash
 # Advanced: global automation (opt-in repos only — never touches repos without .agentpack/)
-agentpack global-install --agent claude --dry-run   # preview first
-agentpack global-install --agent claude
+agentpack global-install --dry-run   # preview first
+agentpack global-install
 ```
 
-Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, or any LLM via pipe/API.
+Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, **Antigravity** (Google), or any LLM.
 
 ---
 
@@ -100,10 +100,9 @@ Per session: ~4.1M raw repo → ~35K packed context.
 
 | Workflow | Value |
 |---|---|
-| `claude < .agentpack/context.claude.md` — stdin | **High** — Claude has no file access; pack is its only context |
-| Claude API calls without tool use | **High** — same |
+| Claude API calls without tool use | **High** — pack is the only context the model sees |
 | CI: generate pack per PR, attach as artifact | **High** — reviewers get instant focused context |
-| Cursor / Windsurf / Codex sessions | **Medium** — context auto-injected on startup, repacked on commit |
+| Cursor / Windsurf / Codex / Antigravity sessions | **Medium** — context auto-injected on startup, repacked on commit |
 | Large repos (>50k tokens) where exploration is slow | **Medium** — summary cache eliminates repeated file reads |
 | Claude Code interactive session, small repo | **Low** — Claude reads files on demand already |
 
@@ -153,7 +152,7 @@ AgentPack's value here is different: `agentpack install --agent <x>` configures 
 | Relevance ranking by task | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Import graph traversal | ✗ | ✗ | ✗ | ✓ | ✓ |
 | Token budget enforcement | manual | manual | manual | ✓ | ✓ |
-| Cursor / Windsurf / Codex install | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Cursor / Windsurf / Codex / Antigravity install | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Zero API calls | ✓ | ✓ | ✓ | ✗ | ✓ |
 | Interactive coding sessions | ✗ | ✗ | ✗ | ✓✓ | ✗ |
 | Any LLM | ✓ | ✓ | ✓ | ✓ | partial* |
@@ -207,7 +206,8 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 | Codex | Medium | `AGENTS.md` + `session start` + `watch` |
 | Cursor | Medium | `.cursor/rules/agentpack.mdc` + `session start` + `watch` |
 | Windsurf | Medium | `.windsurfrules` + `session start` + `watch` |
-| Generic / piped | Basic | `watch` mode + read `context.md` |
+| Antigravity | Medium | `.agent/skills/agentpack/SKILL.md` + `GEMINI.md` + `session start` + `watch` |
+| Generic | Basic | `watch` mode + read `context.md` |
 
 ### Honest limitations
 
@@ -224,18 +224,18 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 pip install agentpack-cli
 cd your-project
 agentpack init
-agentpack install --agent claude   # or: cursor, windsurf, codex
-agentpack session start            # generate initial context
-agentpack watch                    # in another terminal — keeps context fresh
+agentpack install          # auto-detects your IDE (Claude Code, Cursor, Windsurf, Codex, Antigravity)
+agentpack session start    # generate initial context
+agentpack watch            # in another terminal — keeps context fresh
 ```
 
-Then open Claude / Cursor / Codex and write your task normally.
+Then open your agent and write your task normally.
 
 **Power users (global automation):**
 
 ```bash
-agentpack global-install --agent claude --dry-run   # preview
-agentpack global-install --agent claude             # apply
+agentpack global-install --dry-run   # preview
+agentpack global-install             # apply
 source ~/.zshrc
 ```
 
@@ -246,6 +246,8 @@ Then opt each project in: `cd your-project && agentpack init`. After that git ho
 ## Agent setup
 
 Run once per project. Each command is idempotent — safe to re-run, never clobbers unrelated config.
+
+`agentpack install` without `--agent` auto-detects the active IDE from environment variables and project files. Pass `--agent` explicitly to override.
 
 ### Claude Code
 
@@ -294,14 +296,28 @@ Configures:
 - `AGENTS.md` — tells Codex to read the context pack before each task
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 
+### Antigravity
+
+```bash
+agentpack install --agent antigravity
+```
+
+Configures:
+- `.agent/skills/agentpack/SKILL.md` — AgentPack context as a Skill; Antigravity activates it automatically for coding tasks
+- `GEMINI.md` — registers the agentpack skill reference
+- `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
+- `.vscode/tasks.json` — "AgentPack: Repack context" in Command Palette + `runOn: folderOpen`
+
+The Skill descriptor activates AgentPack automatically — no `--task` flag required when working in Antigravity.
+
 ### Auto-repack comparison
 
-| Mechanism | Claude Code | Cursor | Windsurf | Codex |
-|---|---|---|---|---|
-| Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` |
-| Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` |
-| Auto-repack when stale | ✅ hook (snapshot hash, ~1ms when fresh) | ✅ git hooks | ✅ git hooks | ✅ git hooks |
-| Manual repack shortcut | ✅ `/agentpack` slash cmd | ✅ VS Code task | ✅ VS Code task | `agentpack pack` |
+| Mechanism | Claude Code | Cursor | Windsurf | Codex | Antigravity |
+|---|---|---|---|---|---|
+| Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` | `.agent/skills/agentpack/SKILL.md` + `GEMINI.md` |
+| Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` | ✅ Skill auto-activation |
+| Auto-repack when stale | ✅ hook (snapshot hash, ~1ms when fresh) | ✅ git hooks | ✅ git hooks | ✅ git hooks | ✅ git hooks |
+| Manual repack shortcut | ✅ `/agentpack` slash cmd | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
 
 ---
 
@@ -390,13 +406,7 @@ jobs:
           retention-days: 7
 ```
 
-Reviewers download the artifact and run:
-
-```bash
-claude < context.claude.md
-```
-
-No repo clone needed. Claude gets focused context for exactly the PR's changes.
+Reviewers download the artifact and open it in their agent of choice. No repo clone needed — the pack contains full content for changed files and summaries for dependencies.
 
 ---
 
@@ -407,10 +417,12 @@ No repo clone needed. Claude gets focused context for exactly the PR's changes.
 Install once — works in every repo from that point on. The recommended first step.
 
 ```bash
-agentpack global-install --agent claude    # Claude Code
-agentpack global-install --agent cursor    # Cursor
-agentpack global-install --agent windsurf  # Windsurf
-agentpack global-install --agent codex     # Codex
+agentpack global-install                       # auto-detect IDE
+agentpack global-install --agent claude        # Claude Code
+agentpack global-install --agent cursor        # Cursor
+agentpack global-install --agent windsurf      # Windsurf
+agentpack global-install --agent codex         # Codex
+agentpack global-install --agent antigravity   # Antigravity
 ```
 
 What it does:
@@ -424,7 +436,7 @@ Options:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--agent` | `claude` | Target agent |
+| `--agent` | `auto` | Target agent (`auto` \| `claude` \| `cursor` \| `windsurf` \| `codex` \| `antigravity`) |
 | `--no-pipx` | — | Skip pipx install (if agentpack already installed) |
 | `--no-shell-hook` | — | Skip shell rc patching |
 | `--no-git-template` | — | Skip git template hooks |
@@ -526,10 +538,12 @@ Creates:
 Configure agentpack for your AI coding agent.
 
 ```bash
-agentpack install --agent claude    # CLAUDE.md + .claude/settings.json hooks
-agentpack install --agent cursor    # .cursorrules + .mdc + git hooks + VS Code tasks
-agentpack install --agent windsurf  # .windsurfrules + git hooks + VS Code tasks
-agentpack install --agent codex     # AGENTS.md + git hooks
+agentpack install                      # auto-detect IDE
+agentpack install --agent claude       # CLAUDE.md + .claude/settings.json hooks
+agentpack install --agent cursor       # .cursorrules + .mdc + git hooks + VS Code tasks
+agentpack install --agent windsurf     # .windsurfrules + git hooks + VS Code tasks
+agentpack install --agent codex        # AGENTS.md + git hooks
+agentpack install --agent antigravity  # .agent/skills/agentpack/SKILL.md + GEMINI.md + git hooks + VS Code tasks
 ```
 
 All installs are idempotent — safe to re-run, merge with existing config, never duplicate.
@@ -554,21 +568,21 @@ Run this once after `init`. After that, pack automatically rebuilds summaries on
 Generate a context pack.
 
 ```bash
-agentpack pack --agent claude --task "fix auth session bug"
-claude < .agentpack/context.claude.md
+agentpack pack --task "fix auth session bug"        # auto-detects your IDE
+agentpack pack --agent claude --task "fix auth bug" # explicit agent
 
 # Only include changes since a git ref
-agentpack pack --agent claude --task "review these changes" --since main
+agentpack pack --task "review these changes" --since main
 
 # Watch mode — re-packs on every file change
-agentpack pack --agent claude --task "refactor auth" --session
+agentpack pack --task "refactor auth" --session
 ```
 
 Options:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--agent` | `claude` | Target agent (`claude` \| `cursor` \| `windsurf` \| `codex` \| `generic`) |
+| `--agent` | `auto` | Target agent (`auto` \| `claude` \| `cursor` \| `windsurf` \| `codex` \| `antigravity` \| `generic`). `auto` detects the active IDE from env and project files. |
 | `--task` | `auto` | Task description, or `auto` to infer from git |
 | `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
 | `--budget` | 25000 | Token budget |
@@ -1003,11 +1017,12 @@ Works like `.gitignore`. Default rules exclude:
           ┌────────────────────▼────────────────────┐
           │              RENDERING                   │
           │                                         │
-          │  Claude adapter  ──▶  context.claude.md │
-          │  Cursor adapter  ──▶  context.md        │
-          │  Windsurf adapter ─▶  context.md        │
-          │  Codex adapter   ──▶  context.md        │
-          │  Generic adapter ──▶  context.md        │
+          │  Claude adapter      ──▶  context.claude.md │
+          │  Cursor adapter      ──▶  context.md        │
+          │  Windsurf adapter    ──▶  context.md        │
+          │  Codex adapter       ──▶  context.md        │
+          │  Antigravity adapter ──▶  .agent/skills/agentpack/SKILL.md │
+          │  Generic adapter     ──▶  context.md        │
           │                                         │
           │  Context receipts (why each file in/out)│
           │  Secret redaction (AWS/GH/OpenAI tokens)│
@@ -1074,13 +1089,16 @@ src/agentpack/
     cursor.py                  # renders context.md via render_generic()
     windsurf.py                # renders context.md
     codex.py                   # renders context.md
+    antigravity.py             # renders .agent/skills/agentpack/SKILL.md (SKILL.md frontmatter + body)
     generic.py                 # renders context.md (any LLM)
+    detect.py                  # detect_agent(): infers active IDE from env vars + project files
 
   installers/                  # repo/tool configuration — separate from rendering
     claude.py                  # ClaudeInstaller: CLAUDE.md + .claude/settings.json
     cursor.py                  # CursorInstaller: .cursorrules + .mdc + auto-repack
     windsurf.py                # WindsurfInstaller: .windsurfrules + auto-repack
     codex.py                   # CodexInstaller: AGENTS.md + git hooks
+    antigravity.py             # AntigravityInstaller: GEMINI.md + .agent/skills/ + auto-repack
 
   integrations/                # system/tool integration (not core domain)
     git_hooks.py               # install/remove .git/hooks post-commit/merge/checkout
@@ -1121,6 +1139,7 @@ src/agentpack/
 - **`PackPlanner` owns shared planning**: `PackPlanner.plan()` runs scan → summarize → graph → rank → select and returns a `PackPlan`. Both `pack` and `explain` use the same planner — no duplicated pipeline logic, no drift.
 - **`PackService` materializes a plan**: takes a `PackPlan`, builds the `ContextPack` artifact, delegates rendering to `AdapterRegistry`, persists snapshot + metadata + metrics.
 - **`AdapterRegistry` maps agent → adapter**: adding a new agent output format requires one entry in `AdapterRegistry.get()`, not changes to `PackService`.
+- **`detect_agent()` runs at invocation time**: `--agent auto` (the default) calls `detect_agent()` fresh on every `pack` run and git hook execution — so context is always written for the active IDE, even when switching between agents or running in CI.
 - **`DependencyGraph` is typed**: `dependency_graph.build()` returns `DependencyGraph(nodes: dict[str, DependencyNode])` — no more `dict[str, dict]` with stringly-typed keys like `"imported_by"`. Typos are caught at the model layer.
 - **`integrations/` vs `core/`**: git hooks, shell rc patching, and VS Code tasks are infrastructure concerns — they live in `integrations/`, not `core/`. `core/` is pure domain logic.
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
@@ -1133,10 +1152,10 @@ src/agentpack/
 
 ```bash
 # You're debugging a test failure in the auth module
-agentpack pack --agent claude --task "fix failing test in auth token validation" --print | claude
+agentpack pack --task "fix failing test in auth token validation"
 ```
 
-AgentPack selects: the failing test file (modified), `auth/token.py` (dep), `auth/session.py` (dep), `config/settings.py` (config), skips 180 unrelated files. Claude gets 12k tokens of precisely relevant context and starts debugging immediately.
+AgentPack selects: the failing test file (modified), `auth/token.py` (dep), `auth/session.py` (dep), `config/settings.py` (config), skips 180 unrelated files. Your agent gets 12k tokens of precisely relevant context and starts debugging immediately.
 
 ---
 
@@ -1144,10 +1163,10 @@ AgentPack selects: the failing test file (modified), `auth/token.py` (dep), `aut
 
 ```bash
 # On a feature branch, nothing modified yet
-agentpack pack --agent claude --task "add rate limiting to REST API endpoints" --print | claude
+agentpack pack --task "add rate limiting to REST API endpoints"
 ```
 
-Keyword expansion activates: "rate limiting" → `throttle`, `leaky`, `bucket`, `quota`. AgentPack scores: `middleware/` directory (path keyword `api`), existing `throttle.py` or `leaky_bucket.py` (content keyword), `routes/*.py` (deps). Claude gets the full middleware stack and starts implementing, not exploring.
+Keyword expansion activates: "rate limiting" → `throttle`, `leaky`, `bucket`, `quota`. AgentPack scores: `middleware/` directory (path keyword `api`), existing `throttle.py` or `leaky_bucket.py` (content keyword), `routes/*.py` (deps). Your agent gets the full middleware stack and starts implementing, not exploring.
 
 ---
 
@@ -1155,20 +1174,20 @@ Keyword expansion activates: "rate limiting" → `throttle`, `leaky`, `bucket`, 
 
 ```bash
 # Review only what changed vs main
-agentpack pack --agent claude --task "code review auth refactor" --since main --print | claude
+agentpack pack --task "code review auth refactor" --since main
 ```
 
-Only files touched in this branch are included (full content). Everything else is summaries or omitted. Claude reviews exactly the diff-visible code, not the whole codebase.
+Only files touched in this branch are included (full content). Everything else is summaries or omitted. Your agent reviews exactly the diff-visible code, not the whole codebase.
 
 ---
 
 ### Refactor: "Help me refactor the database layer"
 
 ```bash
-agentpack pack --agent claude --task "refactor database connection pooling" --mode deep --print | claude
+agentpack pack --task "refactor database connection pooling" --mode deep
 ```
 
-`--mode deep` adds: related docs, more full-content files, broader dep tree. Use when the task touches many files and you want Claude to see more context upfront.
+`--mode deep` adds: related docs, more full-content files, broader dep tree. Use when the task touches many files and you want your agent to see more context upfront.
 
 ---
 
@@ -1188,22 +1207,6 @@ agentpack watch   # in a second terminal — refreshes context on every save
 # Terminal 2: your editor / agent
 # Save a file → context.md regenerates automatically
 # Change task: agentpack session refresh --task "new task"
-```
-
----
-
-### Pipe into any LLM
-
-```bash
-# Claude CLI (piped)
-agentpack pack --task "fix SSE cancellation bug" --print | claude
-
-# OpenAI CLI
-agentpack pack --task "fix SSE cancellation bug" --print | llm "fix this"
-
-# Anthropic API via curl
-agentpack pack --task "debug memory leak" --print > /tmp/context.md
-# then reference /tmp/context.md in your API call
 ```
 
 ---
@@ -1229,7 +1232,7 @@ agentpack explain --task "fix rate limiting in auth middleware"
 Skip writing a task description — agentpack infers it from your branch name, changed files, and recent commits:
 
 ```bash
-agentpack pack --task auto --print | claude
+agentpack pack --task auto
 ```
 
 Priority order: branch name → changed file paths → recent commit message. The more descriptive your branch names (`feat/add-rate-limiting` beats `dev`), the better the inferred task.
@@ -1255,7 +1258,7 @@ Every teammate and CI job skips the summarize step. `agentpack pack` is signific
 ### Use `--since` for PR reviews
 
 ```bash
-agentpack pack --task "review auth changes" --since main --print | claude
+agentpack pack --task "review auth changes" --since main
 ```
 
 Only includes files changed since `main`. Cuts out noise from unrelated work in long-running branches.
@@ -1316,7 +1319,7 @@ config_file     = 60   # was 25 — configs always matter here
 
 - **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls by default
 - **Non-destructive**: never overwrites user files; config patching only touches agentpack-managed blocks
-- **Agent-neutral**: architecture is generic; Claude is the primary target (deepest integration); Cursor, Windsurf, and Codex are supported but less battle-tested
+- **Agent-neutral**: architecture is generic; Claude Code is the primary target (deepest integration); Cursor, Windsurf, Codex, and Antigravity are supported but less battle-tested
 - **No daemons**: file watching is opt-in via `agentpack watch`; session management is opt-in via `agentpack session start`; git hooks run in the background and are opt-in via `install`
 - **Honest**: packed token count reflects real content, not raw repo size
 

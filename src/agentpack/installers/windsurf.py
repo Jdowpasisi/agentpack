@@ -44,7 +44,7 @@ class WindsurfInstaller:
     def install_auto_repack(self, root: Path) -> dict[str, str]:
         """Install git hooks + VS Code tasks for auto-repack. Returns results dict."""
         results: dict[str, str] = {}
-        hook_results = install_git_hooks(root, agent="windsurf")
+        hook_results = install_git_hooks(root, agent="auto")
         results.update({f"git:{k}": v for k, v in hook_results.items()})
-        results["vscode:tasks"] = install_vscode_tasks(root, agent="windsurf")
+        results["vscode:tasks"] = install_vscode_tasks(root, agent="auto")
         return results

@@ -49,6 +49,6 @@ class CodexInstaller:
     def install_auto_repack(self, root: Path) -> dict[str, str]:
         """Install git hooks for auto-repack. Returns results dict."""
         results: dict[str, str] = {}
-        hook_results = install_git_hooks(root, agent="codex")
+        hook_results = install_git_hooks(root, agent="auto")
         results.update({f"git:{k}": v for k, v in hook_results.items()})
         return results
