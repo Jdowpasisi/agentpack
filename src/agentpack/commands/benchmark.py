@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import random
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -24,13 +27,21 @@ class BenchmarkCase:
 class CaseResult:
     case: BenchmarkCase
     packed_tokens: int
-    raw_tokens: int
-    saving_pct: float
+    raw_tokens: int           # all files (incl. ignored)
+    after_ignore_tokens: int  # packable files only — honest baseline
+    saving_pct: float         # vs raw
+    saving_pct_honest: float  # vs after_ignore
     selected_paths: list[str]
-    changed_covered: int      # # changed files that were selected
-    changed_total: int        # total changed files detected
+    selected_tokens: dict[str, int]   # path → token count for noise calc
+    changed_covered: int
+    changed_total: int
     total_s: float
     phase_times: dict[str, float]
+    rank_at_k: int | None = None   # min rank to see all expected_files; None if no expected
+    noise_pct: float | None = None  # tokens on non-expected / packed; None if no expected
+    random_precision: float | None = None
+    random_recall: float | None = None
+    random_f1: float | None = None
 
 
 def _load_cases(path: Path) -> list[BenchmarkCase]:
@@ -74,9 +85,64 @@ def _scaffold_cases(root: Path) -> Path:
     return out
 
 
+def _load_history_cases(root: Path, n: int) -> list[BenchmarkCase]:
+    """Sample last N unique tasks from metrics.jsonl."""
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if not metrics_path.exists():
+        return []
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    for line in reversed(metrics_path.read_text().splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+            task = rec.get("task", "").strip()
+            mode = rec.get("mode", "balanced")
+            if task and task not in seen_set:
+                seen_set.add(task)
+                seen.append((task, mode))
+                if len(seen) >= n:
+                    break
+        except json.JSONDecodeError:
+            pass
+    return [BenchmarkCase(task=t, mode=m) for t, m in seen]
+
+
+def _random_baseline(
+    packable_paths: list[str],
+    packable_tokens: dict[str, int],
+    expected_files: list[str],
+    budget: int,
+) -> tuple[list[str], float, float, float]:
+    """Random file selection at same budget. Returns (selected, precision, recall, f1)."""
+    shuffled = list(packable_paths)
+    random.shuffle(shuffled)
+    selected: list[str] = []
+    used = 0
+    for p in shuffled:
+        tok = packable_tokens.get(p, 50)
+        if used + tok <= budget:
+            selected.append(p)
+            used += tok
+
+    expected = set(expected_files)
+    sel_set = set(selected)
+    if not expected or not sel_set:
+        return selected, 0.0, 0.0, 0.0
+    tp = len(sel_set & expected)
+    p = tp / len(sel_set)
+    r = tp / len(expected)
+    f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+    return selected, p, r, f1
+
+
 def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
     from agentpack.application.pack_service import PackPlanner, PackRequest, _sf_tokens
-    from agentpack.core.token_estimator import estimate_tokens
+    from agentpack.core.config import load_config
+
+    cfg = load_config(root)
 
     request = PackRequest(
         root=root,
@@ -95,29 +161,63 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
 
     packed_tokens = sum(_sf_tokens(sf) for sf in plan.selected)
     raw_tokens = sum(f.estimated_tokens for f in plan.scan_result.all_files)
+    after_ignore_tokens = sum(f.estimated_tokens for f in plan.scan_result.packable)
     saving_pct = (1 - packed_tokens / raw_tokens) * 100 if raw_tokens > 0 else 0.0
+    saving_pct_honest = (1 - packed_tokens / after_ignore_tokens) * 100 if after_ignore_tokens > 0 else 0.0
 
     selected_paths = [sf.path for sf in plan.selected]
     selected_set = set(selected_paths)
+    selected_tokens = {sf.path: _sf_tokens(sf) for sf in plan.selected}
 
     changed_covered = len(plan.all_changed & selected_set)
     changed_total = len(plan.all_changed)
+
+    # Rank@K: min rank in scored list to cover all expected files
+    rank_at_k: int | None = None
+    noise_pct: float | None = None
+    rand_p = rand_r = rand_f1 = None
+
+    if case.expected_files:
+        expected_set = set(case.expected_files)
+        scored_paths = [fi.path for fi, _score, _reasons in plan.scored]
+        found: set[str] = set()
+        for k, path in enumerate(scored_paths, 1):
+            if path in expected_set:
+                found.add(path)
+            if found >= expected_set:
+                rank_at_k = k
+                break
+
+        expected_tokens = sum(selected_tokens.get(p, 0) for p in selected_set & expected_set)
+        noise_pct = (1 - expected_tokens / packed_tokens) * 100 if packed_tokens > 0 else 0.0
+
+        packable_paths = [f.path for f in plan.scan_result.packable]
+        packable_token_map = {f.path: f.estimated_tokens for f in plan.scan_result.packable}
+        budget = cfg.context.default_budget
+        _, rand_p, rand_r, rand_f1 = _random_baseline(packable_paths, packable_token_map, case.expected_files, budget)
 
     return CaseResult(
         case=case,
         packed_tokens=packed_tokens,
         raw_tokens=raw_tokens,
+        after_ignore_tokens=after_ignore_tokens,
         saving_pct=saving_pct,
+        saving_pct_honest=saving_pct_honest,
         selected_paths=selected_paths,
+        selected_tokens=selected_tokens,
         changed_covered=changed_covered,
         changed_total=changed_total,
         total_s=total_s,
         phase_times=plan.phase_times,
+        rank_at_k=rank_at_k,
+        noise_pct=noise_pct,
+        random_precision=rand_p,
+        random_recall=rand_r,
+        random_f1=rand_f1,
     )
 
 
 def _precision_recall(result: CaseResult) -> tuple[float, float, float]:
-    """Returns (precision, recall, f1). Requires expected_files on the case."""
     expected = set(result.case.expected_files)
     if not expected:
         return 0.0, 0.0, 0.0
@@ -127,6 +227,37 @@ def _precision_recall(result: CaseResult) -> tuple[float, float, float]:
     r = tp / len(expected)
     f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
     return p, r, f1
+
+
+def _persist_result(root: Path, result: CaseResult) -> None:
+    out = root / ".agentpack" / "benchmark_results.jsonl"
+    p, r, f1 = _precision_recall(result) if result.case.expected_files else (None, None, None)
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "task": result.case.task,
+        "mode": result.case.mode,
+        "packed_tokens": result.packed_tokens,
+        "raw_tokens": result.raw_tokens,
+        "after_ignore_tokens": result.after_ignore_tokens,
+        "saving_pct": round(result.saving_pct, 1),
+        "saving_pct_honest": round(result.saving_pct_honest, 1),
+        "files_selected": len(result.selected_paths),
+        "changed_covered": result.changed_covered,
+        "changed_total": result.changed_total,
+        "total_s": round(result.total_s, 3),
+        "phases": {k: round(v, 3) for k, v in result.phase_times.items()},
+        "precision": round(p, 3) if p is not None else None,
+        "recall": round(r, 3) if r is not None else None,
+        "f1": round(f1, 3) if f1 is not None else None,
+        "rank_at_k": result.rank_at_k,
+        "noise_pct": round(result.noise_pct, 1) if result.noise_pct is not None else None,
+        "random_f1": round(result.random_f1, 3) if result.random_f1 is not None else None,
+    }
+    try:
+        with out.open("a") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception:
+        pass
 
 
 def _print_case_detail(result: CaseResult) -> None:
@@ -139,8 +270,10 @@ def _print_case_detail(result: CaseResult) -> None:
     tbl.add_column(style="dim")
     tbl.add_column(justify="right", style="bold")
     tbl.add_row("packed tokens", f"{result.packed_tokens:,}")
-    tbl.add_row("raw tokens", f"{result.raw_tokens:,}")
-    tbl.add_row("saving", f"[green]{result.saving_pct:.1f}%[/]")
+    tbl.add_row("raw tokens (all files)", f"{result.raw_tokens:,}")
+    tbl.add_row("after ignore tokens", f"{result.after_ignore_tokens:,}")
+    tbl.add_row("saving vs raw", f"[green]{result.saving_pct:.1f}%[/]")
+    tbl.add_row("saving vs after-ignore", f"[cyan]{result.saving_pct_honest:.1f}%[/]")
     tbl.add_row("files selected", str(len(result.selected_paths)))
     if result.changed_total > 0:
         cov_pct = result.changed_covered / result.changed_total * 100
@@ -162,6 +295,19 @@ def _print_case_detail(result: CaseResult) -> None:
             f"recall [bold]{r:.1%}[/]  "
             f"F1 [bold]{f1:.1%}[/]"
         )
+        if result.rank_at_k is not None:
+            console.print(f"  rank@K (all expected covered at rank) [bold]{result.rank_at_k}[/]")
+        else:
+            console.print("  rank@K  [dim]expected files not all found in scored list[/]")
+        if result.noise_pct is not None:
+            console.print(f"  noise (tokens on non-expected files) [bold]{result.noise_pct:.1f}%[/]")
+        if result.random_f1 is not None:
+            lift = f1 - result.random_f1
+            color = "green" if lift >= 0 else "red"
+            console.print(
+                f"  random baseline F1 [dim]{result.random_f1:.1%}[/]  "
+                f"ranker lift [{color}]{lift:+.1%}[/{color}]"
+            )
         expected_set = set(result.case.expected_files)
         selected_set = set(result.selected_paths)
         hits = expected_set & selected_set
@@ -181,13 +327,17 @@ def _print_summary_table(results: list[CaseResult]) -> None:
     tbl.add_column("task", max_width=40)
     tbl.add_column("mode", width=9)
     tbl.add_column("tokens", justify="right")
-    tbl.add_column("saving", justify="right")
+    tbl.add_column("vs raw", justify="right")
+    tbl.add_column("vs ignore", justify="right")
     tbl.add_column("files", justify="right")
     tbl.add_column("time", justify="right")
     if has_gt:
         tbl.add_column("P", justify="right")
         tbl.add_column("R", justify="right")
         tbl.add_column("F1", justify="right")
+        tbl.add_column("rand F1", justify="right")
+        tbl.add_column("rank@K", justify="right")
+        tbl.add_column("noise%", justify="right")
 
     for r in results:
         p, rec, f1 = _precision_recall(r) if r.case.expected_files else (0.0, 0.0, 0.0)
@@ -196,6 +346,7 @@ def _print_summary_table(results: list[CaseResult]) -> None:
             r.case.mode,
             f"{r.packed_tokens:,}",
             f"{r.saving_pct:.1f}%",
+            f"{r.saving_pct_honest:.1f}%",
             str(len(r.selected_paths)),
             f"{r.total_s:.2f}s",
         ]
@@ -204,6 +355,9 @@ def _print_summary_table(results: list[CaseResult]) -> None:
                 f"{p:.1%}" if r.case.expected_files else "—",
                 f"{rec:.1%}" if r.case.expected_files else "—",
                 f"{f1:.1%}" if r.case.expected_files else "—",
+                f"{r.random_f1:.1%}" if r.random_f1 is not None else "—",
+                str(r.rank_at_k) if r.rank_at_k is not None else "—",
+                f"{r.noise_pct:.0f}%" if r.noise_pct is not None else "—",
             ]
         tbl.add_row(*row)
 
@@ -212,13 +366,13 @@ def _print_summary_table(results: list[CaseResult]) -> None:
 
 
 def _print_compare_table(task: str, results: list[CaseResult]) -> None:
-    """Side-by-side mode comparison for a single task."""
     console.print(f"\n[bold]Mode comparison:[/] [cyan]{task}[/]\n")
 
     tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 2))
     tbl.add_column("mode", width=10)
     tbl.add_column("tokens", justify="right")
-    tbl.add_column("saving", justify="right")
+    tbl.add_column("vs raw", justify="right")
+    tbl.add_column("vs ignore", justify="right")
     tbl.add_column("files", justify="right")
     tbl.add_column("time", justify="right")
 
@@ -227,6 +381,7 @@ def _print_compare_table(task: str, results: list[CaseResult]) -> None:
             r.case.mode,
             f"{r.packed_tokens:,}",
             f"{r.saving_pct:.1f}%",
+            f"{r.saving_pct_honest:.1f}%",
             str(len(r.selected_paths)),
             f"{r.total_s:.2f}s",
         )
@@ -241,6 +396,7 @@ def register(app: typer.Typer) -> None:
         cases: str = typer.Option("", "--cases", help="Path to TOML cases file (default: .agentpack/benchmark.toml)."),
         compare: bool = typer.Option(False, "--compare", is_flag=True, help="Compare minimal/balanced/deep for each task."),
         init: bool = typer.Option(False, "--init", is_flag=True, help="Scaffold a benchmark.toml and exit."),
+        from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
     ) -> None:
         """Benchmark file selection quality and token efficiency across tasks."""
         root = _root()
@@ -252,7 +408,12 @@ def register(app: typer.Typer) -> None:
             return
 
         # Build case list
-        if task:
+        if from_history > 0:
+            bench_cases = _load_history_cases(root, from_history)
+            if not bench_cases:
+                console.print("[yellow]No task history found in metrics.jsonl. Run agentpack pack first.[/]")
+                raise typer.Exit(1)
+        elif task:
             resolved = _resolve_task(task) if task == "auto" else task
             bench_cases = [BenchmarkCase(task=resolved, mode=mode)]
         else:
@@ -282,6 +443,7 @@ def register(app: typer.Typer) -> None:
             with console.status(f"[dim]{label}[/]"):
                 try:
                     r = _run_case(root, c)
+                    _persist_result(root, r)
                     results.append(r)
                 except Exception as e:
                     console.print(f"[red]Error on case '{c.task}': {e}[/]")
