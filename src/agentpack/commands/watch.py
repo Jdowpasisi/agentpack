@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from agentpack.commands._shared import console, _root
+from agentpack.commands._shared import console, _root, run_refresh, _file_hash, _now_iso
 from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
 
 
@@ -15,9 +15,15 @@ _IGNORE_DIRS = {
     ".git", "node_modules", ".venv", "venv", "dist", "build", ".next",
     "__pycache__", ".yarn", ".mypy_cache", ".ruff_cache", ".pytest_cache",
     ".tox", ".eggs", "*.egg-info",
+    # IDE state dirs — written constantly by editors, never user source
+    ".vscode", ".idea", ".fleet",
 }
 _IGNORE_NAMES = {"context.md", "context.compact.md"}
 # Ignore all .agentpack/ generated files; task.md is the sole exception (user-edited, triggers refresh)
+
+# Adapter output paths written outside .agentpack/ (e.g. antigravity writes .agent/skills/agentpack/SKILL.md).
+# Populated at runtime from run_refresh() return value so new adapters are covered automatically.
+_WRITTEN_PATHS: set[str] = set()
 
 _MAX_POLL_FILES = 50_000
 
@@ -79,17 +85,26 @@ def _should_ignore(path: str) -> bool:
     # Ignore everything under .agentpack/ except task.md
     if norm.startswith(".agentpack/") and norm != TASK_FILE:
         return True
+    # Ignore adapter output files written outside .agentpack/ during refresh
+    if norm in _WRITTEN_PATHS:
+        return True
     return False
 
 
 def _run_refresh(root: Path, agent: str, mode: str, budget: int) -> None:
-    from agentpack.commands.session import _run_refresh as do_refresh, _file_hash, _now_iso
     try:
-        result = do_refresh(root, agent, mode, budget)
+        result = run_refresh(root, agent, mode, budget)
     except Exception as e:
         console.print(f"[dim][{_ts()}][/] [red]refresh error: {e}[/]")
         return
     if result:
+        # Register adapter output path so _should_ignore suppresses the write event
+        out_path = result.get("out_path")
+        if out_path is not None:
+            try:
+                _WRITTEN_PATHS.add(str(Path(out_path).relative_to(root)).replace("\\", "/"))
+            except ValueError:
+                pass
         ts = _ts()
         console.print(
             f"[dim][{ts}][/] [green]refreshed:[/] {result['files']} files, "
