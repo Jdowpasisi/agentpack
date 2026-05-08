@@ -21,7 +21,7 @@ def register(app: typer.Typer) -> None:
 
     @session_app.command("start")
     def start(
-        agent: str = typer.Option("generic", "--agent", help="Target agent (claude|cursor|codex|generic)."),
+        agent: str = typer.Option("auto", "--agent", help="Target agent (auto|claude|cursor|windsurf|codex|antigravity|generic)."),
         mode: str = typer.Option("balanced", "--mode", help="Pack mode (minimal|balanced|deep)."),
         task: str = typer.Option("", "--task", help="Initial task description."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = config default)."),
@@ -66,7 +66,7 @@ def register(app: typer.Typer) -> None:
         console.print()
         console.print("[bold]Next:[/]")
         console.print("  - Run [bold]agentpack watch[/] in another terminal to auto-refresh context.")
-        console.print("  - Open Claude / Cursor / Codex and ask your task normally.")
+        console.print("  - Open your agent (Claude Code / Cursor / Windsurf / Codex / Antigravity) and ask your task normally.")
         console.print("  - To change the task: [bold]agentpack session refresh --task \"new task\"[/]")
         console.print()
 
