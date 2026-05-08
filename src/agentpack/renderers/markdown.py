@@ -142,3 +142,17 @@ def render_claude(pack: ContextPack) -> str:
 
 def render_generic(pack: ContextPack) -> str:
     return render_claude(pack).replace("# AgentPack Context for Claude", "# AgentPack Context")
+
+
+def render_antigravity(pack: ContextPack) -> str:
+    """Render context as an Antigravity SKILL.md with required frontmatter."""
+    body = render_claude(pack).replace(
+        "# AgentPack Context for Claude", "# AgentPack Context"
+    )
+    frontmatter = (
+        "---\n"
+        "name: agentpack\n"
+        "description: AgentPack task-focused repo context. Activates when working on a coding task in this repository.\n"
+        "---\n\n"
+    )
+    return frontmatter + body
