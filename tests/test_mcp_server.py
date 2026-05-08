@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from agentpack.mcp_server import _repo_root, _truncate_to_budget, _get_context_impl
 
@@ -22,8 +20,6 @@ def test_repo_root_finds_agentpack_dir(tmp_path):
     with patch("agentpack.mcp_server.Path") as mock_path_cls:
         mock_path_cls.cwd.return_value = deep
         # Use real Path for parents traversal
-        import agentpack.mcp_server as mod
-        original_cwd = Path.cwd
         with patch.object(Path, "cwd", return_value=deep):
             result = _repo_root()
     assert result == tmp_path

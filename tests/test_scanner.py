@@ -1,9 +1,7 @@
-import pytest
-from pathlib import Path
 import pathspec
 
 from agentpack.core.scanner import scan, file_hash
-from agentpack.core.ignore import load_spec, DEFAULT_AGENTIGNORE
+from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 
 
 def _spec() -> pathspec.PathSpec:

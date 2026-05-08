@@ -71,12 +71,11 @@ def register(app: typer.Typer) -> None:
 
         # --- Last context top files ---
         metrics_path = root / ".agentpack" / "metrics.jsonl"
-        last_selected: list[dict] = []
         if metrics_path.exists():
-            lines = [l.strip() for l in metrics_path.read_text().splitlines() if l.strip()]
+            lines = [line.strip() for line in metrics_path.read_text().splitlines() if line.strip()]
             if lines:
                 try:
-                    last_record = json.loads(lines[-1])
+                    json.loads(lines[-1])
                     # metrics don't store per-file data — use context file for top files
                 except Exception:
                     pass

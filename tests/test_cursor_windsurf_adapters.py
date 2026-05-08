@@ -1,8 +1,4 @@
-import json
-import tempfile
-from pathlib import Path
 
-import pytest
 
 from agentpack.adapters.cursor import CursorAdapter
 from agentpack.adapters.windsurf import WindsurfAdapter

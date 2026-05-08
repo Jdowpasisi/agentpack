@@ -13,7 +13,6 @@ and scoring weights — the things unit tests don't cover end-to-end.
 """
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 
 from agentpack.analysis.ranking import extract_keywords, score_files

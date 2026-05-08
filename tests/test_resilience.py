@@ -1,10 +1,7 @@
 """Tests for graceful handling of corrupted state files."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
-import pytest
 
 from agentpack.core.cache import load_summary, save_summary
 from agentpack.core.config import load_config

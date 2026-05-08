@@ -4,11 +4,9 @@ import hashlib
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from agentpack.session.state import (
-    TASK_FILE, CONTEXT_FILE, COMPACT_FILE, SESSION_FILE,
-    create_session, load_session,
+    TASK_FILE, CONTEXT_FILE, COMPACT_FILE, create_session, load_session,
 )
 from agentpack.commands.session import _run_refresh
 
@@ -141,7 +139,8 @@ def test_session_refresh_updates_last_task_hash(tmp_path: Path) -> None:
         from typer.testing import CliRunner
         from agentpack.cli import app
         runner = CliRunner()
-        import os; os.chdir(tmp_path)
+        import os
+        os.chdir(tmp_path)
         result = runner.invoke(app, ["session", "refresh"])
 
     assert result.exit_code == 0

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import shutil
 import subprocess
-from datetime import datetime, timezone
 
 import typer
 

@@ -5,10 +5,10 @@ from typing import Optional
 
 import typer
 
-from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE, save_config
+from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 from agentpack.commands._shared import console, _root
-from agentpack.session.state import load_session, create_session, save_session, SESSION_FILE, TASK_FILE
+from agentpack.session.state import load_session, create_session, SESSION_FILE, TASK_FILE
 
 
 def register(app: typer.Typer) -> None:
@@ -97,7 +97,7 @@ def register(app: typer.Typer) -> None:
         if existing_session is None or force:
             from agentpack.adapters.detect import detect_agent
             resolved_agent = agent if agent != "auto" else detect_agent(root)
-            session_state = create_session(root, agent=resolved_agent, mode=resolved_mode)
+            create_session(root, agent=resolved_agent, mode=resolved_mode)
             console.print(f"[green]Created[/] {SESSION_FILE}  [dim]agent={resolved_agent} mode={resolved_mode}[/]")
             console.print(f"[green]Created[/] {TASK_FILE}  [dim]edit to set your task[/]")
         else:

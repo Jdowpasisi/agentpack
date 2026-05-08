@@ -1,7 +1,4 @@
-import os
 import stat
-from pathlib import Path
-import pytest
 
 from agentpack.integrations.global_install import (
     install_git_template_hooks,
@@ -24,7 +21,7 @@ class TestGitTemplateHooks:
         import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
 
-        results = install_git_template_hooks()
+        install_git_template_hooks()
         for name in _HOOK_SCRIPTS:
             hook = tmp_path / ".git-templates" / "hooks" / name
             assert hook.exists(), f"{name} not created"
@@ -158,8 +155,8 @@ class TestShellHook:
         # The executable body must check config.toml before doing anything
         # (comment lines referencing 'agentpack init' are acceptable)
         body_lines = [
-            l for l in content.splitlines()
-            if not l.strip().startswith("#") and "agentpack init" in l
+            line for line in content.splitlines()
+            if not line.strip().startswith("#") and "agentpack init" in line
         ]
         assert body_lines == [], f"Shell hook body auto-inits without opt-in check: {body_lines}"
 
@@ -172,8 +169,8 @@ class TestShellHook:
             content = (tmp_path / ".git-templates" / "hooks" / name).read_text()
             assert ".agentpack/config.toml" in content
             body_lines = [
-                l for l in content.splitlines()
-                if not l.strip().startswith("#") and "agentpack init" in l
+                line for line in content.splitlines()
+                if not line.strip().startswith("#") and "agentpack init" in line
             ]
             assert body_lines == [], f"{name} auto-inits without opt-in check: {body_lines}"
 

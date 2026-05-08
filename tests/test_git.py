@@ -1,5 +1,4 @@
 """Tests for git module — graceful fallback when not in a git repo."""
-import pytest
 from pathlib import Path
 from agentpack.core import git
 

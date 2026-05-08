@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -78,7 +77,7 @@ def _print_pack_summary(result: PackResult) -> None:
     saving_pct = result.saving_pct
     changed_files = result.changed_files
     task = result.pack.task
-    since = None  # since is not stored in PackResult; shown via changed_files
+    # since is not stored in PackResult; shown via changed_files
 
     stats = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
     stats.add_column(style="dim")
@@ -146,7 +145,7 @@ def _print_pack_summary(result: PackResult) -> None:
         if len(sensitive_excluded) > 10:
             console.print(f"  [dim]... {len(sensitive_excluded) - 10} more[/]")
 
-    console.print(f"\n[bold]Next step:[/]")
+    console.print("\n[bold]Next step:[/]")
     console.print(f"  [bold white]claude < {out_path}[/]")
     console.print()
 
@@ -167,7 +166,7 @@ def _pack_watch(
         raise typer.Exit(1)
 
     root = _root()
-    console.print(f"[bold]Watch mode active.[/] Repacking on file changes... (Ctrl+C to stop)")
+    console.print("[bold]Watch mode active.[/] Repacking on file changes... (Ctrl+C to stop)")
     console.print(f"  Task: {task}")
 
     def _run_pack() -> None:

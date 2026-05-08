@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
 from agentpack.cli import app
 from agentpack.session.state import (
-    SESSION_FILE, TASK_FILE, CONTEXT_FILE, COMPACT_FILE, ACTIVITY_LOG,
-    load_session, create_session,
+    SESSION_FILE, TASK_FILE, load_session, create_session,
 )
 
 runner = CliRunner()

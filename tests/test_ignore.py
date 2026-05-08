@@ -1,5 +1,4 @@
-import pytest
-from agentpack.core.ignore import load_spec, is_ignored, DEFAULT_AGENTIGNORE
+from agentpack.core.ignore import is_ignored, DEFAULT_AGENTIGNORE
 import pathspec
 
 

@@ -1,6 +1,4 @@
 """Tests for Go, Rust, and Java/Kotlin import extractors."""
-import pytest
-from pathlib import Path
 
 from agentpack.analysis.go_imports import extract_imports as go_extract
 from agentpack.analysis.rust_imports import extract_imports as rust_extract

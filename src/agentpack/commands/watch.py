@@ -17,8 +17,7 @@ _IGNORE_DIRS = {
     ".tox", ".eggs", "*.egg-info",
 }
 _IGNORE_NAMES = {"context.md", "context.compact.md"}
-# Ignore all agentpack-generated files but allow task.md — it's user-edited and triggers refresh
-_IGNORE_PREFIXES = (".agentpack/context", ".agentpack/session.json", ".agentpack/activity.log")
+# Ignore all .agentpack/ generated files; task.md is the sole exception (user-edited, triggers refresh)
 
 _MAX_POLL_FILES = 50_000
 
@@ -55,7 +54,9 @@ def register(app: typer.Typer) -> None:
 
         # Try watchdog first, fall back to polling
         try:
-            from watchdog.observers import Observer
+            import importlib.util
+            if importlib.util.find_spec("watchdog") is None:
+                raise ImportError("watchdog not installed")
             _watch_with_watchdog(root, effective_agent, effective_mode, budget, debounce, state)
         except ImportError:
             console.print("[dim]watchdog not installed — using polling (install watchdog for better performance)[/]")
@@ -75,7 +76,10 @@ def _should_ignore(path: str) -> bool:
     if name in _IGNORE_NAMES:
         return True
     norm = path.replace("\\", "/")
-    return any(norm.startswith(p) for p in _IGNORE_PREFIXES)
+    # Ignore everything under .agentpack/ except task.md
+    if norm.startswith(".agentpack/") and norm != TASK_FILE:
+        return True
+    return False
 
 
 def _run_refresh(root: Path, agent: str, mode: str, budget: int) -> None:
