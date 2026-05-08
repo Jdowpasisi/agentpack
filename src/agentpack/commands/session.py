@@ -28,41 +28,46 @@ def register(app: typer.Typer) -> None:
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = config default)."),
         silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
     ) -> None:
-        """Start a session: create state files and generate initial context."""
+        """Refresh session and generate context. Optional — `agentpack init` already bootstraps the session.
+
+        Use this to change agent/mode after init, or to force a fresh context pack.
+        Idempotent: resumes existing session rather than recreating it.
+        """
         root = _root()
         if silent:
             console.quiet = True
-        state = create_session(root, agent=agent, mode=mode)
+
+        existing = load_session(root)
+        if existing is not None:
+            # Resume: update agent/mode only if explicitly passed, then refresh
+            if agent != "auto":
+                existing.agent = agent
+            if mode != "balanced" or existing.agent == "generic":
+                # only override mode if user explicitly chose non-default
+                if mode != "balanced":
+                    existing.mode = mode
+            existing.active = True
+            save_session(root, existing)
+            state = existing
+            console.print("[dim]Session resumed.[/]")
+        else:
+            state = create_session(root, agent=agent, mode=mode)
+            console.print()
+            console.print("[bold green]AgentPack session initialized.[/]")
+            console.print()
+            console.print(f"  [green]✓[/] {SESSION_FILE}  [dim]session state[/]")
+            console.print(f"  [green]✓[/] {TASK_FILE}  [dim]edit to set your task[/]")
 
         if task:
             (root / TASK_FILE).write_text(f"# Current Task\n\n{task}\n", encoding="utf-8")
 
-        console.print()
-        console.print("[bold green]AgentPack session started.[/]")
-        console.print()
-
-        created: list[tuple[str, str]] = [
-            (SESSION_FILE, "session state"),
-            (TASK_FILE, "edit to set your task"),
-        ]
-
         result = _run_refresh(root, state.agent, state.mode, budget)
         if result:
-            created += [
-                (CONTEXT_FILE, f"{result['files']} files, {result['tokens']:,} tokens"),
-                (COMPACT_FILE, "compact protocol format"),
-            ]
-            log_activity(root, f"session started — {result['files']} files, {result['tokens']:,} tokens")
+            console.print(f"  [green]✓[/] {CONTEXT_FILE}  [dim]{result['files']} files, {result['tokens']:,} tokens[/]")
+            log_activity(root, f"session start — {result['files']} files, {result['tokens']:,} tokens")
         else:
-            created += [
-                (CONTEXT_FILE, "will generate on first refresh"),
-                (COMPACT_FILE, "will generate on first refresh"),
-            ]
-            log_activity(root, "session started (context generation deferred)")
-
-        console.print("[bold]Created:[/]")
-        for path, note in created:
-            console.print(f"  [green]✓[/] {path}  [dim]{note}[/]")
+            console.print(f"  [dim]✗ context generation failed — run agentpack session refresh[/]")
+            log_activity(root, "session start (context generation failed)")
 
         console.print()
         console.print("[bold]Next:[/]")

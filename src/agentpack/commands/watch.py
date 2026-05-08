@@ -34,12 +34,17 @@ def register(app: typer.Typer) -> None:
         root = _root()
         state = load_session(root)
 
+        # Auto-resume: if session exists but inactive, reactivate without requiring `session start`
+        if state is not None and not state.active:
+            state.active = True
+            save_session(root, state)
+            console.print("[dim]Resumed session.[/]")
+        elif state is None:
+            console.print("[yellow]No session found — watching in stateless mode.[/]")
+            console.print("[dim]Run 'agentpack session start' to persist agent/mode preferences.[/]")
+
         effective_agent = agent or (state.agent if state else "generic")
         effective_mode = mode or (state.mode if state else "balanced")
-
-        if state is None:
-            console.print("[yellow]No session found — watching in stateless mode.[/]")
-            console.print("[dim]Run 'agentpack session start' for full session support.[/]")
 
         console.print()
         console.print("[bold]AgentPack watch active.[/]")
