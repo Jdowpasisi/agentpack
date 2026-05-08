@@ -5,6 +5,7 @@ from pathlib import Path
 
 import typer
 
+from agentpack.installers.antigravity import AntigravityInstaller
 from agentpack.installers.claude import ClaudeInstaller
 from agentpack.installers.codex import CodexInstaller
 from agentpack.installers.cursor import CursorInstaller
@@ -18,18 +19,28 @@ from agentpack.integrations.global_install import (
 )
 from agentpack.commands._shared import console, _root
 
-_SUPPORTED_AGENTS = ("claude", "cursor", "windsurf", "codex")
+_SUPPORTED_AGENTS = ("auto", "claude", "cursor", "windsurf", "codex", "antigravity")
+
+
+def _resolve_install_agent(agent: str, root: "Path") -> str:
+    if agent != "auto":
+        return agent
+    from agentpack.adapters.detect import detect_agent
+    resolved = detect_agent(root)
+    console.print(f"[dim]Auto-detected agent: {resolved}[/]")
+    return resolved
 
 
 def register(app: typer.Typer) -> None:
     @app.command()
     def install(
-        agent: str = typer.Option("claude", "--agent", help=f"Target agent ({' | '.join(_SUPPORTED_AGENTS)})."),
+        agent: str = typer.Option("auto", "--agent", help=f"Target agent ({' | '.join(_SUPPORTED_AGENTS)}). auto detects from env/project files."),
         slash_command: bool = typer.Option(True, "--slash-command/--no-slash-command", help="Install /agentpack slash command (Claude only)."),
         global_install: bool = typer.Option(False, "--global/--local", help="Install globally or locally."),
     ) -> None:
-        """Configure agentpack for your AI coding agent (Claude, Cursor, Windsurf, or Codex)."""
+        """Configure agentpack for your AI coding agent. Defaults to auto-detecting the active IDE."""
         root = _root()
+        agent = _resolve_install_agent(agent, root)
 
         if agent == "claude":
             installer = ClaudeInstaller()
@@ -64,7 +75,14 @@ def register(app: typer.Typer) -> None:
             action = installer.patch_agents_md(root)
             console.print(f"[green]AGENTS.md {action}.[/]")
             _print_auto_repack_results(installer.install_auto_repack(root))
-            console.print("  Run [bold]agentpack pack --agent codex --task \"<task>\"[/] to generate context.")
+            console.print("  Run [bold]agentpack pack --task \"<task>\"[/] to generate context.")
+
+        elif agent == "antigravity":
+            installer = AntigravityInstaller()
+            gemini_action = installer.patch_gemini_md(root)
+            console.print(f"[green]GEMINI.md {gemini_action}.[/]")
+            _print_auto_repack_results(installer.install_auto_repack(root))
+            console.print("  AgentPack Skill will activate automatically in Antigravity for coding tasks.")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
@@ -72,7 +90,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command(name="global-install")
     def global_install_cmd(
-        agent: str = typer.Option("claude", "--agent", help=f"Target agent ({' | '.join(_SUPPORTED_AGENTS)})."),
+        agent: str = typer.Option("auto", "--agent", help=f"Target agent ({' | '.join(_SUPPORTED_AGENTS)}). auto detects from env/project files."),
         pipx: bool = typer.Option(True, "--pipx/--no-pipx", help="Install via pipx for global availability."),
         shell_hook: bool = typer.Option(True, "--shell-hook/--no-shell-hook", help="Add cd hook to shell rc for auto-bootstrap."),
         git_template: bool = typer.Option(True, "--git-template/--no-git-template", help="Install git template hooks for every new repo."),
@@ -140,6 +158,7 @@ def register(app: typer.Typer) -> None:
                 console.print(f"[yellow]Shell hook: {action}[/]")
 
         root = _root()
+        agent = _resolve_install_agent(agent, root)
 
         # --- Agent-specific config ---
         if agent == "claude":
@@ -174,6 +193,14 @@ def register(app: typer.Typer) -> None:
                 console.print(f"\n[green]AGENTS.md {action}.[/]")
             else:
                 console.print("\n[dim]Would patch: AGENTS.md[/]")
+
+        elif agent == "antigravity":
+            if not dry_run:
+                inst = AntigravityInstaller()
+                gemini_action = inst.patch_gemini_md(root)
+                console.print(f"\n[green]GEMINI.md {gemini_action}.[/]")
+            else:
+                console.print("\n[dim]Would patch: GEMINI.md, .agent/skills/agentpack/SKILL.md[/]")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
