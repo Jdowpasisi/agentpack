@@ -18,7 +18,7 @@ from agentpack.commands._shared import console, _root
 def register(app: typer.Typer) -> None:
     @app.command()
     def pack(
-        agent: str = typer.Option("claude", "--agent", help="Target agent (claude|cursor|windsurf|codex|antigravity|generic)."),
+        agent: str = typer.Option("auto", "--agent", help="Target agent (auto|claude|cursor|windsurf|codex|antigravity|generic). 'auto' detects from environment."),
         task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
         mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
@@ -33,16 +33,17 @@ def register(app: typer.Typer) -> None:
             console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
             raise typer.Exit(1)
 
+        resolved_agent = _resolve_agent(agent)
         resolved_task = _resolve_task(task)
 
         if watch or session:
-            _pack_watch(agent=agent, task=resolved_task, mode=mode, budget=budget,
+            _pack_watch(agent=resolved_agent, task=resolved_task, mode=mode, budget=budget,
                         since=since, summary_provider=summary_provider)
             return
 
         result = PackService().run(PackRequest(
             root=_root(),
-            agent=agent,
+            agent=resolved_agent,
             task=resolved_task,
             mode=mode,
             budget=budget,
@@ -51,6 +52,15 @@ def register(app: typer.Typer) -> None:
             summary_provider=summary_provider,
         ))
         _print_pack_summary(result)
+
+
+def _resolve_agent(agent: str) -> str:
+    if agent != "auto":
+        return agent
+    from agentpack.adapters.detect import detect_agent
+    resolved = detect_agent(_root())
+    console.print(f"[dim]Auto agent: {resolved}[/]")
+    return resolved
 
 
 def _resolve_task(task: str) -> str:
