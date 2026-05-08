@@ -17,7 +17,8 @@ _IGNORE_DIRS = {
     ".tox", ".eggs", "*.egg-info",
 }
 _IGNORE_NAMES = {"context.md", "context.compact.md"}
-_IGNORE_PREFIXES = (".agentpack/context",)
+# Ignore all agentpack-generated files but allow task.md — it's user-edited and triggers refresh
+_IGNORE_PREFIXES = (".agentpack/context", ".agentpack/session.json", ".agentpack/activity.log")
 
 _MAX_POLL_FILES = 50_000
 
