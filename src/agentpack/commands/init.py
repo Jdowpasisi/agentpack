@@ -8,6 +8,7 @@ import typer
 from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE, save_config
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 from agentpack.commands._shared import console, _root
+from agentpack.session.state import load_session, create_session, save_session, SESSION_FILE, TASK_FILE
 
 
 def register(app: typer.Typer) -> None:
@@ -19,8 +20,12 @@ def register(app: typer.Typer) -> None:
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive prompts, use defaults."),
         silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
         share_cache: bool = typer.Option(False, "--share-cache", help="Commit summary cache to git (recommended for teams)."),
+        agent: str = typer.Option("auto", "--agent", help="Target agent (auto|claude|cursor|windsurf|codex|antigravity|generic)."),
     ) -> None:
-        """Initialize AgentPack in the current directory."""
+        """Initialize AgentPack in the current directory.
+
+        One-time setup. After this, just run `agentpack watch` — no other commands needed.
+        """
         if silent:
             yes = True
             console.quiet = True
@@ -85,5 +90,18 @@ def register(app: typer.Typer) -> None:
         else:
             console.print("[dim]Skipped[/] .agentignore (exists)")
 
+        # Bootstrap session so `agentpack watch` works immediately — no separate `session start` needed
+        from agentpack.core.config import load_config
+        resolved_mode = load_config(root).context.default_mode
+        existing_session = load_session(root)
+        if existing_session is None or force:
+            from agentpack.adapters.detect import detect_agent
+            resolved_agent = agent if agent != "auto" else detect_agent(root)
+            session_state = create_session(root, agent=resolved_agent, mode=resolved_mode)
+            console.print(f"[green]Created[/] {SESSION_FILE}  [dim]agent={resolved_agent} mode={resolved_mode}[/]")
+            console.print(f"[green]Created[/] {TASK_FILE}  [dim]edit to set your task[/]")
+        else:
+            console.print(f"[dim]Skipped[/] {SESSION_FILE} (exists)")
+
         console.print("\n[bold green]AgentPack initialized.[/]")
-        console.print("Run [bold]agentpack scan[/] to explore your repo.")
+        console.print("Run [bold]agentpack watch[/] to start auto-refreshing context.")
