@@ -282,6 +282,7 @@ def score_files(
     include_tests: bool = True,
     include_configs: bool = True,
     weights: ScoringWeights | None = None,
+    summaries: dict | None = None,
 ) -> list[tuple[FileInfo, float, list[str]]]:
     from agentpack.core.models import DependencyGraph as _DG
     if not isinstance(dep_graph, _DG):
@@ -312,7 +313,13 @@ def score_files(
             reasons.append("filename keyword match")
 
         node = dep_graph.get(fi.path)
-        sym_names: list[str] = []  # symbols aren't stored on DependencyNode; scoring uses path/content only
+        sym_names: list[str] = []
+        if summaries and fi.path in summaries:
+            raw_syms = summaries[fi.path].get("symbols", [])
+            sym_names = [
+                (s["name"] if isinstance(s, dict) else s.name)
+                for s in raw_syms
+            ]
         if _symbol_matches_keywords(sym_names, keywords):
             score += w.symbol_keyword
             reasons.append("symbol keyword match")

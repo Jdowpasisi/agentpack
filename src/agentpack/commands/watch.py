@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -10,8 +11,15 @@ from agentpack.commands._shared import console, _root
 from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
 
 
-_IGNORE_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", ".next", "__pycache__"}
+_IGNORE_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "dist", "build", ".next",
+    "__pycache__", ".yarn", ".mypy_cache", ".ruff_cache", ".pytest_cache",
+    ".tox", ".eggs", "*.egg-info",
+}
 _IGNORE_NAMES = {"context.md", "context.compact.md"}
+_IGNORE_PREFIXES = (".agentpack/context",)
+
+_MAX_POLL_FILES = 50_000
 
 
 def register(app: typer.Typer) -> None:
@@ -58,12 +66,19 @@ def _should_ignore(path: str) -> bool:
         if part in _IGNORE_DIRS:
             return True
     name = Path(path).name
-    return name in _IGNORE_NAMES
+    if name in _IGNORE_NAMES:
+        return True
+    norm = path.replace("\\", "/")
+    return any(norm.startswith(p) for p in _IGNORE_PREFIXES)
 
 
 def _run_refresh(root: Path, agent: str, mode: str, budget: int) -> None:
     from agentpack.commands.session import _run_refresh as do_refresh, _file_hash, _now_iso
-    result = do_refresh(root, agent, mode, budget)
+    try:
+        result = do_refresh(root, agent, mode, budget)
+    except Exception as e:
+        console.print(f"[dim][{_ts()}][/] [red]refresh error: {e}[/]")
+        return
     if result:
         ts = _ts()
         console.print(
@@ -102,21 +117,37 @@ def _watch_with_watchdog(
         def on_any_event(self, event):  # type: ignore[override]
             if event.is_directory:
                 return
-            path = str(event.src_path)
+            try:
+                path = str(Path(event.src_path).relative_to(root))
+            except ValueError:
+                return
             if _should_ignore(path):
                 return
-            # Task file change → show message
             if path.endswith(TASK_FILE):
                 console.print(f"[dim][{_ts()}][/] task changed")
             _pending[0] = True
 
     observer = Observer()
-    observer.schedule(Handler(), str(root), recursive=True)
-    observer.start()
+    try:
+        observer.schedule(Handler(), str(root), recursive=True)
+        observer.start()
+    except Exception as e:
+        console.print(f"[red]Failed to start file watcher: {e}[/]")
+        console.print("[dim]Falling back to polling.[/]")
+        _watch_polling(root, agent, mode, budget, debounce, state)
+        return
 
     try:
         while True:
             time.sleep(0.5)
+            if not observer.is_alive():
+                console.print(f"[dim][{_ts()}][/] [yellow]watcher thread died — restarting...[/]")
+                try:
+                    observer.stop()
+                except Exception:
+                    pass
+                _watch_polling(root, agent, mode, budget, debounce, state)
+                return
             current_state = load_session(root)
             if current_state is not None and not current_state.active:
                 console.print("\n[dim]Session stopped — watch exiting.[/]")
@@ -127,14 +158,45 @@ def _watch_with_watchdog(
                 if now - _last_refresh[0] >= debounce:
                     _pending[0] = False
                     _last_refresh[0] = now
-                    try:
-                        _run_refresh(root, agent, mode, budget)
-                    except Exception as e:
-                        console.print(f"[red]refresh error: {e}[/]")
+                    _run_refresh(root, agent, mode, budget)
     except KeyboardInterrupt:
         observer.stop()
         console.print("\n[dim]Watch stopped.[/]")
-    observer.join()
+    finally:
+        observer.join(timeout=3)
+
+
+def _collect_mtimes(root: Path) -> dict[str, float]:
+    """Walk repo files without following symlinks; cap at _MAX_POLL_FILES."""
+    mtimes: dict[str, float] = {}
+    try:
+        for entry in _walk_no_symlinks(root):
+            rel = str(Path(entry).relative_to(root))
+            if _should_ignore(rel):
+                continue
+            try:
+                mtimes[rel] = os.stat(entry).st_mtime
+            except OSError:
+                pass
+            if len(mtimes) >= _MAX_POLL_FILES:
+                break
+    except OSError:
+        pass
+    return mtimes
+
+
+def _walk_no_symlinks(root: Path):
+    """os.walk without following symlinks — avoids infinite loops in symlink forests."""
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False, onerror=lambda e: None):
+        # Prune ignored dirs in-place so os.walk won't descend into them
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _IGNORE_DIRS and not os.path.islink(os.path.join(dirpath, d))
+        ]
+        for fname in filenames:
+            fpath = os.path.join(dirpath, fname)
+            if not os.path.islink(fpath):
+                yield fpath
 
 
 def _watch_polling(
@@ -148,21 +210,7 @@ def _watch_polling(
     """Polling fallback: walk repo files and compare mtimes."""
     _POLL_INTERVAL = 1.5
 
-    def _collect_mtimes() -> dict[str, float]:
-        mtimes: dict[str, float] = {}
-        for p in root.rglob("*"):
-            if not p.is_file():
-                continue
-            rel = str(p.relative_to(root))
-            if _should_ignore(rel):
-                continue
-            try:
-                mtimes[rel] = p.stat().st_mtime
-            except OSError:
-                pass
-        return mtimes
-
-    prev = _collect_mtimes()
+    prev = _collect_mtimes(root)
     _run_refresh(root, agent, mode, budget)
     _last_refresh = time.monotonic()
 
@@ -173,7 +221,7 @@ def _watch_polling(
             if current_state is not None and not current_state.active:
                 console.print("\n[dim]Session stopped — watch exiting.[/]")
                 break
-            curr = _collect_mtimes()
+            curr = _collect_mtimes(root)
             changed = {p for p, m in curr.items() if prev.get(p) != m}
             changed |= set(prev) - set(curr)
             if changed:
@@ -184,10 +232,7 @@ def _watch_polling(
                 if now - _last_refresh >= debounce:
                     _last_refresh = now
                     prev = curr
-                    try:
-                        _run_refresh(root, agent, mode, budget)
-                    except Exception as e:
-                        console.print(f"[red]refresh error: {e}[/]")
+                    _run_refresh(root, agent, mode, budget)
             else:
                 prev = curr
     except KeyboardInterrupt:

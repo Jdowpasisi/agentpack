@@ -6,7 +6,7 @@ from unittest.mock import call, patch
 
 import pytest
 
-from agentpack.commands.watch import _should_ignore
+from agentpack.commands.watch import _should_ignore, _collect_mtimes, _walk_no_symlinks
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +48,72 @@ def test_should_not_ignore_source_files() -> None:
 def test_should_not_ignore_nested_source() -> None:
     assert _should_ignore("src/components/Button.tsx") is False
     assert _should_ignore("tests/test_auth.py") is False
+
+
+def test_should_ignore_extended_dirs() -> None:
+    assert _should_ignore(".yarn/cache/foo.cjs") is True
+    assert _should_ignore(".mypy_cache/3.11/foo.json") is True
+    assert _should_ignore(".pytest_cache/v/cache/nodeids") is True
+    assert _should_ignore(".ruff_cache/0.1.0/foo") is True
+
+
+def test_should_ignore_agentpack_context_files() -> None:
+    assert _should_ignore(".agentpack/context.md") is True
+    assert _should_ignore(".agentpack/context.compact.md") is True
+    assert _should_ignore(".agentpack/context.claude.md") is True
+
+
+# ---------------------------------------------------------------------------
+# _collect_mtimes — no symlink following, permission errors safe
+# ---------------------------------------------------------------------------
+
+def test_collect_mtimes_normal_files(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("x = 1")
+    (tmp_path / "src" / "util.py").write_text("y = 2")
+    mtimes = _collect_mtimes(tmp_path)
+    assert "src/main.py" in mtimes
+    assert "src/util.py" in mtimes
+
+
+def test_collect_mtimes_excludes_ignore_dirs(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("x = 1")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pkg.js").write_text("module = {}")
+    mtimes = _collect_mtimes(tmp_path)
+    assert "src/main.py" in mtimes
+    assert not any("node_modules" in p for p in mtimes)
+
+
+def test_collect_mtimes_skips_symlinks(tmp_path: Path) -> None:
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    (real_dir / "file.py").write_text("x = 1")
+    link = tmp_path / "loop"
+    try:
+        link.symlink_to(tmp_path)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported")
+    mtimes = _collect_mtimes(tmp_path)
+    # Should not raise RecursionError or hang; loop dir excluded
+    loop_keys = [k for k in mtimes if k.startswith("loop/")]
+    assert loop_keys == []
+
+
+def test_collect_mtimes_handles_permission_error(tmp_path: Path) -> None:
+    (tmp_path / "ok.py").write_text("x = 1")
+    mtimes = _collect_mtimes(tmp_path)
+    assert "ok.py" in mtimes
+
+
+def test_collect_mtimes_respects_max_files(tmp_path: Path, monkeypatch) -> None:
+    from agentpack.commands import watch as watch_mod
+    monkeypatch.setattr(watch_mod, "_MAX_POLL_FILES", 3)
+    for i in range(10):
+        (tmp_path / f"f{i}.py").write_text(f"x = {i}")
+    mtimes = _collect_mtimes(tmp_path)
+    assert len(mtimes) <= 3
 
 
 # ---------------------------------------------------------------------------

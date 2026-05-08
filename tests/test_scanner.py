@@ -68,3 +68,63 @@ def test_token_estimation(tmp_path):
     fi = next(x for x in result.packable if x.path == "big.py")
     assert fi.estimated_tokens > 0
     assert fi.estimated_tokens <= 400
+
+
+# ---------------------------------------------------------------------------
+# include_globs / exclude_globs
+# ---------------------------------------------------------------------------
+
+def test_include_globs_restricts_packable(tmp_path):
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "main.py").write_text("x = 1")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "util.py").write_text("y = 2")
+
+    spec = _spec()
+    result = scan(tmp_path, spec, include_globs=["app/**"])
+    packable_paths = {f.path for f in result.packable}
+    assert "app/main.py" in packable_paths
+    assert "other/util.py" not in packable_paths
+    # excluded by include_globs lands in ignored
+    ignored_paths = {f.path for f in result.ignored}
+    assert "other/util.py" in ignored_paths
+
+
+def test_exclude_globs_removes_files(tmp_path):
+    (tmp_path / "migrations").mkdir()
+    (tmp_path / "migrations" / "001.sql").write_text("CREATE TABLE x (id int);")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "views.py").write_text("pass")
+
+    spec = _spec()
+    result = scan(tmp_path, spec, exclude_globs=["migrations/**"])
+    packable_paths = {f.path for f in result.packable}
+    assert "app/views.py" in packable_paths
+    assert "migrations/001.sql" not in packable_paths
+
+
+def test_include_and_exclude_globs_combined(tmp_path):
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "main.py").write_text("x = 1")
+    (tmp_path / "app" / "generated.py").write_text("# generated")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "util.py").write_text("y = 2")
+
+    spec = _spec()
+    result = scan(tmp_path, spec, include_globs=["app/**"], exclude_globs=["app/generated*"])
+    packable_paths = {f.path for f in result.packable}
+    assert "app/main.py" in packable_paths
+    assert "app/generated.py" not in packable_paths
+    assert "other/util.py" not in packable_paths
+
+
+def test_empty_globs_include_all(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("a = 1")
+    (tmp_path / "src" / "b.py").write_text("b = 2")
+
+    spec = _spec()
+    result = scan(tmp_path, spec, include_globs=[], exclude_globs=[])
+    packable_paths = {f.path for f in result.packable}
+    assert "src/a.py" in packable_paths
+    assert "src/b.py" in packable_paths

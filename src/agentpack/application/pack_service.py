@@ -128,6 +128,7 @@ class FileRanker:
         dep_graph: DependencyGraph,
         task: str,
         cfg: Any,
+        summaries: dict | None = None,
     ) -> RankResult:
         keywords = extract_keywords(task)
         keywords = enrich_keywords_from_files(keywords, changes.all_changed, packable)
@@ -147,6 +148,7 @@ class FileRanker:
             include_tests=cfg.context.include_tests,
             include_configs=cfg.context.include_configs,
             weights=cfg.scoring,
+            summaries=summaries,
         )
         return RankResult(keywords=keywords, scored=scored)
 
@@ -163,7 +165,12 @@ class PackPlanner:
 
         t0 = time.perf_counter()
         previous_snap = load_snapshot(root)
-        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens, previous_snapshot=previous_snap)
+        scan_result = scan(
+            root, ignore_spec, cfg.context.max_file_tokens,
+            previous_snapshot=previous_snap,
+            include_globs=cfg.project.include_globs or None,
+            exclude_globs=cfg.project.exclude_globs or None,
+        )
         phase_times["scan"] = time.perf_counter() - t0
 
         packable = scan_result.packable
@@ -182,7 +189,7 @@ class PackPlanner:
         phase_times["changes"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        rank_result = FileRanker().rank(packable, changes, dep_graph, request.task, cfg)
+        rank_result = FileRanker().rank(packable, changes, dep_graph, request.task, cfg, summaries=summaries)
         phase_times["rank"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()

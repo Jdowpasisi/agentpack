@@ -644,6 +644,41 @@ class TestScoreFiles:
         assert len(reasons) > 0
         assert any("modified" in r for r in reasons)
 
+    def test_symbol_keyword_match_via_summaries(self, tmp_path: Path) -> None:
+        fi_with_sym = _fi("src/session.py", tmp_path)
+        fi_no_sym = _fi("src/utils.py", tmp_path)
+        summaries = {
+            "src/session.py": {
+                "symbols": [{"name": "refresh_token", "kind": "function", "start_line": 1, "end_line": 10}]
+            }
+        }
+        scored = score_files(
+            [fi_with_sym, fi_no_sym],
+            changed_paths=set(),
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph={},
+            keywords={"token"},
+            summaries=summaries,
+        )
+        scores = {s[0].path: (s[1], s[2]) for s in scored}
+        assert scores["src/session.py"][0] > scores["src/utils.py"][0]
+        assert any("symbol keyword" in r for r in scores["src/session.py"][1])
+
+    def test_symbol_keyword_no_false_positive_without_summaries(self, tmp_path: Path) -> None:
+        fi = _fi("src/models.py", tmp_path)
+        scored = score_files(
+            [fi],
+            changed_paths=set(),
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph={},
+            keywords={"token"},
+            summaries=None,
+        )
+        reasons = scored[0][2]
+        assert not any("symbol keyword" in r for r in reasons)
+
 
 # ---------------------------------------------------------------------------
 # analysis/ranking.py — enrich_keywords_from_files

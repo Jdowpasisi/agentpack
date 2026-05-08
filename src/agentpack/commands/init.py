@@ -5,7 +5,7 @@ from typing import Optional
 
 import typer
 
-from agentpack.core.config import DEFAULT_CONFIG, save_config
+from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE, save_config
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 from agentpack.commands._shared import console, _root
 
@@ -63,7 +63,17 @@ def register(app: typer.Typer) -> None:
             if budget > 0:
                 cfg.context.default_budget = budget
 
-            save_config(cfg, root)
+            config_toml = CONFIG_TEMPLATE.replace(
+                'default_mode = "balanced"',
+                f'default_mode = "{cfg.context.default_mode}"',
+            )
+            if budget > 0:
+                config_toml = config_toml.replace(
+                    "default_budget = 25000",
+                    f"default_budget = {cfg.context.default_budget}",
+                )
+            config_path_file.parent.mkdir(parents=True, exist_ok=True)
+            config_path_file.write_text(config_toml)
             console.print(f"[green]Created[/] .agentpack/config.toml  [dim](mode: {cfg.context.default_mode}, budget: {cfg.context.default_budget:,})[/]")
         else:
             console.print("[dim]Skipped[/] .agentpack/config.toml (exists)")
