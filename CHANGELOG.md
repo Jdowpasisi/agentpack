@@ -6,6 +6,14 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.13] — 2026-05-08
+
+### Fixed
+- Watch refresh loop on Linux: watchdog uses inotify which fires on file reads (IN_ACCESS), not just writes. Replaced `on_any_event` with explicit `on_created`/`on_modified`/`on_deleted`/`on_moved` handlers — read-only events no longer trigger refresh.
+- Ignore `*.tsbuildinfo` files (TypeScript incremental build artifacts written on every compile).
+
+---
+
 ## [0.1.12] — 2026-05-08
 
 ### Fixed
