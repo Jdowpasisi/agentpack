@@ -31,11 +31,6 @@ dependencies = [
 agentpack = "agentpack.cli:app"
 
 [project.optional-dependencies]
-llm = [
-  "anthropic>=0.39.0",
-  "openai>=1.0.0"
-]
-
 watch = [
   "watchdog>=4.0.0"
 ]
@@ -45,8 +40,6 @@ mcp = [
 ]
 
 all = [
-  "anthropic>=0.39.0",
-  "openai>=1.0.0",
   "watchdog>=4.0.0",
   "mcp>=1.0.0"
 ]
@@ -60,6 +53,9 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -152,7 +152,6 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         budget=0,
         since=None,
         refresh=False,
-        summary_provider="offline",
     )
 
     t0 = time.perf_counter()

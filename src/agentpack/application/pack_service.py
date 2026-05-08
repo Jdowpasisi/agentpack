@@ -31,7 +31,6 @@ class PackRequest:
     budget: int
     since: str | None
     refresh: bool
-    summary_provider: str
 
 
 @dataclass
@@ -176,7 +175,7 @@ class PackPlanner:
         packable = scan_result.packable
 
         t0 = time.perf_counter()
-        summaries_objs = build_all_summaries(packable, root, request.summary_provider)
+        summaries_objs = build_all_summaries(packable, root)
         summaries = {p: s.model_dump() for p, s in summaries_objs.items()}
         phase_times["summarize"] = time.perf_counter() - t0
 

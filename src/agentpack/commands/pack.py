@@ -25,7 +25,6 @@ def register(app: typer.Typer) -> None:
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
         refresh: bool = typer.Option(False, "--refresh", help="Rebuild summaries before packing."),
-        summary_provider: str = typer.Option("offline", "--summary-provider", help="Summary provider (offline|claude)."),
         watch: bool = typer.Option(False, "--watch", help="Watch for file changes and re-pack automatically."),
         session: bool = typer.Option(False, "--session", help="Keep re-packing on changes for the whole session (alias for --watch)."),
     ) -> None:
@@ -39,7 +38,7 @@ def register(app: typer.Typer) -> None:
 
         if watch or session:
             _pack_watch(agent=resolved_agent, task=resolved_task, mode=mode, budget=budget,
-                        since=since, summary_provider=summary_provider)
+                        since=since)
             return
 
         result = PackService().run(PackRequest(
@@ -50,7 +49,6 @@ def register(app: typer.Typer) -> None:
             budget=budget,
             since=since,
             refresh=refresh,
-            summary_provider=summary_provider,
         ))
         _print_pack_summary(result)
 
@@ -159,7 +157,6 @@ def _pack_watch(
     mode: str,
     budget: int,
     since: str | None,
-    summary_provider: str,
 ) -> None:
     try:
         from watchdog.observers import Observer
@@ -176,7 +173,7 @@ def _pack_watch(
     def _run_pack() -> None:
         result = PackService().run(PackRequest(
             root=root, agent=agent, task=task, mode=mode, budget=budget,
-            since=since, refresh=False, summary_provider=summary_provider,
+            since=since, refresh=False,
         ))
         _print_pack_summary(result)
 

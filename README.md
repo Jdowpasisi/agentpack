@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.5).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.9).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -555,14 +555,14 @@ All installs are idempotent — safe to re-run, merge with existing config, neve
 
 ### `agentpack summarize`
 
-Build or refresh the offline summary cache. **No API calls.**
+Build or refresh the offline summary cache. **No API calls, ever.**
 
 ```bash
 agentpack summarize              # build summaries for all files not yet cached
 agentpack summarize --refresh    # force rebuild all
 ```
 
-Run this once after `init`. After that, pack automatically rebuilds summaries only for changed files.
+Summaries are built with parallel AST/regex analysis — no network, no tokens spent. Run once after `init`. After that, pack automatically rebuilds summaries only for changed files (hash-keyed cache).
 
 ---
 
@@ -592,6 +592,7 @@ Options:
 | `--since` | — | Only include files changed since this git ref |
 | `--session` | off | Re-pack on every file change (watch mode) |
 | `--refresh` | off | Force rebuild summaries before packing |
+| `--budget` | 25000 | Token budget override |
 
 **Budget modes:**
 
@@ -653,6 +654,47 @@ agentpack claude
 ```
 
 Requires an initialized project (`agentpack init`). Refreshes context, prints the context path, then launches `claude` if found. Transparent about what it does — no fake prompt injection.
+
+---
+
+### `agentpack mcp`
+
+Run AgentPack as an MCP server — exposes context packing as tools that Claude Code (and any MCP-compatible agent) can call directly.
+
+```bash
+pip install "agentpack-cli[mcp]"
+agentpack mcp
+```
+
+Register in Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "agentpack": {
+      "command": "agentpack",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Tools exposed:**
+
+| Tool | Description |
+|---|---|
+| `pack_context(task, mode, budget, max_tokens)` | Generate a ranked context pack for a task. Returns packed markdown, truncated to `max_tokens` (default 20,000). |
+| `get_context()` | Return the latest pre-built pack instantly (no repack). Prepends a freshness/staleness header so you know if it's stale. |
+| `refresh()` | Refresh using the current `task.md` or git-inferred task. |
+
+**Staleness detection:** `get_context()` compares the snapshot hash from when the pack was built against the current repo snapshot. If files changed since last pack, it prepends:
+```
+> **Stale context** — repo changed since last pack (generated: ...). Run pack_context() to refresh.
+```
+
+**Smart truncation:** `pack_context()` keeps headers intact and trims file content blocks to fit the token budget, appending a note about how many files were omitted.
+
+Zero API calls — all analysis is offline. Summary cache keyed by file hash: cold run parallelises AST parsing across CPU cores; warm cache hits are instant.
 
 ---
 
@@ -877,10 +919,6 @@ include_tests = true
 include_configs = true
 include_receipts = true
 
-[summary]
-provider = "offline"
-schema_version = 1
-
 [agents.claude]
 output = ".agentpack/context.claude.md"
 patch_claude_md = true
@@ -983,7 +1021,6 @@ Works like `.gitignore`. Default rules exclude:
           │  miss → build from AST/regex, cache it  │
           │                                         │
           │  offline  ──  AST / regex extract       │
-          │  claude   ──  Haiku API (optional)      │
           └────────────────────┬────────────────────┘
                                │
           ┌────────────────────▼────────────────────┐
@@ -1084,8 +1121,7 @@ src/agentpack/
 
   summaries/
     offline.py                 # zero-API: AST/regex → imports, symbols, summary
-    llm.py                     # Claude Haiku API summaries (optional)
-    base.py                    # cache-or-build orchestration
+    base.py                    # cache-or-build orchestration (parallel, ThreadPool+ProcessPool)
 
   adapters/                    # context rendering only — no installation logic
     base.py                    # abstract BaseAdapter (output_path + render + write)
@@ -1322,7 +1358,7 @@ config_file     = 60   # was 25 — configs always matter here
 
 ## Principles
 
-- **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls by default
+- **Local-first**: `init`, `scan`, `diff`, `pack`, `stats`, `summarize` make zero API calls — ever. No optional LLM paths, no per-file costs.
 - **Non-destructive**: never overwrites user files; config patching only touches agentpack-managed blocks
 - **Agent-neutral**: architecture is generic; Claude Code is the primary target (deepest integration); Cursor, Windsurf, Codex, and Antigravity are supported but less battle-tested
 - **No daemons**: file watching is opt-in via `agentpack watch`; git hooks run in the background and are opt-in via `install`
@@ -1344,9 +1380,9 @@ config_file     = 60   # was 25 — configs always matter here
 ## Optional dependencies
 
 ```bash
-pip install "agentpack-cli[llm]"      # anthropic — LLM summaries via Claude Haiku
 pip install "agentpack-cli[watch]"    # watchdog — faster file watching for agentpack watch
-pip install "agentpack-cli[all]"      # llm + watch
+pip install "agentpack-cli[mcp]"      # mcp — expose agentpack as MCP server tools
+pip install "agentpack-cli[all]"      # watch + mcp
 ```
 
 ---
