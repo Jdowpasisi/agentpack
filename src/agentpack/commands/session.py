@@ -181,11 +181,14 @@ def _run_refresh(
         ))
 
         # Write context files atomically — avoids partial reads if interrupted mid-write
-        from agentpack.renderers.markdown import render_generic
-        context_text = render_generic(result.pack)
+        from agentpack.renderers.markdown import render_generic, render_claude
         context_path = root / CONTEXT_FILE
         context_path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(context_path, context_text)
+        _atomic_write(context_path, render_generic(result.pack))
+
+        # Always write the claude-specific format too — the Claude Code hook reads this
+        # regardless of which agent the session was started with.
+        _atomic_write(root / ".agentpack/context.claude.md", render_claude(result.pack))
 
         compact_text = render_compact(result.pack)
         compact_path = root / COMPACT_FILE
