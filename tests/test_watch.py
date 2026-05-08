@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from unittest.mock import call, patch
 
 import pytest
 
-from agentpack.commands.watch import _should_ignore, _collect_mtimes, _walk_no_symlinks
+from agentpack.commands.watch import _should_ignore, _collect_mtimes
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +64,20 @@ def test_should_ignore_agentpack_context_files() -> None:
     assert _should_ignore(".agentpack/context.md") is True
     assert _should_ignore(".agentpack/context.compact.md") is True
     assert _should_ignore(".agentpack/context.claude.md") is True
+
+
+def test_should_ignore_agentpack_generated_files() -> None:
+    # These files are written during refresh — must not trigger a new refresh
+    assert _should_ignore(".agentpack/metrics.jsonl") is True
+    assert _should_ignore(".agentpack/pack_metadata.json") is True
+    assert _should_ignore(".agentpack/.context_injected") is True
+    assert _should_ignore(".agentpack/cache/some/cached_file.json") is True
+    assert _should_ignore(".agentpack/snapshots/snap.json") is True
+
+
+def test_should_not_ignore_task_md() -> None:
+    # task.md is user-edited and must still trigger refresh
+    assert _should_ignore(".agentpack/task.md") is False
 
 
 # ---------------------------------------------------------------------------

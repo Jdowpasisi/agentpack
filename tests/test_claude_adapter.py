@@ -1,6 +1,4 @@
-import pytest
-from pathlib import Path
-from agentpack.adapters.claude import ClaudeAdapter, _AGENTPACK_BLOCK, _BLOCK_RE
+from agentpack.adapters.claude import ClaudeAdapter
 from agentpack.core.models import ContextPack
 
 

@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.table import Table
@@ -312,11 +311,11 @@ def _print_case_detail(result: CaseResult) -> None:
         hits = expected_set & selected_set
         misses = expected_set - selected_set
         if hits:
-            console.print(f"  [green]hit:[/]  " + ", ".join(sorted(hits)))
+            console.print("  [green]hit:[/]  " + ", ".join(sorted(hits)))
         if misses:
-            console.print(f"  [red]miss:[/] " + ", ".join(sorted(misses)))
+            console.print("  [red]miss:[/] " + ", ".join(sorted(misses)))
 
-    console.print(f"  [dim]top files:[/] " + ", ".join(result.selected_paths[:5]))
+    console.print("  [dim]top files:[/] " + ", ".join(result.selected_paths[:5]))
 
 
 def _print_summary_table(results: list[CaseResult]) -> None:

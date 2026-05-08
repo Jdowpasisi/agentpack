@@ -9,13 +9,12 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import pytest
 
 from agentpack.application.pack_service import PackRequest, PackService
 from agentpack.core.config import load_config
 from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
-from agentpack.core.snapshot import build_snapshot, save_snapshot
+from agentpack.core.snapshot import build_snapshot
 from agentpack.core.context_pack import load_pack_metadata
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"

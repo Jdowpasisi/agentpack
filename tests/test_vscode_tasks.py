@@ -1,13 +1,11 @@
 import json
-from pathlib import Path
-import pytest
 
 from agentpack.integrations.vscode_tasks import install_vscode_tasks, remove_vscode_tasks
 
 
 class TestInstallVscodeTasks:
     def test_creates_tasks_json(self, tmp_path):
-        action = install_vscode_tasks(tmp_path, agent="cursor")
+        install_vscode_tasks(tmp_path, agent="cursor")
         tasks_path = tmp_path / ".vscode" / "tasks.json"
         assert tasks_path.exists()
         data = json.loads(tasks_path.read_text())

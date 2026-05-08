@@ -12,10 +12,6 @@ def _get_encoder():
             import tiktoken
             # Only load tiktoken if its vocab cache already exists — avoids
             # a blocking network download when running inside git hooks.
-            cache_dir = os.environ.get(
-                "TIKTOKEN_CACHE_DIR",
-                os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub"),
-            )
             tiktoken_cache = os.path.join(os.path.expanduser("~"), ".cache", "tiktoken")
             cache_warm = os.path.isdir(tiktoken_cache) and any(
                 True for _ in os.scandir(tiktoken_cache)

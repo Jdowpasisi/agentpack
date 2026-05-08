@@ -5,9 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from agentpack.core.config import Config
 from agentpack.core.models import (
-    ContextPack,
     FileInfo,
     Receipt,
     SelectedFile,

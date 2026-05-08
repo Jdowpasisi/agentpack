@@ -66,7 +66,7 @@ def register(app: typer.Typer) -> None:
             console.print(f"  [green]✓[/] {CONTEXT_FILE}  [dim]{result['files']} files, {result['tokens']:,} tokens[/]")
             log_activity(root, f"session start — {result['files']} files, {result['tokens']:,} tokens")
         else:
-            console.print(f"  [dim]✗ context generation failed — run agentpack session refresh[/]")
+            console.print("  [dim]✗ context generation failed — run agentpack session refresh[/]")
             log_activity(root, "session start (context generation failed)")
 
         console.print()
@@ -158,7 +158,7 @@ def _run_refresh(
         task_path = root / TASK_FILE
         if task_path.exists():
             raw = task_path.read_text(encoding="utf-8").strip()
-            lines = [l for l in raw.splitlines() if l.strip() and not l.startswith("#")]
+            lines = [line for line in raw.splitlines() if line.strip() and not line.startswith("#")]
             task = lines[0].strip() if lines else ""
         else:
             task = ""

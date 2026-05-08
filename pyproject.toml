@@ -1,6 +1,6 @@
 [project]
 name = "agentpack-cli"
-version = "0.1.10"
+version = "0.1.11"
 description = "Token-aware context packing for AI coding agents — Claude, Cursor, Windsurf, and Codex"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,6 +46,7 @@ all = [
 
 dev = [
   "pytest",
+  "pytest-cov",
   "ruff",
   "mypy",
   "tomli>=2.0.0; python_version < '3.11'"
@@ -56,6 +57,16 @@ pythonpath = ["src"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
+
+[tool.coverage.run]
+source = [
+  "src/agentpack/core",
+  "src/agentpack/analysis",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
 
 [build-system]
 requires = ["hatchling"]

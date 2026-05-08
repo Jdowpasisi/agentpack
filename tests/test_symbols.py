@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from agentpack.analysis.symbols import extract_python_symbols, extract_js_symbols
 
 
