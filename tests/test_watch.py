@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentpack.commands.watch import _should_ignore, _collect_mtimes
+from agentpack.commands.watch import _should_ignore, _collect_mtimes, _WRITTEN_PATHS
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +58,23 @@ def test_should_ignore_extended_dirs() -> None:
     assert _should_ignore(".mypy_cache/3.11/foo.json") is True
     assert _should_ignore(".pytest_cache/v/cache/nodeids") is True
     assert _should_ignore(".ruff_cache/0.1.0/foo") is True
+
+
+def test_should_ignore_ide_state_dirs() -> None:
+    # VSCode/JetBrains/Fleet write to these constantly — must not trigger refresh
+    assert _should_ignore(".vscode/settings.json") is True
+    assert _should_ignore(".vscode/tasks.json") is True
+    assert _should_ignore(".idea/workspace.xml") is True
+    assert _should_ignore(".fleet/settings.json") is True
+
+
+def test_should_ignore_written_paths() -> None:
+    # Adapter output files registered at runtime (e.g. antigravity writes outside .agentpack/)
+    _WRITTEN_PATHS.clear()
+    _WRITTEN_PATHS.add(".agent/skills/agentpack/SKILL.md")
+    assert _should_ignore(".agent/skills/agentpack/SKILL.md") is True
+    assert _should_ignore("src/main.py") is False
+    _WRITTEN_PATHS.clear()
 
 
 def test_should_ignore_agentpack_context_files() -> None:
