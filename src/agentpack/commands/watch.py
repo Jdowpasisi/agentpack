@@ -19,6 +19,7 @@ _IGNORE_DIRS = {
     ".vscode", ".idea", ".fleet",
 }
 _IGNORE_NAMES = {"context.md", "context.compact.md"}
+_IGNORE_SUFFIXES = {".tsbuildinfo"}  # TypeScript incremental build artifacts
 # Ignore all .agentpack/ generated files; task.md is the sole exception (user-edited, triggers refresh)
 
 # Adapter output paths written outside .agentpack/ (e.g. antigravity writes .agent/skills/agentpack/SKILL.md).
@@ -81,6 +82,8 @@ def _should_ignore(path: str) -> bool:
     name = Path(path).name
     if name in _IGNORE_NAMES:
         return True
+    if any(name.endswith(suf) for suf in _IGNORE_SUFFIXES):
+        return True
     norm = path.replace("\\", "/")
     # Ignore everything under .agentpack/ except task.md
     if norm.startswith(".agentpack/") and norm != TASK_FILE:
@@ -139,7 +142,7 @@ def _watch_with_watchdog(
     _run_refresh(root, agent, mode, budget)
 
     class Handler(FileSystemEventHandler):
-        def on_any_event(self, event):  # type: ignore[override]
+        def _handle(self, event) -> None:  # type: ignore[override]
             if event.is_directory:
                 return
             try:
@@ -151,6 +154,24 @@ def _watch_with_watchdog(
             if path.endswith(TASK_FILE):
                 console.print(f"[dim][{_ts()}][/] task changed")
             _pending[0] = True
+
+        # Only react to mutations — not reads (avoids inotify IN_ACCESS loop on Linux)
+        on_created = _handle
+        on_modified = _handle
+        on_deleted = _handle
+
+        def on_moved(self, event) -> None:  # type: ignore[override]
+            if event.is_directory:
+                return
+            # Check both src (rename from) and dest (rename to)
+            for raw in (event.src_path, event.dest_path):
+                try:
+                    path = str(Path(raw).relative_to(root))
+                except ValueError:
+                    continue
+                if not _should_ignore(path):
+                    _pending[0] = True
+                    return
 
     observer = Observer()
     try:
