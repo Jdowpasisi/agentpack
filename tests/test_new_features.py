@@ -4,8 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from agentpack.analysis.ranking import (
     _is_knowledge_file,
     boost_paired_tests,
@@ -204,7 +202,7 @@ class TestBoostPairedTests:
 
         pre_scored: list[tuple[FileInfo, float, list[str]]] = [
             (source, 100.0, ["modified"]),
-            (test_file, w.related_test, [f"test for src/auth/session.py"]),
+            (test_file, w.related_test, ["test for src/auth/session.py"]),
         ]
 
         result = boost_paired_tests(pre_scored, weights=w)
