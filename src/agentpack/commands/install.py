@@ -74,8 +74,9 @@ def register(app: typer.Typer) -> None:
             installer = CodexInstaller()
             action = installer.patch_agents_md(root)
             console.print(f"[green]AGENTS.md {action}.[/]")
-            _print_auto_repack_results(installer.install_auto_repack(root))
-            console.print("  Run [bold]agentpack pack --task \"<task>\"[/] to generate context.")
+            if not global_install:
+                _print_auto_repack_results(installer.install_auto_repack(root))
+            console.print("  Run [bold]agentpack pack --agent codex --task \"<task>\"[/] to generate context.")
 
         elif agent == "antigravity":
             installer = AntigravityInstaller()

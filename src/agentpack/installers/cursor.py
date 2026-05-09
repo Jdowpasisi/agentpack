@@ -8,9 +8,11 @@ from agentpack.integrations.vscode_tasks import install_vscode_tasks
 
 _CURSOR_RULE = """\
 <!-- agentpack:rule:start -->
-If `.agentpack/session.json` exists and active, read `.agentpack/context.md` at the start of every conversation.
-For a new task, update `.agentpack/task.md` with a one-line summary.
-If context is stale or missing: agentpack session refresh
+At the start of every coding task:
+1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
+2. Read `.agentpack/context.md` — git hooks keep it fresh automatically.
+3. Use files listed in context as starting points, but verify with actual code before editing.
+If context is missing: `agentpack pack --agent cursor --task "<task>"`
 <!-- agentpack:rule:end -->"""
 
 _RULE_RE = re.compile(
@@ -53,12 +55,13 @@ description: AgentPack session context injection
 alwaysApply: true
 ---
 
-When working in this repository:
+At the start of every coding task:
 
-1. Check `.agentpack/session.json` — if `"active": true`, read `.agentpack/context.md` before editing code.
-2. For a new user task, write a one-line summary to `.agentpack/task.md`.
-3. Prefer files with high AgentPack scores as starting points.
-4. If context seems unrelated to the task, run: `agentpack session refresh`
+1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
+2. Read `.agentpack/context.md` — git hooks keep it fresh automatically.
+3. Use files listed in context as starting points, but verify with actual code before editing.
+
+If context is missing: `agentpack pack --agent cursor --task "<task>"`
 """
         already = mdc_path.exists()
         if already and mdc_path.read_text() == content:

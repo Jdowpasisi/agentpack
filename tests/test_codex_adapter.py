@@ -8,7 +8,8 @@ class TestCodexAdapter:
         assert action == "created"
         content = (tmp_path / "AGENTS.md").read_text()
         assert "agentpack:start" in content
-        assert "agentpack session refresh" in content
+        assert "agentpack pack --task auto" in content
+        assert ".agentpack/task.md" in content
         assert ".agentpack/context.md" in content
 
     def test_patch_agents_md_idempotent(self, tmp_path):
@@ -35,7 +36,7 @@ class TestCodexAdapter:
         assert action == "updated"
         content = agents_md.read_text()
         assert "Old text" not in content
-        assert "agentpack session refresh" in content
+        assert "agentpack pack --task auto" in content
 
     def test_output_path(self, tmp_path):
         adapter = CodexAdapter()

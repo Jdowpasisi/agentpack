@@ -8,14 +8,13 @@ _AGENTPACK_BLOCK = """\
 <!-- agentpack:start -->
 ## AgentPack Context
 
-AgentPack keeps context fresh automatically. When a session is running:
+At the start of every coding task:
 
-1. Check `.agentpack/session.json` — if `"active": true`, read `.agentpack/context.md`.
-2. When the user gives you a new coding task, write a one-line summary to `.agentpack/task.md`.
-3. Re-read `.agentpack/context.md` after watch mode refreshes it (a few seconds).
-4. Prefer files listed in context, but verify with actual code before editing.
+1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
+2. Read `.agentpack/context.claude.md` — context is injected automatically via session hooks.
+3. Use files listed in context as starting points, but verify with actual code before editing.
 
-If no session is running, generate context manually:
+If context is missing or stale, regenerate manually:
 
 ```bash
 agentpack pack --agent claude --task "<task>"
