@@ -8,9 +8,11 @@ from agentpack.integrations.vscode_tasks import install_vscode_tasks
 
 _WINDSURF_RULE = """\
 <!-- agentpack:rule:start -->
-If `.agentpack/session.json` exists and active, read `.agentpack/context.md` at the start of every conversation.
-For a new task, update `.agentpack/task.md` with a one-line summary.
-If context is stale or missing: agentpack session refresh
+At the start of every coding task:
+1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
+2. Read `.agentpack/context.md` — git hooks keep it fresh automatically.
+3. Use files listed in context as starting points, but verify with actual code before editing.
+If context is missing: `agentpack pack --agent windsurf --task "<task>"`
 <!-- agentpack:rule:end -->"""
 
 _RULE_RE = re.compile(

@@ -6,6 +6,17 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.15] — 2026-05-09
+
+### Fixed
+- `install --agent codex --global` no longer installs per-repo git hooks (matches cursor/windsurf behavior).
+- `install --agent codex` hint message now includes `--agent codex` flag.
+
+### Changed
+- Agent instructions (AGENTS.md, CLAUDE.md, .cursorrules, .windsurfrules, .cursor/rules/agentpack.mdc) strengthened: agents now write `task.md` at task start so pack targets the right files. Removed stale `agentpack session refresh` references (command removed in v0.1.12).
+
+---
+
 ## [0.1.14] — 2026-05-09
 
 ### Added

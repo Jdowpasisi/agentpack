@@ -9,13 +9,12 @@ _AGENTPACK_BLOCK = """\
 <!-- agentpack:start -->
 ## AgentPack Context
 
-If `.agentpack/session.json` exists and `"active": true`:
+At the start of every coding task:
 
-1. Read `.agentpack/context.md` before making code changes.
-2. For a new coding task, write a one-line summary to `.agentpack/task.md`.
-3. Re-read `.agentpack/context.md` after watch mode refreshes it.
-4. Use AgentPack-selected files as starting points, not as absolute truth.
-5. If context is missing or stale: `agentpack session refresh`
+1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
+2. Run `agentpack pack --task auto` to refresh context.
+3. Read `.agentpack/context.md` — it lists the files most relevant to your task.
+4. Use those files as starting points, but verify with actual code before editing.
 <!-- agentpack:end -->"""
 
 _BLOCK_RE = re.compile(
