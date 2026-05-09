@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from unittest.mock import call, patch
 
 import pytest
 
-from agentpack.commands.watch import _should_ignore, _collect_mtimes, _walk_no_symlinks
+from agentpack.commands.watch import _should_ignore, _collect_mtimes, _WRITTEN_PATHS
 
 
 # ---------------------------------------------------------------------------
@@ -61,10 +60,41 @@ def test_should_ignore_extended_dirs() -> None:
     assert _should_ignore(".ruff_cache/0.1.0/foo") is True
 
 
+def test_should_ignore_ide_state_dirs() -> None:
+    # VSCode/JetBrains/Fleet write to these constantly — must not trigger refresh
+    assert _should_ignore(".vscode/settings.json") is True
+    assert _should_ignore(".vscode/tasks.json") is True
+    assert _should_ignore(".idea/workspace.xml") is True
+    assert _should_ignore(".fleet/settings.json") is True
+
+
+def test_should_ignore_written_paths() -> None:
+    # Adapter output files registered at runtime (e.g. antigravity writes outside .agentpack/)
+    _WRITTEN_PATHS.clear()
+    _WRITTEN_PATHS.add(".agent/skills/agentpack/SKILL.md")
+    assert _should_ignore(".agent/skills/agentpack/SKILL.md") is True
+    assert _should_ignore("src/main.py") is False
+    _WRITTEN_PATHS.clear()
+
+
 def test_should_ignore_agentpack_context_files() -> None:
     assert _should_ignore(".agentpack/context.md") is True
     assert _should_ignore(".agentpack/context.compact.md") is True
     assert _should_ignore(".agentpack/context.claude.md") is True
+
+
+def test_should_ignore_agentpack_generated_files() -> None:
+    # These files are written during refresh — must not trigger a new refresh
+    assert _should_ignore(".agentpack/metrics.jsonl") is True
+    assert _should_ignore(".agentpack/pack_metadata.json") is True
+    assert _should_ignore(".agentpack/.context_injected") is True
+    assert _should_ignore(".agentpack/cache/some/cached_file.json") is True
+    assert _should_ignore(".agentpack/snapshots/snap.json") is True
+
+
+def test_should_not_ignore_task_md() -> None:
+    # task.md is user-edited and must still trigger refresh
+    assert _should_ignore(".agentpack/task.md") is False
 
 
 # ---------------------------------------------------------------------------

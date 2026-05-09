@@ -174,7 +174,7 @@ def serve() -> None:
         Equivalent to running `agentpack session refresh`.
         Returns summary of what was packed.
         """
-        from agentpack.commands.session import _run_refresh
+        from agentpack.commands._shared import run_refresh
         from agentpack.session.state import load_session
         from agentpack.adapters.detect import detect_agent
 
@@ -183,7 +183,7 @@ def serve() -> None:
         agent = state.agent if state else detect_agent(root)
         mode = state.mode if state else "balanced"
 
-        result = _run_refresh(root, agent, mode, 0)
+        result = run_refresh(root, agent, mode, 0)
         if result is None:
             return "Refresh failed."
         return (

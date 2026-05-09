@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import ast
 import re
 from pathlib import Path
 
-from agentpack.core.models import FileSummary, Symbol
+from agentpack.core.models import FileSummary
 from agentpack.analysis.symbols import extract_python_symbols, extract_js_symbols
 from agentpack.analysis.python_imports import extract_imports as py_imports
 from agentpack.analysis.js_ts_imports import extract_imports as js_imports
@@ -25,7 +24,7 @@ def _python_summary(path: str, abs_path: Path, file_hash: str) -> FileSummary:
     top_level_imports = [i for i in imports if not i.startswith(".")][:8]
     exposed = [s.name for s in symbols if s.kind in ("class", "function")][:8]
 
-    parts = [f"Language: Python"]
+    parts = ["Language: Python"]
     if exposed:
         parts.append(f"Exposes: {', '.join(exposed)}")
     if top_level_imports:

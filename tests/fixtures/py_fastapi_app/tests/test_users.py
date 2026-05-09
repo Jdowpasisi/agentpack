@@ -1,5 +1,3 @@
-import hashlib
-from app.auth import verify_token
 
 
 def test_users_module_imports():

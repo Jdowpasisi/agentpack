@@ -1,7 +1,6 @@
 """Tests for agentpack.core.redactor."""
 from __future__ import annotations
 
-import pytest
 
 from agentpack.core.redactor import redact_secrets
 

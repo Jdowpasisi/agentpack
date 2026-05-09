@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pathspec
 
-from agentpack.core.ignore import load_spec, is_ignored
+from agentpack.core.ignore import is_ignored
 from agentpack.core.models import FileInfo, ScanResult
 from agentpack.core.token_estimator import estimate_tokens, estimate_tokens_bytes
 

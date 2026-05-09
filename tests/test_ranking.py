@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 from agentpack.analysis.ranking import extract_keywords, score_files
 from agentpack.core.models import FileInfo

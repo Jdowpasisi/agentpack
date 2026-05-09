@@ -71,12 +71,11 @@ def register(app: typer.Typer) -> None:
 
         # --- Last context top files ---
         metrics_path = root / ".agentpack" / "metrics.jsonl"
-        last_selected: list[dict] = []
         if metrics_path.exists():
-            lines = [l.strip() for l in metrics_path.read_text().splitlines() if l.strip()]
+            lines = [line.strip() for line in metrics_path.read_text().splitlines() if line.strip()]
             if lines:
                 try:
-                    last_record = json.loads(lines[-1])
+                    json.loads(lines[-1])
                     # metrics don't store per-file data — use context file for top files
                 except Exception:
                     pass
@@ -110,7 +109,47 @@ def register(app: typer.Typer) -> None:
                 top_tbl.add_row(str(i), path, mode, why)
             console.print(top_tbl)
 
+        # --- Selection accuracy (last 10 runs) ---
+        accuracy_rows = _load_accuracy_rows(metrics_path, n=10)
+        if accuracy_rows:
+            avg_recall = sum(r["selection_recall"] for r in accuracy_rows) / len(accuracy_rows)
+            avg_precision = sum(r["selection_precision"] for r in accuracy_rows) / len(accuracy_rows)
+            avg_f1 = sum(r["selection_f1"] for r in accuracy_rows) / len(accuracy_rows)
+            console.print()
+            acc_tbl = Table(title=f"Selection Accuracy (last {len(accuracy_rows)} runs)", box=box.SIMPLE, show_header=False, padding=(0, 2))
+            acc_tbl.add_column(style="dim")
+            acc_tbl.add_column(justify="right", style="bold")
+            acc_tbl.add_row("avg recall", f"{avg_recall:.1%}")
+            acc_tbl.add_row("avg precision", f"{avg_precision:.1%}")
+            acc_tbl.add_row("avg F1", f"{avg_f1:.1%}")
+            console.print(acc_tbl)
+            console.print("[dim]recall = how many changed files were in the previous pack[/]")
+
         console.print("[dim]'manual' = hand-picking 20 most relevant full files[/]")
+
+
+def _load_accuracy_rows(metrics_path: Path, n: int = 10) -> list[dict]:
+    """Return up to n most recent metrics records that have accuracy fields."""
+    if not metrics_path.exists():
+        return []
+    try:
+        lines = metrics_path.read_text(encoding="utf-8").splitlines()
+        rows = []
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if "selection_recall" in rec:
+                rows.append(rec)
+                if len(rows) >= n:
+                    break
+        return rows
+    except Exception:
+        return []
 
 
 def _parse_top_files(context_path: Path) -> list[tuple[str, str, str]]:

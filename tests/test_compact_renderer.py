@@ -68,8 +68,8 @@ def test_compact_deps_section() -> None:
     assert "why: direct_dep" in output
     # summary files should NOT appear in ## selected
     lines = output.splitlines()
-    selected_start = next(i for i, l in enumerate(lines) if l == "## selected")
-    deps_start = next(i for i, l in enumerate(lines) if l == "## deps")
+    selected_start = next(i for i, line in enumerate(lines) if line == "## selected")
+    deps_start = next(i for i, line in enumerate(lines) if line == "## deps")
     selected_block = "\n".join(lines[selected_start:deps_start])
     assert "src/auth/token.py" not in selected_block
 
@@ -82,9 +82,9 @@ def test_compact_separates_selected_from_deps() -> None:
     output = render_compact(pack)
 
     lines = output.splitlines()
-    sel_idx = next(i for i, l in enumerate(lines) if l == "## selected")
-    dep_idx = next(i for i, l in enumerate(lines) if l == "## deps")
-    ins_idx = next(i for i, l in enumerate(lines) if l == "## instructions")
+    sel_idx = next(i for i, line in enumerate(lines) if line == "## selected")
+    dep_idx = next(i for i, line in enumerate(lines) if line == "## deps")
+    ins_idx = next(i for i, line in enumerate(lines) if line == "## instructions")
 
     selected_block = "\n".join(lines[sel_idx:dep_idx])
     deps_block = "\n".join(lines[dep_idx:ins_idx])

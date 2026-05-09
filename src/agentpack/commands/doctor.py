@@ -98,7 +98,7 @@ def register(app: typer.Typer) -> None:
         if not config_path.exists():
             console.print(f"  [yellow]![/] Not initialized in {root} — run: agentpack init")
         else:
-            console.print(f"  [green]✓[/] .agentpack/config.toml present")
+            console.print("  [green]✓[/] .agentpack/config.toml present")
             if context_path.exists():
                 import time
                 age = time.time() - context_path.stat().st_mtime
@@ -127,7 +127,7 @@ def register(app: typer.Typer) -> None:
                     console.print(f"  [green]✓[/] Claude hooks present (local): {claude_settings}")
                     _local_has_hooks = True
                 else:
-                    console.print(f"  [yellow]![/] Claude hooks missing (local) — run: agentpack install --agent claude")
+                    console.print("  [yellow]![/] Claude hooks missing (local) — run: agentpack install --agent claude")
                     ok = False
             except Exception:
                 console.print(f"  [yellow]![/] Could not parse {claude_settings}")
@@ -141,7 +141,7 @@ def register(app: typer.Typer) -> None:
                     console.print(f"  [green]✓[/] Claude hooks present (global): {global_claude_settings}")
                     _global_has_hooks = True
                 else:
-                    console.print(f"  [yellow]![/] Claude hooks missing (global) — run: agentpack install --agent claude --global")
+                    console.print("  [yellow]![/] Claude hooks missing (global) — run: agentpack install --agent claude --global")
             except Exception:
                 console.print(f"  [yellow]![/] Could not parse {global_claude_settings}")
         else:

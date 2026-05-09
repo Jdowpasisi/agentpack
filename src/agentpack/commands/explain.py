@@ -212,7 +212,7 @@ def register(app: typer.Typer) -> None:
             )
 
         if near_cutoff_paths:
-            console.print(f"\n[bold]Files near budget cutoff[/] [dim](would appear with larger budget):[/]")
+            console.print("\n[bold]Files near budget cutoff[/] [dim](would appear with larger budget):[/]")
             near_sorted = sorted(
                 near_cutoff_paths,
                 key=lambda p: -score_map.get(p, (0, []))[0],
@@ -226,7 +226,7 @@ def register(app: typer.Typer) -> None:
                 )
 
         if excluded_receipts:
-            console.print(f"\n[bold]Excluded[/] [dim](top 5 by score):[/]")
+            console.print("\n[bold]Excluded[/] [dim](top 5 by score):[/]")
             for r in excluded_receipts[:5]:
                 score_val, _ = score_map.get(r.path, (0, []))
                 console.print(

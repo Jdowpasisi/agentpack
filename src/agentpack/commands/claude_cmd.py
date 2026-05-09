@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import shutil
 import subprocess
-from datetime import datetime, timezone
 
 import typer
 
-from agentpack.commands._shared import console, _root
-from agentpack.commands.session import _run_refresh, _now_iso
+from agentpack.commands._shared import console, _root, run_refresh, _now_iso, _file_hash
 from agentpack.session.state import CONTEXT_FILE, TASK_FILE, load_session, log_activity, save_session
 
 
@@ -20,12 +17,11 @@ def register(app: typer.Typer) -> None:
         state = load_session(root)
 
         if state is None or not state.active:
-            console.print("[yellow]No active session.[/]")
-            console.print("Start one with: [bold]agentpack session start[/]")
+            console.print("[yellow]No active session. Run: agentpack init[/]")
             raise typer.Exit(1)
 
         console.print("Session active. Refreshing context...")
-        result = _run_refresh(root, state.agent, state.mode, budget=0)
+        result = run_refresh(root, state.agent, state.mode, budget=0)
         if result:
             console.print(
                 f"[green]✓[/] refreshed: {result['files']} files, "
@@ -33,9 +29,7 @@ def register(app: typer.Typer) -> None:
             )
             state.last_refresh_at = _now_iso()
             state.refresh_count += 1
-            task_path = root / TASK_FILE
-            if task_path.exists():
-                state.last_task_hash = hashlib.sha256(task_path.read_bytes()).hexdigest()[:16]
+            state.last_task_hash = _file_hash(root / TASK_FILE)
             save_session(root, state)
             log_activity(root, f"claude cmd — {result['files']} files, {result['tokens']:,} tokens")
         else:
