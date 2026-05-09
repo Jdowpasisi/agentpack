@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.9).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.11).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -196,17 +196,13 @@ agentpack watch            # auto-resumes session, refreshes context on file/tas
 Then open Claude Code / Cursor / Codex and write your coding task normally.
 
 - AgentPack keeps `.agentpack/context.md` and `.agentpack/context.claude.md` fresh while `watch` is running.
-- To change the task: `agentpack session refresh --task "new task"` — or just tell Claude and it updates `task.md` itself.
-- Check session state: `agentpack session status`
-- Force a refresh: `agentpack session refresh`
-- Stop: `agentpack session stop`
+- To change the task: edit `.agentpack/task.md` directly, or tell Claude — it updates the file itself. `watch` picks up the change automatically.
 
 ### Agent integration matrix
 
 | Agent | Automation level | Method |
 |---|---|---|
 | Claude Code (hook) | Highest | `UserPromptSubmit` hook auto-injects context |
-| Claude Code (session) | High | `init` + `watch` + read `context.md` |
 | Codex | Medium | `AGENTS.md` + `init` + `watch` |
 | Cursor | Medium | `.cursor/rules/agentpack.mdc` + `init` + `watch` |
 | Windsurf | Medium | `.windsurfrules` + `init` + `watch` |
@@ -365,8 +361,8 @@ Token counts use tiktoken `cl100k_base` — a close approximation to Claude's ac
 
 agentpack uses two workflows:
 
-- **`ci.yml`** — runs tests on Python 3.10–3.13 on every push and pull request to `main`
-- **`release.yml`** — runs tests then publishes to PyPI on every `v*` tag push (uses PyPI trusted publishing)
+- **`ci.yml`** — runs tests (Python 3.10–3.13) + ruff lint + 80% coverage gate on every push and PR to `main`
+- **`publish.yml`** — runs on every `v*` tag push; requires tag from a `release/*` branch and a CHANGELOG.md entry for the version before building and publishing to PyPI (trusted publishing)
 
 ### Add context packing to your repo
 
@@ -588,11 +584,10 @@ Options:
 | `--agent` | `auto` | Target agent (`auto` \| `claude` \| `cursor` \| `windsurf` \| `codex` \| `antigravity` \| `generic`). `auto` detects the active IDE from env and project files. |
 | `--task` | `auto` | Task description, or `auto` to infer from git |
 | `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
-| `--budget` | 25000 | Token budget |
+| `--budget` | 0 (uses config default 25000) | Token budget |
 | `--since` | — | Only include files changed since this git ref |
 | `--session` | off | Re-pack on every file change (watch mode) |
 | `--refresh` | off | Force rebuild summaries before packing |
-| `--budget` | 25000 | Token budget override |
 
 **Budget modes:**
 
@@ -604,26 +599,9 @@ Options:
 
 ---
 
-### `agentpack session`
+### `agentpack session` _(removed)_
 
-Optional session management. `agentpack init` bootstraps the session automatically — `session start` is only needed to change agent/mode after init or force a fresh pack.
-
-```bash
-agentpack session start                      # re-run to change agent/mode or force refresh
-agentpack session start --agent claude       # set agent (claude|cursor|codex|generic)
-agentpack session start --task "fix bug"     # change task + refresh context
-agentpack session status                     # show session state + context size
-agentpack session refresh                    # regenerate context now
-agentpack session refresh --task "new task"  # change task + refresh
-agentpack session stop                       # mark session inactive
-```
-
-`agentpack init` creates (idempotently):
-- `.agentpack/session.json` — session state
-- `.agentpack/task.md` — current task (edit directly or use `session refresh --task`)
-- `.agentpack/context.md` — readable context pack (updated by `watch`)
-- `.agentpack/context.claude.md` — Claude Code format (always written alongside context.md)
-- `.agentpack/context.compact.md` — compact protocol format
+Session management was removed in v0.1.11. `agentpack init` bootstraps the session automatically. Use `agentpack watch` to keep context current. To change the task, edit `.agentpack/task.md`.
 
 ---
 
@@ -1241,13 +1219,14 @@ Add to `.github/workflows/agentpack-context.yml` — see the full example in [CI
 
 ```bash
 # One-time project setup
-agentpack init --task "refactor auth"   # or edit .agentpack/task.md directly
+agentpack init                     # creates config, session, task.md
+# Edit .agentpack/task.md to set your task
 
 # Every terminal session — just one command
-agentpack watch   # auto-resumes session, refreshes context on every save
+agentpack watch                    # keeps context fresh automatically
 
-# Change task mid-session
-agentpack session refresh --task "new task"
+# Change task mid-session: edit .agentpack/task.md directly
+# watch detects the change and refreshes automatically
 ```
 
 ---
@@ -1321,7 +1300,7 @@ agentpack init                  # one-time setup (creates session + task.md)
 agentpack watch                 # in another terminal — auto-resumes each time
 ```
 
-Refreshes `.agentpack/context.md` every time you save a file. Change the task with `agentpack session refresh --task "..."` — or tell Claude and it writes `task.md` itself.
+Refreshes `.agentpack/context.md` every time you save a file. Change the task by editing `.agentpack/task.md` directly — or tell Claude and it writes the file itself. `watch` picks up the change automatically.
 
 ### Debug file selection with `explain`
 

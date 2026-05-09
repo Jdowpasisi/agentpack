@@ -16,16 +16,15 @@ Modules covered:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 # ---------------------------------------------------------------------------
 # core/cache.py
 # ---------------------------------------------------------------------------
 
-from agentpack.core.cache import save_summary, load_summary
-from agentpack.core.models import FileSummary
+from agentpack.core.cache import save_summary, load_summary  # noqa: E402
+from agentpack.core.models import FileSummary  # noqa: E402
 
 
 def _make_summary(path: str = "src/foo.py", file_hash: str = "abc123") -> FileSummary:
@@ -78,7 +77,7 @@ class TestCache:
 # core/config.py
 # ---------------------------------------------------------------------------
 
-from agentpack.core.config import (
+from agentpack.core.config import (  # noqa: E402
     load_config,
     save_config,
     DEFAULT_CONFIG,
@@ -127,7 +126,7 @@ class TestConfig:
 # core/merkle.py
 # ---------------------------------------------------------------------------
 
-from agentpack.core.merkle import root_hash
+from agentpack.core.merkle import root_hash  # noqa: E402
 
 
 class TestMerkle:
@@ -162,7 +161,7 @@ class TestMerkle:
 # core/token_estimator.py
 # ---------------------------------------------------------------------------
 
-from agentpack.core.token_estimator import estimate_tokens
+from agentpack.core.token_estimator import estimate_tokens  # noqa: E402
 
 
 class TestTokenEstimator:
@@ -189,7 +188,7 @@ class TestTokenEstimator:
 # analysis/tests.py
 # ---------------------------------------------------------------------------
 
-from agentpack.analysis.tests import find_related_tests
+from agentpack.analysis.tests import find_related_tests  # noqa: E402
 
 
 class TestFindRelatedTests:
@@ -224,8 +223,8 @@ class TestFindRelatedTests:
 # renderers/markdown.py
 # ---------------------------------------------------------------------------
 
-from agentpack.renderers.markdown import render_claude
-from agentpack.core.models import ContextPack, SelectedFile
+from agentpack.renderers.markdown import render_claude  # noqa: E402
+from agentpack.core.models import ContextPack, SelectedFile  # noqa: E402
 
 
 def _make_pack(selected_files: list[SelectedFile] | None = None) -> ContextPack:
@@ -329,7 +328,7 @@ class TestRenderClaude:
 # summaries/offline.py
 # ---------------------------------------------------------------------------
 
-from agentpack.summaries.offline import summarize
+from agentpack.summaries.offline import summarize  # noqa: E402
 
 
 class TestOfflineSummarize:
@@ -384,8 +383,8 @@ class TestOfflineSummarize:
 # summaries/base.py
 # ---------------------------------------------------------------------------
 
-from agentpack.summaries.base import build_all_summaries, get_or_build_summary
-from agentpack.core.models import FileInfo
+from agentpack.summaries.base import build_all_summaries, get_or_build_summary  # noqa: E402
+from agentpack.core.models import FileInfo  # noqa: E402
 
 
 def _make_file_info(
@@ -477,7 +476,7 @@ class TestGetOrBuildSummary:
 # adapters/claude.py  — patch_claude_md gaps
 # ---------------------------------------------------------------------------
 
-from agentpack.adapters.claude import ClaudeAdapter, _AGENTPACK_BLOCK
+from agentpack.adapters.claude import ClaudeAdapter  # noqa: E402
 
 
 class TestPatchClaudeMd:
@@ -519,8 +518,7 @@ class TestPatchClaudeMd:
 # analysis/ranking.py — gaps not covered by existing test_ranking.py
 # ---------------------------------------------------------------------------
 
-from agentpack.analysis.ranking import score_files
-from agentpack.core.models import FileInfo
+from agentpack.analysis.ranking import score_files  # noqa: E402
 
 
 def _fi(
@@ -684,7 +682,7 @@ class TestScoreFiles:
 # analysis/ranking.py — enrich_keywords_from_files
 # ---------------------------------------------------------------------------
 
-from agentpack.analysis.ranking import enrich_keywords_from_files
+from agentpack.analysis.ranking import enrich_keywords_from_files  # noqa: E402
 
 
 def _fi(path: str, tmp_path: Path, tokens: int = 100, language: str = "python",
@@ -750,7 +748,7 @@ class TestEnrichKeywords:
 # analysis/ranking.py — concept map / semantic expansion
 # ---------------------------------------------------------------------------
 
-from agentpack.analysis.ranking import extract_keywords
+from agentpack.analysis.ranking import extract_keywords  # noqa: E402
 
 
 class TestConceptExpansion:

@@ -1,6 +1,5 @@
 import stat
 from pathlib import Path
-import pytest
 
 from agentpack.integrations.git_hooks import install_git_hooks, remove_git_hooks, _HOOK_EVENTS
 
@@ -61,7 +60,7 @@ class TestRemoveGitHooks:
     def test_removes_installed_hooks(self, tmp_path):
         root = _make_git_repo(tmp_path)
         install_git_hooks(root, agent="cursor")
-        results = remove_git_hooks(root)
+        remove_git_hooks(root)
         for event in _HOOK_EVENTS:
             hook = root / ".git" / "hooks" / event
             assert not hook.exists() or "agentpack" not in hook.read_text()

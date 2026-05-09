@@ -1,5 +1,4 @@
 """Tests for configurable scoring weights."""
-import pytest
 from pathlib import Path
 from agentpack.core.config import ScoringWeights
 from agentpack.analysis.ranking import score_files

@@ -305,6 +305,8 @@ class PackService:
             saving_pct=saving_pct,
             selected_count=len(plan.selected),
             changed_count=len(plan.all_changed),
+            selected_paths=[sf.path for sf in plan.selected],
+            current_changed=plan.all_changed,
         )
 
         return PackResult(
@@ -331,6 +333,56 @@ def _sf_tokens(sf: SelectedFile) -> int:
     return estimate_tokens("\n".join(parts)) if parts else 50
 
 
+def _load_last_record(metrics_path: Path) -> dict[str, Any] | None:
+    """Return the most recent metrics record that has selected_paths."""
+    if not metrics_path.exists():
+        return None
+    try:
+        lines = metrics_path.read_text(encoding="utf-8").splitlines()
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            if rec.get("selected_paths"):
+                return rec
+    except Exception:
+        pass
+    return None
+
+
+def _compute_selection_accuracy(
+    root: Path,
+    metrics_path: Path,
+    current_selected: list[str],
+    current_changed: set[str],
+) -> dict[str, float]:
+    """Compare previous pack's selected_paths vs files actually changed since then.
+
+    recall    = |predicted ∩ actual_changed| / |actual_changed|
+    precision = |predicted ∩ actual_changed| / |predicted|
+    """
+    prev = _load_last_record(metrics_path)
+    if prev is None:
+        return {}
+
+    prev_selected: set[str] = set(prev["selected_paths"])
+    # actual_changed = files changed since the previous pack (current git diff)
+    actual_changed: set[str] = current_changed
+    if not actual_changed or not prev_selected:
+        return {}
+
+    hits = prev_selected & actual_changed
+    recall = len(hits) / len(actual_changed)
+    precision = len(hits) / len(prev_selected)
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    return {
+        "selection_recall": round(recall, 3),
+        "selection_precision": round(precision, 3),
+        "selection_f1": round(f1, 3),
+    }
+
+
 def _record_metrics(
     root: Path,
     *,
@@ -342,9 +394,12 @@ def _record_metrics(
     saving_pct: float,
     selected_count: int,
     changed_count: int,
+    selected_paths: list[str],
+    current_changed: set[str],
 ) -> None:
     metrics_path = root / ".agentpack" / "metrics.jsonl"
-    record = {
+    accuracy = _compute_selection_accuracy(root, metrics_path, selected_paths, current_changed)
+    record: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "task": task,
         "mode": mode,
@@ -353,9 +408,11 @@ def _record_metrics(
         "saving_pct": round(saving_pct, 1),
         "selected_files": selected_count,
         "changed_files": changed_count,
+        "selected_paths": selected_paths,
         "phases": {k: round(v, 3) for k, v in phase_times.items()},
         "total_s": round(sum(phase_times.values()), 3),
     }
+    record.update(accuracy)
     try:
         with metrics_path.open("a") as fh:
             fh.write(json.dumps(record) + "\n")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import typer
 
-from agentpack.commands._shared import console
 
 
 def register(app: typer.Typer) -> None:

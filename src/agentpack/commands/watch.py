@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from agentpack.commands._shared import console, _root
+from agentpack.commands._shared import console, _root, run_refresh, _file_hash, _now_iso
 from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
 
 
@@ -15,10 +15,16 @@ _IGNORE_DIRS = {
     ".git", "node_modules", ".venv", "venv", "dist", "build", ".next",
     "__pycache__", ".yarn", ".mypy_cache", ".ruff_cache", ".pytest_cache",
     ".tox", ".eggs", "*.egg-info",
+    # IDE state dirs — written constantly by editors, never user source
+    ".vscode", ".idea", ".fleet",
 }
 _IGNORE_NAMES = {"context.md", "context.compact.md"}
-# Ignore all agentpack-generated files but allow task.md — it's user-edited and triggers refresh
-_IGNORE_PREFIXES = (".agentpack/context", ".agentpack/session.json", ".agentpack/activity.log")
+_IGNORE_SUFFIXES = {".tsbuildinfo"}  # TypeScript incremental build artifacts
+# Ignore all .agentpack/ generated files; task.md is the sole exception (user-edited, triggers refresh)
+
+# Adapter output paths written outside .agentpack/ (e.g. antigravity writes .agent/skills/agentpack/SKILL.md).
+# Populated at runtime from run_refresh() return value so new adapters are covered automatically.
+_WRITTEN_PATHS: set[str] = set()
 
 _MAX_POLL_FILES = 50_000
 
@@ -55,7 +61,9 @@ def register(app: typer.Typer) -> None:
 
         # Try watchdog first, fall back to polling
         try:
-            from watchdog.observers import Observer
+            import importlib.util
+            if importlib.util.find_spec("watchdog") is None:
+                raise ImportError("watchdog not installed")
             _watch_with_watchdog(root, effective_agent, effective_mode, budget, debounce, state)
         except ImportError:
             console.print("[dim]watchdog not installed — using polling (install watchdog for better performance)[/]")
@@ -74,18 +82,32 @@ def _should_ignore(path: str) -> bool:
     name = Path(path).name
     if name in _IGNORE_NAMES:
         return True
+    if any(name.endswith(suf) for suf in _IGNORE_SUFFIXES):
+        return True
     norm = path.replace("\\", "/")
-    return any(norm.startswith(p) for p in _IGNORE_PREFIXES)
+    # Ignore everything under .agentpack/ except task.md
+    if norm.startswith(".agentpack/") and norm != TASK_FILE:
+        return True
+    # Ignore adapter output files written outside .agentpack/ during refresh
+    if norm in _WRITTEN_PATHS:
+        return True
+    return False
 
 
 def _run_refresh(root: Path, agent: str, mode: str, budget: int) -> None:
-    from agentpack.commands.session import _run_refresh as do_refresh, _file_hash, _now_iso
     try:
-        result = do_refresh(root, agent, mode, budget)
+        result = run_refresh(root, agent, mode, budget)
     except Exception as e:
         console.print(f"[dim][{_ts()}][/] [red]refresh error: {e}[/]")
         return
     if result:
+        # Register adapter output path so _should_ignore suppresses the write event
+        out_path = result.get("out_path")
+        if out_path is not None:
+            try:
+                _WRITTEN_PATHS.add(str(Path(out_path).relative_to(root)).replace("\\", "/"))
+            except ValueError:
+                pass
         ts = _ts()
         console.print(
             f"[dim][{ts}][/] [green]refreshed:[/] {result['files']} files, "
@@ -120,7 +142,7 @@ def _watch_with_watchdog(
     _run_refresh(root, agent, mode, budget)
 
     class Handler(FileSystemEventHandler):
-        def on_any_event(self, event):  # type: ignore[override]
+        def _handle(self, event) -> None:  # type: ignore[override]
             if event.is_directory:
                 return
             try:
@@ -132,6 +154,24 @@ def _watch_with_watchdog(
             if path.endswith(TASK_FILE):
                 console.print(f"[dim][{_ts()}][/] task changed")
             _pending[0] = True
+
+        # Only react to mutations — not reads (avoids inotify IN_ACCESS loop on Linux)
+        on_created = _handle
+        on_modified = _handle
+        on_deleted = _handle
+
+        def on_moved(self, event) -> None:  # type: ignore[override]
+            if event.is_directory:
+                return
+            # Check both src (rename from) and dest (rename to)
+            for raw in (event.src_path, event.dest_path):
+                try:
+                    path = str(Path(raw).relative_to(root))
+                except ValueError:
+                    continue
+                if not _should_ignore(path):
+                    _pending[0] = True
+                    return
 
     observer = Observer()
     try:
