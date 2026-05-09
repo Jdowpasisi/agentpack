@@ -14,9 +14,12 @@ Or register in Claude Code settings:
     }
 
 Tools exposed:
-    pack_context   — generate/refresh a context pack for a task
-    get_context    — read the latest context pack (no repack)
-    refresh        — refresh using the current task.md
+    pack_context        — generate/refresh a context pack for a task
+    get_context         — read the latest context pack (no repack)
+    refresh             — refresh using the current task.md
+    explain_file        — show score breakdown + symbols for a specific file
+    get_related_files   — return import-graph neighbours of a file
+    get_stats           — token/saving stats for the latest pack
 """
 from __future__ import annotations
 
@@ -116,6 +119,185 @@ def _get_context_impl(root: Path) -> str:
     return header + content
 
 
+def _explain_file_impl(root: Path, path: str, task: str = "") -> str:
+    """Testable core of the explain_file MCP tool."""
+    from agentpack.application.pack_service import PackPlanner, PackRequest, _sf_tokens
+    from agentpack.adapters.detect import detect_agent
+
+    resolved_task = task
+    if not resolved_task:
+        task_md = root / ".agentpack" / "task.md"
+        resolved_task = task_md.read_text(encoding="utf-8").strip() if task_md.exists() else "general"
+
+    plan = PackPlanner().plan(PackRequest(
+        root=root,
+        agent=detect_agent(root),
+        task=resolved_task,
+        mode="balanced",
+        budget=0,
+        since=None,
+        refresh=False,
+    ))
+
+    score_map = {fi.path: (score, reasons) for fi, score, reasons in plan.scored}
+    if path not in score_map:
+        return f"File not found in scoring data: {path}"
+
+    score_val, reasons = score_map[path]
+    selected_file = next((sf for sf in plan.selected if sf.path == path), None)
+    is_selected = selected_file is not None
+    include_mode = selected_file.include_mode if selected_file else "excluded"
+
+    token_count = 0
+    if selected_file:
+        token_count = _sf_tokens(selected_file)
+    else:
+        for fi in plan.scan_result.packable:
+            if fi.path == path:
+                token_count = fi.estimated_tokens
+                break
+
+    summary_data = plan.summaries.get(path, {})
+    raw_symbols = summary_data.get("symbols", []) if isinstance(summary_data, dict) else []
+    symbol_names = [s["name"] if isinstance(s, dict) else s.name for s in raw_symbols]
+
+    lines = [
+        f"## {path}",
+        "",
+        f"- **selected**: {'yes' if is_selected else 'no'}",
+        f"- **include mode**: {include_mode}",
+        f"- **score**: {score_val:.0f}",
+        f"- **tokens**: {token_count:,}",
+        f"- **task**: {resolved_task}",
+        "",
+        "### Score signals",
+        "",
+    ]
+    if reasons:
+        for reason in reasons:
+            lines.append(f"- {reason}")
+    else:
+        lines.append("_(none)_")
+
+    if symbol_names:
+        lines += ["", "### Symbols", ""]
+        lines += [f"- `{s}`" for s in symbol_names]
+
+    dep_node = plan.dep_graph.get(path)
+    if dep_node.imports:
+        lines += ["", "### Imports", ""]
+        lines += [f"- `{imp}`" for imp in dep_node.imports[:10]]
+    if dep_node.imported_by:
+        lines += ["", "### Imported by", ""]
+        lines += [f"- `{imp}`" for imp in dep_node.imported_by[:10]]
+
+    return "\n".join(lines)
+
+
+def _get_related_files_impl(root: Path, path: str, depth: int = 1) -> str:
+    """Testable core of the get_related_files MCP tool."""
+    from agentpack.application.pack_service import PackPlanner, PackRequest
+    from agentpack.adapters.detect import detect_agent
+
+    depth = max(1, min(depth, 2))
+    task_md = root / ".agentpack" / "task.md"
+    task = task_md.read_text(encoding="utf-8").strip() if task_md.exists() else "general"
+
+    plan = PackPlanner().plan(PackRequest(
+        root=root,
+        agent=detect_agent(root),
+        task=task,
+        mode="minimal",
+        budget=0,
+        since=None,
+        refresh=False,
+    ))
+
+    graph = plan.dep_graph
+
+    def _neighbours(p: str) -> dict[str, str]:
+        node = graph.get(p)
+        result: dict[str, str] = {}
+        for imp in node.imports:
+            result[imp] = "imports"
+        for rev in node.imported_by:
+            result[rev] = "imported_by"
+        for test in node.tests:
+            result[test] = "test"
+        return result
+
+    seen: dict[str, str] = {}
+    frontier = {path}
+    for hop in range(depth):
+        next_frontier: set[str] = set()
+        for p in frontier:
+            for rel_path, rel_type in _neighbours(p).items():
+                if rel_path != path and rel_path not in seen:
+                    label = rel_type if hop == 0 else f"{rel_type} (hop {hop + 1})"
+                    seen[rel_path] = label
+                    next_frontier.add(rel_path)
+        frontier = next_frontier
+
+    if not seen:
+        return f"No related files found for `{path}` at depth {depth}."
+
+    lines = [f"## Related files for `{path}`", ""]
+    for rel_path, rel_type in sorted(seen.items(), key=lambda x: x[1]):
+        lines.append(f"- `{rel_path}` — {rel_type}")
+    return "\n".join(lines)
+
+
+def _get_stats_impl(root: Path) -> str:
+    """Testable core of the get_stats MCP tool."""
+    metadata_path = root / ".agentpack" / "pack_metadata.json"
+
+    if not metadata_path.exists():
+        return "No pack metadata found. Run pack_context() first."
+
+    try:
+        meta = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return f"Failed to read pack metadata: {exc}"
+
+    lines = [
+        "## AgentPack Stats",
+        "",
+        f"- **task**: {meta.get('task', 'unknown')}",
+        f"- **generated_at**: {meta.get('generated_at', 'unknown')}",
+        f"- **mode**: {meta.get('mode', 'unknown')}",
+        f"- **budget**: {meta.get('budget', 0):,} tokens",
+        f"- **packed_tokens**: {meta.get('token_estimate', 0):,}",
+        f"- **agent**: {meta.get('agent', 'unknown')}",
+    ]
+
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if metrics_path.exists():
+        try:
+            lines_raw = metrics_path.read_text(encoding="utf-8").splitlines()
+            for line in reversed(lines_raw):
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                lines += [
+                    "",
+                    "### Last pack run",
+                    "",
+                    f"- **raw_tokens**: {rec.get('raw_tokens', 0):,}",
+                    f"- **saving**: {rec.get('saving_pct', 0):.1f}%",
+                    f"- **selected_files**: {rec.get('selected_files', 0)}",
+                    f"- **changed_files**: {rec.get('changed_files', 0)}",
+                    f"- **total_time**: {rec.get('total_s', 0):.2f}s",
+                ]
+                if rec.get("selection_f1"):
+                    lines.append(f"- **selection_f1**: {rec['selection_f1']:.3f}")
+                break
+        except Exception:
+            pass
+
+    return "\n".join(lines)
+
+
 def serve() -> None:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -191,5 +373,37 @@ def serve() -> None:
             f"{result['tokens']:,} tokens, "
             f"{result['saving']:.1f}% saving"
         )
+
+    @mcp.tool()
+    def explain_file(path: str, task: str = "") -> str:
+        """Return score breakdown and symbol list for a specific file.
+
+        Args:
+            path: Repo-relative file path (e.g. "src/auth/session.py").
+            task: Optional task description to score against. Defaults to current task.md.
+
+        Returns a markdown string with score signals, include mode, token count, and symbols.
+        """
+        return _explain_file_impl(_repo_root(), path, task)
+
+    @mcp.tool()
+    def get_related_files(path: str, depth: int = 1) -> str:
+        """Return import-graph neighbours of a file (files it imports + files that import it).
+
+        Args:
+            path: Repo-relative file path (e.g. "src/auth/session.py").
+            depth: Graph traversal depth (1 = direct neighbours, 2 = two hops). Max 2.
+
+        Returns a markdown list of related files with their relationship type.
+        """
+        return _get_related_files_impl(_repo_root(), path, depth)
+
+    @mcp.tool()
+    def get_stats() -> str:
+        """Return token/saving stats for the latest context pack.
+
+        Returns a markdown summary: packed tokens, raw tokens, saving %, selected files, task, generated_at.
+        """
+        return _get_stats_impl(_repo_root())
 
     mcp.run()

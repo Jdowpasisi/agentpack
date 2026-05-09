@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.11).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.15).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -601,7 +601,7 @@ Options:
 
 ### `agentpack session` _(removed)_
 
-Session management was removed in v0.1.11. `agentpack init` bootstraps the session automatically. Use `agentpack watch` to keep context current. To change the task, edit `.agentpack/task.md`.
+Session management was removed in v0.1.12. `agentpack init` bootstraps the session automatically. Use `agentpack watch` to keep context current. To change the task, edit `.agentpack/task.md`.
 
 ---
 
@@ -787,13 +787,13 @@ Tokens after ignore:  210,000
 
 ### `agentpack stats`
 
-Show session state and token statistics for the last pack.
+Show session state, token statistics, and selection accuracy for the last pack.
 
 ```bash
 agentpack stats
 ```
 
-When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files by score.
+When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files by score and avg recall/precision/F1 over the last 10 runs.
 
 ---
 
@@ -871,8 +871,10 @@ agentpack monitor --clear
 | Direct dependency of changed file | +50 |
 | Reverse dependency | +40 |
 | Has related tests | +35 |
+| Knowledge/architecture doc (DECISIONS.md, ADR-*.md, ARCHITECTURE.md, docs/adr/, docs/decisions/, docs/rfcs/) | +30 |
 | Config file | +25 |
 | Recently modified | +20 |
+| High churn (top 10% by commit frequency) | +15 |
 | Large unrelated file | −50 |
 | Ignored/binary | −100 |
 
@@ -921,8 +923,10 @@ content_keyword_max       = 60
 direct_dep                = 50
 reverse_dep               = 40
 related_test              = 35
+knowledge_file            = 30   # DECISIONS.md, ADR-*.md, ARCHITECTURE.md, docs/adr/ etc.
 config_file               = 25
 recently_modified         = 20
+churn_high                = 15   # top 10% by commit frequency
 large_unrelated_penalty   = -50
 ignored_penalty           = -100
 ```
