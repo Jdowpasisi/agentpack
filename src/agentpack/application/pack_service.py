@@ -16,7 +16,7 @@ from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata
 from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
 from agentpack.core.token_estimator import estimate_tokens
-from agentpack.analysis.ranking import score_files, extract_keywords, enrich_keywords_from_files
+from agentpack.analysis.ranking import score_files, extract_keywords, enrich_keywords_from_files, boost_paired_tests
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
 from agentpack.summaries.base import build_all_summaries
@@ -128,7 +128,9 @@ class FileRanker:
         task: str,
         cfg: Any,
         summaries: dict | None = None,
+        root: Path | None = None,
     ) -> RankResult:
+        from agentpack.core import git as _git
         keywords = extract_keywords(task)
         keywords = enrich_keywords_from_files(keywords, changes.all_changed, packable)
         all_paths = {f.path for f in packable}
@@ -136,6 +138,10 @@ class FileRanker:
         for fi in packable:
             tests = find_related_tests(fi.path, all_paths)
             dep_graph.nodes[fi.path].tests = tests
+
+        churn_counts: dict[str, int] = {}
+        if root is not None and _git.is_git_repo(root):
+            churn_counts = _git.file_churn_counts(root)
 
         scored = score_files(
             packable,
@@ -148,7 +154,9 @@ class FileRanker:
             include_configs=cfg.context.include_configs,
             weights=cfg.scoring,
             summaries=summaries,
+            churn_counts=churn_counts,
         )
+        scored = boost_paired_tests(scored, weights=cfg.scoring)
         return RankResult(keywords=keywords, scored=scored)
 
 
@@ -188,7 +196,7 @@ class PackPlanner:
         phase_times["changes"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        rank_result = FileRanker().rank(packable, changes, dep_graph, request.task, cfg, summaries=summaries)
+        rank_result = FileRanker().rank(packable, changes, dep_graph, request.task, cfg, summaries=summaries, root=root)
         phase_times["rank"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()

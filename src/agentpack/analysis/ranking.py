@@ -283,6 +283,7 @@ def score_files(
     include_configs: bool = True,
     weights: ScoringWeights | None = None,
     summaries: dict | None = None,
+    churn_counts: dict[str, int] | None = None,
 ) -> list[tuple[FileInfo, float, list[str]]]:
     from agentpack.core.models import DependencyGraph as _DG
     if not isinstance(dep_graph, _DG):
@@ -291,6 +292,12 @@ def score_files(
     all_paths = {f.path for f in files}
     results: list[tuple[FileInfo, float, list[str]]] = []
     recently_set = set(recently_modified[:20])
+
+    churn_threshold: int | None = None
+    if churn_counts:
+        vals = sorted(churn_counts.values(), reverse=True)
+        cutoff_idx = max(0, len(vals) // 10 - 1)  # top 10%
+        churn_threshold = vals[cutoff_idx] if vals else None
 
     for fi in files:
         if fi.ignored or fi.binary:
@@ -368,9 +375,19 @@ def score_files(
             score += w.config_file
             reasons.append("config file")
 
+        if _is_knowledge_file(fi.path):
+            score += w.knowledge_file
+            reasons.append("knowledge/architecture doc")
+
         if fi.path in recently_set:
             score += w.recently_modified
             reasons.append("recently modified")
+
+        if churn_counts and churn_threshold is not None:
+            count = churn_counts.get(fi.path, 0)
+            if count >= churn_threshold:
+                score += w.churn_high
+                reasons.append(f"high churn ({count} commits)")
 
         if fi.too_large and score < 50:
             score += w.large_unrelated_penalty
@@ -379,6 +396,43 @@ def score_files(
         results.append((fi, score, reasons))
 
     return results
+
+
+def boost_paired_tests(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    weights: ScoringWeights | None = None,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Boost test files that pair with high-scoring source files.
+
+    Only applies to test files not already boosted by changed_paths.
+    Threshold: source must score above the median non-test score.
+    """
+    w = weights or _DEFAULT_WEIGHTS
+    non_test_scores = [
+        score for fi, score, _ in scored
+        if not fi.ignored and not fi.binary and not _is_test_file(fi.path) and score > 0
+    ]
+    if not non_test_scores:
+        return scored
+    threshold = sorted(non_test_scores)[len(non_test_scores) // 2]  # median
+
+    source_scores = {
+        fi.path: score for fi, score, _ in scored
+        if not _is_test_file(fi.path) and score >= threshold
+    }
+
+    result = []
+    for fi, score, reasons in scored:
+        if _is_test_file(fi.path):
+            already_boosted = any("test for" in r for r in reasons)
+            if not already_boosted:
+                for src_path, src_score in source_scores.items():
+                    if _test_matches_source(fi.path, src_path):
+                        score += w.related_test
+                        reasons = reasons + [f"test for high-scoring {src_path}"]
+                        break
+        result.append((fi, score, reasons))
+    return result
 
 
 def _is_test_file(path: str) -> bool:
@@ -405,3 +459,24 @@ def _is_config_file(path: str) -> bool:
         p.suffix.lower() in CONFIG_EXTENSIONS
         or p.stem.lower() in CONFIG_NAMES
     )
+
+
+_KNOWLEDGE_NAMES = {
+    "decisions", "adr", "architecture", "contributing", "design",
+    "technical", "tradeoffs", "rfc", "proposal",
+}
+_KNOWLEDGE_DIRS = {"adr", "adrs", "decisions", "rfcs", "proposals", "design"}
+
+
+def _is_knowledge_file(path: str) -> bool:
+    p = Path(path)
+    stem_lower = p.stem.lower()
+    # Match ADR-NNN.md patterns and known doc names
+    if stem_lower in _KNOWLEDGE_NAMES:
+        return p.suffix.lower() == ".md"
+    if re.match(r"adr[-_]?\d+", stem_lower):
+        return True
+    # Any .md file in a known docs dir
+    if any(part.lower() in _KNOWLEDGE_DIRS for part in p.parts):
+        return p.suffix.lower() == ".md"
+    return False

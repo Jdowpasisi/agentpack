@@ -15,6 +15,11 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Changed
 - Agent instructions (AGENTS.md, CLAUDE.md, .cursorrules, .windsurfrules, .cursor/rules/agentpack.mdc) strengthened: agents now write `task.md` at task start so pack targets the right files. Removed stale `agentpack session refresh` references (command removed in v0.1.12).
 
+### Added
+- Knowledge/architecture doc surfacing: DECISIONS.md, ADR-*.md, ARCHITECTURE.md, and .md files under `docs/adr/`, `docs/decisions/`, `docs/rfcs/` always score higher (weight: 30) so agents see design rationale and known tradeoffs.
+- Test file pairing: test files whose source scores above the median are now boosted even when the source isn't in the changed set — agents see relevant tests alongside relevant source.
+- Git churn scoring: files in the top 10% by commit frequency get a churn bonus (weight: 15), surfacing historically risky/hot files. Uses a single `git log` call — no per-file subprocess overhead.
+
 ---
 
 ## [0.1.14] — 2026-05-09
