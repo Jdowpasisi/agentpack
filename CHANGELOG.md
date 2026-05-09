@@ -6,6 +6,14 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.14] — 2026-05-09
+
+### Added
+- Selection accuracy metrics in `metrics.jsonl`: after each pack, recall/precision/F1 are computed by comparing the previous pack's selected files against files actually changed since then.
+- `agentpack stats` surfaces avg recall, precision, F1 over the last 10 runs.
+
+---
+
 ## [0.1.13] — 2026-05-08
 
 ### Fixed
