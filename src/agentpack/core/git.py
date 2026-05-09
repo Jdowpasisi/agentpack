@@ -74,6 +74,26 @@ def changed_files_since(root: Path, ref: str) -> set[str]:
     return result
 
 
+def file_churn_counts(root: Path, max_commits: int = 200) -> dict[str, int]:
+    """Return commit count per file from the last max_commits commits.
+
+    Uses a single git log call — O(1) subprocess, not O(n files).
+    Returns empty dict if not a git repo or git unavailable.
+    """
+    out = _run(
+        ["git", "log", "--name-only", "--format=", f"-{max_commits}"],
+        root,
+    )
+    if not out:
+        return {}
+    counts: dict[str, int] = {}
+    for line in out.splitlines():
+        line = line.strip()
+        if line:
+            counts[line] = counts.get(line, 0) + 1
+    return counts
+
+
 def infer_task_from_git(root: Path) -> str:
     """Infer a task description from branch name, changed files, and recent commits.
 

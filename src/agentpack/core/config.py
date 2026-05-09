@@ -61,7 +61,9 @@ class ScoringWeights(BaseModel):
     reverse_dep: float = 40
     related_test: float = 35
     config_file: float = 25
+    knowledge_file: float = 30
     recently_modified: float = 20
+    churn_high: float = 15   # file appears in top 10% by churn
     large_unrelated_penalty: float = -50
     ignored_penalty: float = -100
 
@@ -106,7 +108,9 @@ direct_dep            = 50
 reverse_dep           = 40
 related_test          = 35
 config_file           = 25
+knowledge_file        = 30
 recently_modified     = 20
+churn_high            = 15
 large_unrelated_penalty = -50
 ignored_penalty       = -100
 """
