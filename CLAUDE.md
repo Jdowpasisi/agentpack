@@ -1,16 +1,17 @@
 <!-- agentpack:start -->
 ## AgentPack Context
 
-Before working on larger tasks, read the generated context pack:
+At the start of every coding task:
 
-- `.agentpack/context.claude.md`
+1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
+2. Read `.agentpack/context.claude.md` — context is injected automatically via session hooks.
+3. Use files listed in context as starting points, but verify with actual code before editing.
 
-Regenerate it with:
+If context is missing or stale, regenerate manually:
 
 ```bash
 agentpack pack --agent claude --task "<task>"
 ```
 
-Use the context pack as the primary task-specific repo context.
-
+Then read `.agentpack/context.claude.md`.
 <!-- agentpack:end -->

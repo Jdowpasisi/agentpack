@@ -6,15 +6,23 @@ from pathlib import Path
 
 _AGENTPACK_BLOCK = """\
 <!-- agentpack:start -->
-## AgentPack Context
+## AgentPack
 
-At the start of every coding task:
+AgentPack MCP server is available. For coding tasks in this repository, call the MCP tool
+before editing files to get task-relevant context without loading the entire codebase.
 
-1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
-2. Read `.agentpack/context.claude.md` — context is injected automatically via session hooks.
-3. Use files listed in context as starting points, but verify with actual code before editing.
+```
+mcp__agentpack__pack_context(task="<what you're working on>", budget=4000)
+```
 
-If context is missing or stale, regenerate manually:
+Other tools:
+- `mcp__agentpack__explain_file(path)` — score breakdown + symbols for a file
+- `mcp__agentpack__get_related_files(path)` — import-graph neighbours
+- `mcp__agentpack__get_stats()` — token/saving stats for the latest pack
+- `mcp__agentpack__get_context()` — read the pre-built pack (no repack)
+- `mcp__agentpack__refresh()` — refresh using current task.md
+
+If MCP is not available, fall back to the CLI:
 
 ```bash
 agentpack pack --agent claude --task "<task>"
@@ -73,7 +81,7 @@ class ClaudeInstaller:
         # gets fresh context without blocking the session.
         # Use session refresh if session exists (respects task.md), else fall back to pack.
         sentinel_cmd = (
-            "rm -f .agentpack/.context_injected"
+            "rm -f .agentpack/.context_injected .agentpack/.mcp_reminded"
             " && ([ -f .agentpack/session.json ]"
             " && agentpack session refresh >/dev/null 2>&1"
             " || agentpack pack --task auto --mode balanced >/dev/null 2>&1) &"
@@ -93,57 +101,30 @@ class ClaudeInstaller:
         if not already_has_session_hook:
             session_start.append({"hooks": [{"type": "command", "command": sentinel_cmd}]})
 
-        # UserPromptSubmit: hash-gated injection.
-        # - Always runs `agentpack status` (cheap; uses cached file hashes).
-        # - Stale → background repack, no injection this turn.
-        # - Fresh + new pack hash → inject once, write hash to sentinel.
-        # - Fresh + same hash → skip (already injected this pack version).
-        inject_command = (
+        # UserPromptSubmit: tiny MCP reminder — no context injection, no file reads.
+        # MCP server handles actual context retrieval on demand (pull-based).
+        # Background repack keeps the index fresh for MCP queries.
+        mcp_reminder_cmd = (
             "python3 -c \"\n"
-            "import hashlib, json, pathlib, subprocess, sys\n"
+            "import json, pathlib, subprocess\n"
             "snap = pathlib.Path('.agentpack/snapshots/latest.json')\n"
-            "sentinel = pathlib.Path('.agentpack/.context_injected')\n"
-            "injected_hash = sentinel.read_text().strip() if sentinel.exists() else None\n"
-            "fresh_session = not sentinel.exists()\n"
-            # Fast path: compare snapshot hash directly — no subprocess needed.
-            # Only skip if snap exists AND matches injected hash (context already in window).
-            "current_hash = hashlib.md5(snap.read_bytes()).hexdigest() if snap.exists() else None\n"
-            "if current_hash and current_hash == injected_hash:\n"
-            "    sys.exit(0)\n"
-            # Snapshot changed or missing — need to check/rebuild the pack.
-            # fresh_session: sentinel was just cleared by SessionStart hook.
-            "ctx = pathlib.Path('.agentpack/context.claude.md')\n"
-            "status = subprocess.run(['agentpack', 'status'], capture_output=True, text=True)\n"
-            "if status.returncode != 0:\n"
-            "    if fresh_session and not ctx.exists():\n"
-            # No pack at all on fresh session — sync pack so first prompt has context.
-            "        subprocess.run(['agentpack', 'pack', '--task', 'auto', '--mode', 'balanced'],\n"
-            "                       capture_output=True)\n"
-            "        current_hash = hashlib.md5(snap.read_bytes()).hexdigest() if snap.exists() else None\n"
-            "    else:\n"
-            # Pack exists but stale — background repack; inject stale pack this turn.
-            "        subprocess.Popen(['agentpack', 'pack', '--task', 'auto', '--mode', 'balanced'],\n"
-            "                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-            "if not ctx.exists(): sys.exit(0)\n"
-            "content = ctx.read_text()\n"
-            "if len(content) > 60000:\n"
-            "    lines = content.splitlines(keepends=True)\n"
-            "    kept, total, omit_start = [], 0, None\n"
-            "    for i, line in enumerate(lines):\n"
-            "        if total + len(line) > 60000:\n"
-            "            omit_start = i\n"
-            "            break\n"
-            "        kept.append(line)\n"
-            "        total += len(line)\n"
-            "    omitted = len(lines) - (omit_start or len(lines))\n"
-            "    content = ''.join(kept) + f'\\n\\n... [truncated: {omitted} lines omitted]'\n"
-            "sentinel.write_text(current_hash or '1')\n"
+            "sentinel = pathlib.Path('.agentpack/.mcp_reminded')\n"
+            "current_hash = __import__('hashlib').md5(snap.read_bytes()).hexdigest() if snap.exists() else None\n"
+            "reminded_hash = sentinel.read_text().strip() if sentinel.exists() else None\n"
+            # Background repack when repo changed since last pack.
+            "if current_hash != reminded_hash:\n"
+            "    subprocess.Popen(['agentpack', 'pack', '--task', 'auto', '--mode', 'balanced'],\n"
+            "                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "    sentinel.write_text(current_hash or '1')\n"
+            "    msg = 'AgentPack: repo changed — repacking index. Call agentpack_pack_context(task=\\\"...\\\") for fresh context.'\n"
+            "else:\n"
+            "    msg = 'AgentPack MCP ready. Call agentpack_pack_context(task=\\\"...\\\") before editing files.'\n"
             "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',\n"
-            "    'additionalContext': '[agentpack: context injected]\\n\\n' + content}}))\n"
+            "    'additionalContext': msg}}))\n"
             "\""
         )
         user_prompt = hooks.setdefault("UserPromptSubmit", [])
-        # Replace any stale agentpack inject hooks (identified by signature strings).
+        # Remove stale large-injection hooks (identified by old signature strings).
         for entry in user_prompt:
             entry["hooks"] = [
                 h for h in entry.get("hooks", [])
@@ -152,21 +133,49 @@ class ClaudeInstaller:
             ]
         user_prompt[:] = [e for e in user_prompt if e.get("hooks")]
         already_has_prompt_hook = any(
-            any(h.get("command", "") == inject_command for h in entry.get("hooks", []))
+            any(h.get("command", "") == mcp_reminder_cmd for h in entry.get("hooks", []))
             for entry in user_prompt
         )
         if not already_has_prompt_hook:
             user_prompt.append({
                 "hooks": [{
                     "type": "command",
-                    "command": inject_command,
-                    "timeout": 15,
-                    "statusMessage": "Checking agentpack context...",
+                    "command": mcp_reminder_cmd,
+                    "timeout": 5,
+                    "statusMessage": "Checking agentpack index...",
                 }]
             })
 
         new_content = json.dumps(existing, indent=2) + "\n"
         if settings_path.exists() and settings_path.read_text() == new_content:
             return "unchanged"
+        settings_path.write_text(new_content)
+        return "updated"
+
+    def patch_mcp_server(self, root: Path, global_install: bool = False) -> str:
+        """Register agentpack MCP server in Claude Code settings. Returns action taken."""
+        if global_install:
+            settings_path = Path.home() / ".claude" / "settings.json"
+        else:
+            settings_path = root / ".claude" / "settings.json"
+
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing: dict = {}
+        if settings_path.exists():
+            try:
+                existing = json.loads(settings_path.read_text())
+            except json.JSONDecodeError:
+                existing = {}
+
+        mcp_servers = existing.setdefault("mcpServers", {})
+        agentpack_entry = {"command": "agentpack", "args": ["mcp"]}
+
+        if mcp_servers.get("agentpack") == agentpack_entry:
+            return "unchanged"
+
+        mcp_servers["agentpack"] = agentpack_entry
+
+        new_content = json.dumps(existing, indent=2) + "\n"
         settings_path.write_text(new_content)
         return "updated"

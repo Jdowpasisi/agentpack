@@ -51,6 +51,9 @@ def register(app: typer.Typer) -> None:
             scope = "~/.claude/settings.json" if global_install else ".claude/settings.json"
             console.print(f"[green]{scope} {hook_action}.[/]")
 
+            mcp_action = installer.patch_mcp_server(root, global_install)
+            console.print(f"[green]{scope} mcpServers.agentpack {mcp_action}.[/]")
+
             if slash_command:
                 _install_slash_command(root, global_install)
 
@@ -164,11 +167,14 @@ def register(app: typer.Typer) -> None:
         # --- Agent-specific config ---
         if agent == "claude":
             if not dry_run:
-                hook_action = ClaudeInstaller().patch_claude_settings(root, global_install=True)
+                inst = ClaudeInstaller()
+                hook_action = inst.patch_claude_settings(root, global_install=True)
                 console.print(f"\n[green]~/.claude/settings.json {hook_action}.[/]")
+                mcp_action = inst.patch_mcp_server(root, global_install=True)
+                console.print(f"[green]~/.claude/settings.json mcpServers.agentpack {mcp_action}.[/]")
                 _install_slash_command(root, global_install=True)
             else:
-                console.print("\n[dim]Would patch: ~/.claude/settings.json (hooks)[/]")
+                console.print("\n[dim]Would patch: ~/.claude/settings.json (hooks + mcpServers)[/]")
                 console.print("[dim]Would install: ~/.claude/commands/agentpack.md (slash command)[/]")
 
         elif agent == "cursor":
