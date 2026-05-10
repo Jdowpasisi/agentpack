@@ -6,6 +6,25 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.19] — 2026-05-10
+
+### Fixed
+- Hook hint showed stale last-commit message as task. Now reads `task.md` first (if user has written a real task), falls back to pack_metadata task. Prompt text used only for repack keyword — not displayed.
+- `excluded_paths` showed irrelevant low-score files (LICENSE, __init__.py). Now only surfaces files excluded due to budget exhaustion — files that scored well but didn't fit. Actual blind-spot signal.
+- `SessionStart` hook was raw shell (`rm -f ... && agentpack pack`). Now delegates to `agentpack hook --event SessionStart` — consistent with UserPromptSubmit, versioned, testable.
+
+### Added
+- `selected_hints` in `metrics.jsonl`: top-8 files with their first scoring reason (modified / keyword match / dependency / etc). Hook hint now shows `src/auth.py — modified` instead of bare path.
+- `agentpack hook --event SessionStart` handler: clears `.mcp_reminded` and `.context_injected` sentinels so first prompt gets fresh context.
+- `agentpack doctor` detects stale hooks: warns when old inline-Python injection hooks or old md5-based MCP reminder hooks are present, with upgrade command.
+- Background repack passes `--since HEAD~1` when repo has changed — focuses changed-file scoring on recent diff rather than full git history.
+- `_resolve_task()` in hook: merges `task.md` + prompt — `task.md` wins if user has written a real task, otherwise prompt text drives repack keywords.
+
+### Changed
+- `installers/claude.py` SessionStart template simplified to `agentpack hook --event SessionStart`. Stale-hook cleanup extended to remove old shell-based session hooks.
+
+---
+
 ## [0.1.18] — 2026-05-10
 
 ### Added

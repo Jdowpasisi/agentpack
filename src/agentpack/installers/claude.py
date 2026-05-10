@@ -77,29 +77,27 @@ class ClaudeInstaller:
 
         hooks = existing.setdefault("hooks", {})
 
-        # SessionStart: delete sentinel + kick off background repack so first prompt
-        # gets fresh context without blocking the session.
-        # Use session refresh if session exists (respects task.md), else fall back to pack.
-        sentinel_cmd = (
-            "rm -f .agentpack/.context_injected .agentpack/.mcp_reminded"
-            " && ([ -f .agentpack/session.json ]"
-            " && agentpack session refresh >/dev/null 2>&1"
-            " || agentpack pack --task auto --mode balanced >/dev/null 2>&1) &"
-        )
+        # SessionStart: delegate to `agentpack hook` CLI subcommand.
+        # Clears sentinels so first UserPromptSubmit gets fresh context.
+        session_hook_cmd = "agentpack hook --event SessionStart"
         session_start = hooks.setdefault("SessionStart", [])
-        # Replace any stale agentpack session hooks (old cmd only deleted sentinel).
+        # Remove stale agentpack session hooks (old rm -f / session refresh shell commands).
+        def _is_stale_session_hook(cmd: str) -> bool:
+            return (
+                ".context_injected" in cmd and "rm -f" in cmd
+            ) or "agentpack session refresh" in cmd
         for entry in session_start:
             entry["hooks"] = [
                 h for h in entry.get("hooks", [])
-                if not (".context_injected" in h.get("command", "") and "rm -f" in h.get("command", ""))
+                if not _is_stale_session_hook(h.get("command", ""))
             ]
         session_start[:] = [e for e in session_start if e.get("hooks")]
         already_has_session_hook = any(
-            any(h.get("command", "") == sentinel_cmd for h in entry.get("hooks", []))
+            any(h.get("command", "") == session_hook_cmd for h in entry.get("hooks", []))
             for entry in session_start
         )
         if not already_has_session_hook:
-            session_start.append({"hooks": [{"type": "command", "command": sentinel_cmd}]})
+            session_start.append({"hooks": [{"type": "command", "command": session_hook_cmd}]})
 
         # UserPromptSubmit: delegate to `agentpack hook` CLI subcommand.
         # - Reads prompt from stdin, uses it as pack task keyword.
