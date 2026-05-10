@@ -1,5 +1,8 @@
+import json
+
 from agentpack.adapters.claude import ClaudeAdapter
 from agentpack.core.models import ContextPack
+from agentpack.installers.claude import ClaudeInstaller
 
 
 def _empty_pack() -> ContextPack:
@@ -69,3 +72,71 @@ def test_patch_idempotent(tmp_path):
     adapter.patch_claude_md(tmp_path)
     content2 = (tmp_path / "CLAUDE.md").read_text()
     assert content1 == content2
+
+
+# ---------------------------------------------------------------------------
+# ClaudeInstaller.patch_mcp_server
+# ---------------------------------------------------------------------------
+
+class TestPatchMcpServer:
+    _entry = {"command": "agentpack", "args": ["mcp"]}
+
+    def test_local_creates_mcp_json(self, tmp_path):
+        installer = ClaudeInstaller()
+        action = installer.patch_mcp_server(tmp_path, global_install=False)
+        assert action == "updated"
+        mcp_json = tmp_path / ".mcp.json"
+        assert mcp_json.exists()
+        data = json.loads(mcp_json.read_text())
+        assert data["mcpServers"]["agentpack"] == self._entry
+
+    def test_local_idempotent(self, tmp_path):
+        installer = ClaudeInstaller()
+        installer.patch_mcp_server(tmp_path, global_install=False)
+        action2 = installer.patch_mcp_server(tmp_path, global_install=False)
+        assert action2 == "unchanged"
+
+    def test_local_does_not_write_claude_settings(self, tmp_path):
+        installer = ClaudeInstaller()
+        installer.patch_mcp_server(tmp_path, global_install=False)
+        claude_settings = tmp_path / ".claude" / "settings.json"
+        assert not claude_settings.exists()
+
+    def test_local_migrates_stale_mcp_from_claude_settings(self, tmp_path):
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings = claude_dir / "settings.json"
+        settings.write_text(json.dumps({"hooks": {}, "mcpServers": {"agentpack": self._entry}}) + "\n")
+
+        installer = ClaudeInstaller()
+        installer.patch_mcp_server(tmp_path, global_install=False)
+
+        remaining = json.loads(settings.read_text())
+        assert "mcpServers" not in remaining
+        assert "hooks" in remaining
+
+    def test_local_preserves_existing_mcp_json_entries(self, tmp_path):
+        mcp_json = tmp_path / ".mcp.json"
+        mcp_json.write_text(json.dumps({"mcpServers": {"other": {"command": "other"}}}) + "\n")
+        installer = ClaudeInstaller()
+        installer.patch_mcp_server(tmp_path, global_install=False)
+        data = json.loads(mcp_json.read_text())
+        assert "other" in data["mcpServers"]
+        assert "agentpack" in data["mcpServers"]
+
+    def test_global_writes_claude_settings(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        (tmp_path / ".claude").mkdir(parents=True)
+        installer = ClaudeInstaller()
+        action = installer.patch_mcp_server(tmp_path, global_install=True)
+        assert action == "updated"
+        settings = tmp_path / ".claude" / "settings.json"
+        data = json.loads(settings.read_text())
+        assert data["mcpServers"]["agentpack"] == self._entry
+
+    def test_global_does_not_create_mcp_json(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        (tmp_path / ".claude").mkdir(parents=True)
+        installer = ClaudeInstaller()
+        installer.patch_mcp_server(tmp_path, global_install=True)
+        assert not (tmp_path / ".mcp.json").exists()

@@ -52,7 +52,8 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green]{scope} {hook_action}.[/]")
 
             mcp_action = installer.patch_mcp_server(root, global_install)
-            console.print(f"[green]{scope} mcpServers.agentpack {mcp_action}.[/]")
+            mcp_scope = "~/.claude/settings.json" if global_install else ".mcp.json"
+            console.print(f"[green]{mcp_scope} mcpServers.agentpack {mcp_action}.[/]")
 
             if slash_command:
                 _install_slash_command(root, global_install)
@@ -174,7 +175,7 @@ def register(app: typer.Typer) -> None:
                 console.print(f"[green]~/.claude/settings.json mcpServers.agentpack {mcp_action}.[/]")
                 _install_slash_command(root, global_install=True)
             else:
-                console.print("\n[dim]Would patch: ~/.claude/settings.json (hooks + mcpServers)[/]")
+                console.print("\n[dim]Would patch: ~/.claude/settings.json (hooks + mcpServers for global)[/]")
                 console.print("[dim]Would install: ~/.claude/commands/agentpack.md (slash command)[/]")
 
         elif agent == "cursor":
