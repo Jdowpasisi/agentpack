@@ -119,12 +119,37 @@ def register(app: typer.Typer) -> None:
         import json as _json
         _local_has_hooks = False
         _global_has_hooks = False
+
+        def _has_stale_hooks(hooks: dict) -> bool:
+            """Detect old inline-Python or context-injection hooks that should be upgraded."""
+            all_cmds = [
+                h.get("command", "")
+                for event_hooks in hooks.values()
+                for entry in event_hooks
+                for h in entry.get("hooks", [])
+            ]
+            return any(
+                "context.claude.md" in cmd
+                or ".context_injected" in cmd
+                or (".mcp_reminded" in cmd and "python3" in cmd)
+                for cmd in all_cmds
+            )
+
+        def _has_current_hooks(hooks: dict) -> bool:
+            return "agentpack hook" in str(hooks)
+
         if claude_settings.exists():
             try:
                 data = _json.loads(claude_settings.read_text())
                 hooks = data.get("hooks", {})
                 if "UserPromptSubmit" in hooks or "SessionStart" in hooks:
-                    console.print(f"  [green]✓[/] Claude hooks present (local): {claude_settings}")
+                    if _has_stale_hooks(hooks):
+                        console.print("  [yellow]![/] Claude hooks stale (local) — old injection hook detected. Run: agentpack install --agent claude")
+                        ok = False
+                    elif _has_current_hooks(hooks):
+                        console.print(f"  [green]✓[/] Claude hooks present (local): {claude_settings}")
+                    else:
+                        console.print(f"  [green]✓[/] Claude hooks present (local): {claude_settings}")
                     _local_has_hooks = True
                 else:
                     console.print("  [yellow]![/] Claude hooks missing (local) — run: agentpack install --agent claude")
@@ -138,7 +163,10 @@ def register(app: typer.Typer) -> None:
                 data = _json.loads(global_claude_settings.read_text())
                 hooks = data.get("hooks", {})
                 if "UserPromptSubmit" in hooks or "SessionStart" in hooks:
-                    console.print(f"  [green]✓[/] Claude hooks present (global): {global_claude_settings}")
+                    if _has_stale_hooks(hooks):
+                        console.print("  [yellow]![/] Claude hooks stale (global) — old injection hook detected. Run: agentpack install --agent claude --global")
+                    else:
+                        console.print(f"  [green]✓[/] Claude hooks present (global): {global_claude_settings}")
                     _global_has_hooks = True
                 else:
                     console.print("  [yellow]![/] Claude hooks missing (global) — run: agentpack install --agent claude --global")

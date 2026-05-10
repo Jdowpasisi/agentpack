@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "rm -f .agentpack/.context_injected .agentpack/.mcp_reminded && ([ -f .agentpack/session.json ] && agentpack session refresh >/dev/null 2>&1 || agentpack pack --task auto --mode balanced >/dev/null 2>&1) &"
+            "command": "agentpack hook --event SessionStart"
           }
         ]
       }

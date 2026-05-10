@@ -304,6 +304,8 @@ class PackService:
             token_estimate=packed_tokens,
         )
         excluded_receipts = [r for r in plan.receipts if r.action == "excluded"]
+        # Budget-cut: files that scored OK but didn't fit — more useful signal than "score too low"
+        budget_cut = [r.path for r in plan.receipts if r.reason == "budget exhausted"][:10]
         _record_metrics(
             root,
             task=request.task,
@@ -315,9 +317,10 @@ class PackService:
             selected_count=len(plan.selected),
             changed_count=len(plan.all_changed),
             selected_paths=[sf.path for sf in plan.selected],
+            selected_hints=[{"path": sf.path, "why": sf.reasons[0] if sf.reasons else ""} for sf in plan.selected[:8]],
             current_changed=plan.all_changed,
             excluded_count=len(excluded_receipts),
-            excluded_paths=[r.path for r in excluded_receipts if r.reason == "score too low"][:10],
+            excluded_paths=budget_cut,
         )
 
         return PackResult(
@@ -407,6 +410,7 @@ def _record_metrics(
     changed_count: int,
     selected_paths: list[str],
     current_changed: set[str],
+    selected_hints: list[dict] | None = None,
     excluded_count: int = 0,
     excluded_paths: list[str] | None = None,
 ) -> None:
@@ -424,6 +428,7 @@ def _record_metrics(
         "excluded_files": excluded_count,
         "excluded_paths": excluded_paths or [],
         "selected_paths": selected_paths,
+        "selected_hints": selected_hints or [],
         "phases": {k: round(v, 3) for k, v in phase_times.items()},
         "total_s": round(sum(phase_times.values()), 3),
     }
