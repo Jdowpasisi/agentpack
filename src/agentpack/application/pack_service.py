@@ -303,6 +303,7 @@ class PackService:
             budget=plan.budget,
             token_estimate=packed_tokens,
         )
+        excluded_receipts = [r for r in plan.receipts if r.action == "excluded"]
         _record_metrics(
             root,
             task=request.task,
@@ -315,6 +316,8 @@ class PackService:
             changed_count=len(plan.all_changed),
             selected_paths=[sf.path for sf in plan.selected],
             current_changed=plan.all_changed,
+            excluded_count=len(excluded_receipts),
+            excluded_paths=[r.path for r in excluded_receipts if r.reason == "score too low"][:10],
         )
 
         return PackResult(
@@ -404,6 +407,8 @@ def _record_metrics(
     changed_count: int,
     selected_paths: list[str],
     current_changed: set[str],
+    excluded_count: int = 0,
+    excluded_paths: list[str] | None = None,
 ) -> None:
     metrics_path = root / ".agentpack" / "metrics.jsonl"
     accuracy = _compute_selection_accuracy(root, metrics_path, selected_paths, current_changed)
@@ -416,6 +421,8 @@ def _record_metrics(
         "saving_pct": round(saving_pct, 1),
         "selected_files": selected_count,
         "changed_files": changed_count,
+        "excluded_files": excluded_count,
+        "excluded_paths": excluded_paths or [],
         "selected_paths": selected_paths,
         "phases": {k: round(v, 3) for k, v in phase_times.items()},
         "total_s": round(sum(phase_times.values()), 3),
