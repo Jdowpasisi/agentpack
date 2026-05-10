@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from agentpack.commands.hook_cmd import (
+    _mcp_installed,
+    _load_top_files,
+    _load_pack_task,
+    _current_root_hash,
+    _run_user_prompt_submit,
+)
+
+
+@pytest.fixture()
+def repo(tmp_path: Path) -> Path:
+    agentpack_dir = tmp_path / ".agentpack"
+    agentpack_dir.mkdir()
+    snapshots_dir = agentpack_dir / "snapshots"
+    snapshots_dir.mkdir()
+    return tmp_path
+
+
+def _write_snapshot(repo: Path, root_hash: str = "abc123") -> None:
+    snap = repo / ".agentpack" / "snapshots" / "latest.json"
+    snap.write_text(json.dumps({"root_hash": root_hash, "files": {}}))
+
+
+def _write_metrics(repo: Path, selected_paths: list[str]) -> None:
+    rec = {"ts": "2026-01-01T00:00:00Z", "task": "test", "selected_paths": selected_paths}
+    (repo / ".agentpack" / "metrics.jsonl").write_text(json.dumps(rec) + "\n")
+
+
+def _write_metadata(repo: Path, task: str = "fix login") -> None:
+    meta = {"task": task, "token_estimate": 5000}
+    (repo / ".agentpack" / "pack_metadata.json").write_text(json.dumps(meta))
+
+
+class TestMcpInstalled:
+    def test_local_mcp_json(self, repo: Path) -> None:
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {"command": "agentpack", "args": ["mcp"]}}}))
+        assert _mcp_installed(repo) is True
+
+    def test_no_mcp(self, repo: Path) -> None:
+        assert _mcp_installed(repo) is False
+
+    def test_mcp_json_no_agentpack_entry(self, repo: Path) -> None:
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": {}}}))
+        assert _mcp_installed(repo) is False
+
+
+class TestLoadTopFiles:
+    def test_returns_top_n(self, repo: Path) -> None:
+        paths = [f"src/file{i}.py" for i in range(10)]
+        _write_metrics(repo, paths)
+        result = _load_top_files(repo, n=5)
+        assert len(result) == 5
+        assert result[0]["path"] == "src/file0.py"
+
+    def test_no_metrics(self, repo: Path) -> None:
+        assert _load_top_files(repo) == []
+
+
+class TestLoadPackTask:
+    def test_reads_task(self, repo: Path) -> None:
+        _write_metadata(repo, task="fix auth")
+        assert _load_pack_task(repo) == "fix auth"
+
+    def test_missing(self, repo: Path) -> None:
+        assert _load_pack_task(repo) == ""
+
+
+class TestCurrentRootHash:
+    def test_reads_hash(self, repo: Path) -> None:
+        _write_snapshot(repo, "deadbeef")
+        assert _current_root_hash(repo) == "deadbeef"
+
+    def test_missing(self, repo: Path) -> None:
+        assert _current_root_hash(repo) is None
+
+
+class TestRunUserPromptSubmit:
+    def _capture_output(self, repo: Path, stdin_data: dict, monkeypatch) -> dict:
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(stdin_data)))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+        with patch("subprocess.Popen"):
+            _run_user_prompt_submit(repo)
+        assert outputs, "No output printed"
+        return json.loads(outputs[0])
+
+    def test_mcp_installed_hint_format(self, repo: Path, monkeypatch) -> None:
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["src/a.py", "src/b.py"])
+        _write_metadata(repo, task="fix login")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+
+        out = self._capture_output(repo, {"prompt": "fix the login bug"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+
+        assert "agentpack_pack_context" in ctx
+        assert "src/a.py" in ctx
+        assert len(ctx) < 1000  # tiny hint, not full injection
+
+    def test_no_mcp_capped_fallback(self, repo: Path, monkeypatch) -> None:
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["src/a.py", "src/b.py"])
+        _write_metadata(repo, task="fix login")
+
+        out = self._capture_output(repo, {"prompt": "fix login"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+
+        assert len(ctx) <= 3000
+        assert "src/a.py" in ctx
+        assert "agentpack install" in ctx  # nudge toward MCP
+
+    def test_hard_cap_enforced(self, repo: Path, monkeypatch) -> None:
+        _write_snapshot(repo, "hash1")
+        # Many files to potentially produce long output
+        paths = [f"src/module_{i}/very_long_filename_{i}.py" for i in range(50)]
+        _write_metrics(repo, paths)
+        _write_metadata(repo, task="x" * 200)
+
+        out = self._capture_output(repo, {"prompt": "test"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        assert len(ctx) <= 3000
+
+    def test_repo_changed_triggers_repack(self, repo: Path, monkeypatch) -> None:
+        _write_snapshot(repo, "newhash")
+        # Sentinel has old hash
+        (repo / ".agentpack" / ".mcp_reminded").write_text("oldhash")
+
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix bug"})))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_user_prompt_submit(repo)
+
+        mock_popen.assert_called_once()
+        args = mock_popen.call_args[0][0]
+        assert "pack" in args
+        assert "fix bug" in " ".join(args)
+
+    def test_repo_unchanged_no_repack(self, repo: Path, monkeypatch) -> None:
+        _write_snapshot(repo, "samehash")
+        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+        _write_metrics(repo, ["src/a.py"])
+        _write_metadata(repo)
+
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "test"})))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_user_prompt_submit(repo)
+
+        mock_popen.assert_not_called()

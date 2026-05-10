@@ -6,6 +6,20 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.18] — 2026-05-10
+
+### Added
+- `agentpack hook --event UserPromptSubmit` CLI subcommand — replaces the fragile inline Python one-liner in `settings.json`. Hook logic is now versioned, tested, and updatable without touching settings files.
+- **Option B hint** (MCP mode): hook emits `~50–150 token` message with last task + top-5 files list instead of "MCP ready" string. Gives Claude routing signal without injecting any file content.
+- **Capped fallback** (no MCP): hook emits top-8 files with hard 3000-char cap and nudge to install MCP. Prevents silent no-op for users without MCP configured.
+- 14 new tests covering MCP detection, metrics loading, repack trigger, cap enforcement, and output format.
+
+### Changed
+- `installers/claude.py` hook template simplified to `agentpack hook --event UserPromptSubmit` (one line). Stale-hook cleanup updated to remove all old inline Python hooks.
+- Global `~/.claude/settings.json` and project `.claude/settings.json` updated to use new hook command.
+
+---
+
 ## [0.1.17] — 2026-05-10
 
 ### Fixed

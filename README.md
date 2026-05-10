@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.17).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.18).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -258,7 +258,7 @@ Configures:
 - `CLAUDE.md` — tells Claude to read the context pack before each task
 - `.claude/settings.json` — two hooks:
   - `SessionStart`: clears injection sentinel so first prompt gets context
-  - `UserPromptSubmit`: detects repo changes via content hash (not file mtime), triggers background repack using your prompt as the task description so keyword scoring matches the current conversation
+  - `UserPromptSubmit`: runs `agentpack hook` — detects repo changes via `root_hash`, triggers background repack using your prompt as task. With MCP: emits Option-B hint (~100 tokens, task + top files). Without MCP: emits capped fallback (top 8 files, ≤3k chars)
 
 After this, context is injected automatically into every Claude Code session. No `/agentpack` command needed — it just happens.
 
