@@ -287,10 +287,16 @@ def _get_stats_impl(root: Path) -> str:
                     f"- **saving**: {rec.get('saving_pct', 0):.1f}%",
                     f"- **selected_files**: {rec.get('selected_files', 0)}",
                     f"- **changed_files**: {rec.get('changed_files', 0)}",
+                    f"- **excluded_files**: {rec.get('excluded_files', 0)} (score too low)",
                     f"- **total_time**: {rec.get('total_s', 0):.2f}s",
                 ]
                 if rec.get("selection_f1"):
                     lines.append(f"- **selection_f1**: {rec['selection_f1']:.3f}")
+                excluded_paths = rec.get("excluded_paths", [])
+                if excluded_paths:
+                    lines += ["", "### Below-threshold files (top 10)", ""]
+                    for p in excluded_paths:
+                        lines.append(f"- `{p}`")
                 break
         except Exception:
             pass

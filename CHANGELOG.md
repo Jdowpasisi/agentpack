@@ -6,6 +6,21 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.17] — 2026-05-10
+
+### Fixed
+- `UserPromptSubmit` hook used `md5(entire snapshot.json bytes)` to detect repo changes — `created_at` field updated on every pack caused false "repo changed" signal every prompt. Now reads `root_hash` field (content-addressed, stable when files unchanged).
+- `installers/claude.py` hook template had same `md5` bug — `agentpack init` on new repos would install the broken hook. Fixed and added stale-hook cleanup: re-running `agentpack init` now removes old `md5`-based hooks.
+
+### Changed
+- `UserPromptSubmit` hook reads `prompt` from stdin (Claude Code passes it as JSON) and passes first 200 chars as `--task` to background repack. Pack keyword scoring now matches the current conversation instead of always inferring from git log.
+
+### Added
+- `excluded_files` and `excluded_paths` (top 10 score-too-low) recorded in `metrics.jsonl` after each pack.
+- `get_stats` MCP tool surfaces `excluded_files: N (score too low)` and a `### Below-threshold files` section — agents can see what was ranked out of context.
+
+---
+
 ## [0.1.15] — 2026-05-09
 
 ### Fixed
