@@ -101,46 +101,19 @@ class ClaudeInstaller:
         if not already_has_session_hook:
             session_start.append({"hooks": [{"type": "command", "command": sentinel_cmd}]})
 
-        # UserPromptSubmit: tiny MCP reminder — no context injection, no file reads.
-        # MCP server handles actual context retrieval on demand (pull-based).
-        # Background repack keeps the index fresh for MCP queries, using the
-        # user's prompt as the task so keyword scoring matches current work.
-        # root_hash (not md5 of whole file) avoids false "changed" on created_at churn.
-        mcp_reminder_cmd = (
-            "python3 -c \"\n"
-            "import json, pathlib, subprocess, sys\n"
-            "snap = pathlib.Path('.agentpack/snapshots/latest.json')\n"
-            "sentinel = pathlib.Path('.agentpack/.mcp_reminded')\n"
-            "try:\n"
-            "    current_hash = json.loads(snap.read_text()).get('root_hash') if snap.exists() else None\n"
-            "except Exception:\n"
-            "    current_hash = None\n"
-            "reminded_hash = sentinel.read_text().strip() if sentinel.exists() else None\n"
-            "try:\n"
-            "    hook_data = json.loads(sys.stdin.read())\n"
-            "    prompt = hook_data.get('prompt', '')\n"
-            "except Exception:\n"
-            "    prompt = ''\n"
-            "task = (prompt[:200].strip() or 'auto') if prompt else 'auto'\n"
-            # Background repack when repo changed since last pack.
-            "if current_hash != reminded_hash:\n"
-            "    subprocess.Popen(['agentpack', 'pack', '--task', task, '--mode', 'balanced'],\n"
-            "                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-            "    sentinel.write_text(current_hash or '1')\n"
-            "    msg = 'AgentPack: repo changed — repacking index. Call agentpack_pack_context(task=\\\"...\\\") for fresh context.'\n"
-            "else:\n"
-            "    msg = 'AgentPack MCP ready. Call agentpack_pack_context(task=\\\"...\\\") before editing files.'\n"
-            "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',\n"
-            "    'additionalContext': msg}}))\n"
-            "\""
-        )
+        # UserPromptSubmit: delegate to `agentpack hook` CLI subcommand.
+        # - Reads prompt from stdin, uses it as pack task keyword.
+        # - With MCP: emits Option-B hint (task + top files list, ~100 tokens).
+        # - Without MCP: emits capped fallback (top files, hard cap 3k chars).
+        # - Background repacks when root_hash changes (content-addressed, not mtime).
+        hook_cmd = "agentpack hook --event UserPromptSubmit"
         user_prompt = hooks.setdefault("UserPromptSubmit", [])
-        # Remove stale agentpack hooks (old injection hooks and old MCP reminder versions).
+        # Remove stale agentpack hooks (old injection hooks, old inline MCP reminder).
         def _is_stale_agentpack_hook(cmd: str) -> bool:
             return (
                 "context.claude.md" in cmd
                 or ".context_injected" in cmd
-                or (".mcp_reminded" in cmd and "hashlib" in cmd)  # old md5-based reminder
+                or (".mcp_reminded" in cmd and "python3" in cmd)  # old inline python hooks
             )
         for entry in user_prompt:
             entry["hooks"] = [
@@ -149,14 +122,14 @@ class ClaudeInstaller:
             ]
         user_prompt[:] = [e for e in user_prompt if e.get("hooks")]
         already_has_prompt_hook = any(
-            any(h.get("command", "") == mcp_reminder_cmd for h in entry.get("hooks", []))
+            any(h.get("command", "") == hook_cmd for h in entry.get("hooks", []))
             for entry in user_prompt
         )
         if not already_has_prompt_hook:
             user_prompt.append({
                 "hooks": [{
                     "type": "command",
-                    "command": mcp_reminder_cmd,
+                    "command": hook_cmd,
                     "timeout": 5,
                     "statusMessage": "Checking agentpack index...",
                 }]
