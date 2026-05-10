@@ -153,29 +153,61 @@ class ClaudeInstaller:
         return "updated"
 
     def patch_mcp_server(self, root: Path, global_install: bool = False) -> str:
-        """Register agentpack MCP server in Claude Code settings. Returns action taken."""
-        if global_install:
-            settings_path = Path.home() / ".claude" / "settings.json"
-        else:
-            settings_path = root / ".claude" / "settings.json"
+        """Register agentpack MCP server. Returns action taken.
 
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-
-        existing: dict = {}
-        if settings_path.exists():
-            try:
-                existing = json.loads(settings_path.read_text())
-            except json.JSONDecodeError:
-                existing = {}
-
-        mcp_servers = existing.setdefault("mcpServers", {})
+        Local install writes to .mcp.json (Claude Code's standard per-project
+        MCP config). Global install writes to ~/.claude/settings.json.
+        """
         agentpack_entry = {"command": "agentpack", "args": ["mcp"]}
 
+        if global_install:
+            settings_path = Path.home() / ".claude" / "settings.json"
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+            existing: dict = {}
+            if settings_path.exists():
+                try:
+                    existing = json.loads(settings_path.read_text())
+                except json.JSONDecodeError:
+                    existing = {}
+
+            mcp_servers = existing.setdefault("mcpServers", {})
+            if mcp_servers.get("agentpack") == agentpack_entry:
+                return "unchanged"
+            mcp_servers["agentpack"] = agentpack_entry
+            settings_path.write_text(json.dumps(existing, indent=2) + "\n")
+            return "updated"
+
+        # Local install: use .mcp.json (read by Claude Code for project MCP servers)
+        mcp_json_path = root / ".mcp.json"
+
+        existing_mcp: dict = {}
+        if mcp_json_path.exists():
+            try:
+                existing_mcp = json.loads(mcp_json_path.read_text())
+            except json.JSONDecodeError:
+                existing_mcp = {}
+
+        mcp_servers = existing_mcp.setdefault("mcpServers", {})
         if mcp_servers.get("agentpack") == agentpack_entry:
+            self._migrate_mcp_from_claude_settings(root)
             return "unchanged"
 
         mcp_servers["agentpack"] = agentpack_entry
-
-        new_content = json.dumps(existing, indent=2) + "\n"
-        settings_path.write_text(new_content)
+        mcp_json_path.write_text(json.dumps(existing_mcp, indent=2) + "\n")
+        self._migrate_mcp_from_claude_settings(root)
         return "updated"
+
+    def _migrate_mcp_from_claude_settings(self, root: Path) -> None:
+        """Remove stale mcpServers key from .claude/settings.json if present."""
+        settings_path = root / ".claude" / "settings.json"
+        if not settings_path.exists():
+            return
+        try:
+            existing = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            return
+        if "mcpServers" not in existing:
+            return
+        del existing["mcpServers"]
+        settings_path.write_text(json.dumps(existing, indent=2) + "\n")

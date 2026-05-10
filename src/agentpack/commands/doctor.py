@@ -149,6 +149,35 @@ def register(app: typer.Typer) -> None:
         if _local_has_hooks and not _global_has_hooks:
             console.print("  [yellow]![/] Hooks local-only — context won't auto-inject in other repos. Run: agentpack install --agent claude --global")
 
+        # --- MCP server ---
+        console.print("\n[bold]MCP server[/]")
+        mcp_json = root / ".mcp.json"
+        global_claude_settings_for_mcp = Path.home() / ".claude" / "settings.json"
+        _local_has_mcp = False
+        _global_has_mcp = False
+        if mcp_json.exists():
+            try:
+                mcp_data = _json.loads(mcp_json.read_text())
+                if "agentpack" in mcp_data.get("mcpServers", {}):
+                    console.print(f"  [green]✓[/] MCP server registered (local): {mcp_json}")
+                    _local_has_mcp = True
+                else:
+                    console.print("  [yellow]![/] .mcp.json exists but agentpack missing — run: agentpack install --agent claude")
+            except Exception:
+                console.print(f"  [yellow]![/] Could not parse {mcp_json}")
+        else:
+            console.print("  [dim]-[/] .mcp.json not present (run: agentpack install --agent claude)")
+        if global_claude_settings_for_mcp.exists():
+            try:
+                global_data = _json.loads(global_claude_settings_for_mcp.read_text())
+                if "agentpack" in global_data.get("mcpServers", {}):
+                    console.print(f"  [green]✓[/] MCP server registered (global): {global_claude_settings_for_mcp}")
+                    _global_has_mcp = True
+            except Exception:
+                pass
+        if not _local_has_mcp and not _global_has_mcp:
+            console.print("  [yellow]![/] MCP server not registered — mcp__agentpack__* tools unavailable")
+
         # --- Slash command ---
         console.print("\n[bold]Slash command (/agentpack)[/]")
         local_cmd = root / ".claude" / "commands" / "agentpack.md"
