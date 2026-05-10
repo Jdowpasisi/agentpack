@@ -232,7 +232,7 @@ def test_get_stats_corrupt_metadata(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _make_mock_plan(path: str, score: float = 150.0, reasons: list[str] | None = None):
-    from agentpack.core.models import DependencyGraph, DependencyNode, ScanResult, FileInfo
+    from agentpack.core.models import DependencyGraph, DependencyNode
 
     reasons = reasons or ["modified"]
     fi = MagicMock()
@@ -375,5 +375,5 @@ def test_get_related_files_excludes_self(tmp_path):
         MockPlanner.return_value.plan.return_value = plan
         result = _get_related_files_impl(tmp_path, "src/a.py", depth=1)
     # src/a.py should not appear as its own neighbour
-    lines = [l for l in result.splitlines() if "src/a.py" in l and "Related files for" not in l]
+    lines = [ln for ln in result.splitlines() if "src/a.py" in ln and "Related files for" not in ln]
     assert not lines
