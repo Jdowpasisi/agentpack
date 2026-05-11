@@ -44,8 +44,25 @@ jobs:
           fi
           echo "CHANGELOG entry for ${VERSION} found."
 
+  # Guard: pyproject.toml and __init__.py must agree on version
+  check-version-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pyproject.toml and __init__.py versions match
+        run: |
+          PYPROJECT=$(python3 -c "import tomllib; d=tomllib.loads(open('pyproject.toml').read()); print(d['project']['version'])" 2>/dev/null || python3 -c "import re; m=re.search(r'version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read()); print(m.group(1))")
+          INIT=$(python3 -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/agentpack/__init__.py').read()); print(m.group(1))")
+          echo "pyproject.toml: $PYPROJECT"
+          echo "__init__.py:    $INIT"
+          if [ "$PYPROJECT" != "$INIT" ]; then
+            echo "ERROR: version mismatch — pyproject.toml=$PYPROJECT __init__.py=$INIT"
+            exit 1
+          fi
+          echo "Versions in sync: $PYPROJECT"
+
   test:
-    needs: [check-release-branch, check-changelog]
+    needs: [check-release-branch, check-changelog, check-version-sync]
     runs-on: ubuntu-latest
     strategy:
       matrix:
