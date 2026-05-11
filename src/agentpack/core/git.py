@@ -94,12 +94,44 @@ def file_churn_counts(root: Path, max_commits: int = 200) -> dict[str, int]:
     return counts
 
 
-def infer_task_from_git(root: Path) -> str:
-    """Infer a task description from branch name, changed files, and recent commits.
+def staged_files(root: Path) -> set[str]:
+    """Files staged for commit (git index only)."""
+    out = _run(["git", "diff", "--cached", "--name-only"], root)
+    if not out:
+        return set()
+    return {line.strip() for line in out.splitlines() if line.strip()}
 
-    Priority: branch name + changed files → branch name → changed files →
-              recent commit messages (up to 3) → recently modified files → fallback.
+
+def infer_task_with_source(root: Path) -> tuple[str, str]:
+    """Infer task description with the heuristic that fired.
+
+    Priority (strongest → weakest):
+      branch+staged    staged files present + branch name
+      staged           staged files, no branch
+      branch+unstaged  unstaged changes + branch name
+      branch+commit    branch + latest commit message
+      branch           branch name alone
+      unstaged         unstaged changes, no branch
+      commits          recent commit messages
+      recently_modified git log history (noisy — last resort)
+      fallback         "general development"
     """
+    if not is_git_repo(root):
+        return "general development", "fallback"
+
+    staged = staged_files(root)
+
+    unstaged_out = _run(["git", "diff", "--name-only"], root)
+    unstaged: set[str] = set()
+    if unstaged_out:
+        for line in unstaged_out.splitlines():
+            line = line.strip()
+            if line:
+                unstaged.add(line)
+
+    staged_topic = _topic_from_paths(staged) if staged else None
+    unstaged_topic = _topic_from_paths(unstaged) if unstaged else None
+
     branch: str | None = None
     branch_out = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
     if branch_out:
@@ -108,11 +140,6 @@ def infer_task_from_git(root: Path) -> str:
             slug = b.split("/", 1)[-1]
             branch = slug.replace("-", " ").replace("_", " ")
 
-    # Changed files are the strongest signal for *current* work
-    changed = changed_files(root)
-    file_topic = _topic_from_paths(changed) if changed else None
-
-    # Collect recent non-merge commit messages (up to 3) for richer fallback
     commit_msgs: list[str] = []
     log_out = _run(["git", "log", "--oneline", "-10"], root)
     if log_out:
@@ -126,26 +153,36 @@ def infer_task_from_git(root: Path) -> str:
             if len(commit_msgs) == 3:
                 break
 
-    # When branch is clean (no changed files), fall back to recently touched files
-    # so keyword scoring has something to work with beyond the branch name alone.
-    if not file_topic and not branch:
-        recent = recently_modified_files(root, n=10)
-        file_topic = _topic_from_paths(set(recent)) if recent else None
-
-    if branch and file_topic:
-        return f"{branch}: {file_topic}"
+    if branch and staged_topic:
+        return f"{branch}: {staged_topic}", "branch+staged"
+    if staged_topic:
+        return staged_topic, "staged"
+    if branch and unstaged_topic:
+        return f"{branch}: {unstaged_topic}", "branch+unstaged"
     if branch and commit_msgs:
-        # Augment bare branch name with latest commit context
-        return f"{branch}: {commit_msgs[0]}"
+        return f"{branch}: {commit_msgs[0]}", "branch+commit"
     if branch:
-        return branch
-    if file_topic and commit_msgs:
-        return f"{file_topic}: {commit_msgs[0]}"
-    if file_topic:
-        return file_topic
+        return branch, "branch"
+    if unstaged_topic and commit_msgs:
+        return f"{unstaged_topic}: {commit_msgs[0]}", "unstaged+commit"
+    if unstaged_topic:
+        return unstaged_topic, "unstaged"
     if commit_msgs:
-        return "; ".join(commit_msgs[:2])
-    return "general development"
+        return "; ".join(commit_msgs[:2]), "commits"
+
+    # Last resort: historical git log — only fires when no live signal found
+    recent = recently_modified_files(root, n=10)
+    recent_topic = _topic_from_paths(set(recent)) if recent else None
+    if recent_topic:
+        return recent_topic, "recently_modified"
+
+    return "general development", "fallback"
+
+
+def infer_task_from_git(root: Path) -> str:
+    """Infer a task description from git state. See infer_task_with_source for priority chain."""
+    task, _ = infer_task_with_source(root)
+    return task
 
 
 def _topic_from_paths(paths: set[str]) -> str | None:

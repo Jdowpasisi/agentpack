@@ -64,8 +64,19 @@ def _resolve_agent(agent: str) -> str:
 def _resolve_task(task: str) -> str:
     if task != "auto":
         return task
-    inferred = git.infer_task_from_git(_root())
-    console.print(f"[dim]Auto task: {inferred}[/]")
+    root = _root()
+    # task.md takes priority over all git heuristics
+    task_md_path = root / ".agentpack" / "task.md"
+    if task_md_path.exists():
+        content = task_md_path.read_text(encoding="utf-8").strip()
+        lines = [ln for ln in content.splitlines() if ln.strip() and not ln.startswith("#")]
+        body = lines[0].strip() if lines else ""
+        _PLACEHOLDER = "Write or update the current coding task here."
+        if body and _PLACEHOLDER not in body:
+            console.print(f"[dim]Auto task (task.md): {body}[/]")
+            return body
+    inferred, source = git.infer_task_with_source(root)
+    console.print(f"[dim]Auto task ({source}): {inferred}[/]")
     return inferred
 
 

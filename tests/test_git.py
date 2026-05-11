@@ -1,4 +1,5 @@
 """Tests for git module — graceful fallback when not in a git repo."""
+import subprocess
 from pathlib import Path
 from agentpack.core import git
 
@@ -66,3 +67,53 @@ def test_topic_from_paths_skips_init():
     result = git._topic_from_paths({"src/auth/__init__.py"})
     # __init__ stem is in _SKIP, so topic comes from dir or is None
     assert result is None or "auth" in result
+
+
+def test_staged_files_graceful(tmp_path):
+    result = git.staged_files(tmp_path)
+    assert isinstance(result, set)
+    assert len(result) == 0
+
+
+def test_infer_task_with_source_non_git_returns_fallback(tmp_path):
+    task, source = git.infer_task_with_source(tmp_path)
+    assert task == "general development"
+    assert source == "fallback"
+
+
+def test_infer_task_with_source_returns_tuple():
+    task, source = git.infer_task_with_source(Path("."))
+    assert isinstance(task, str) and len(task) > 0
+    assert isinstance(source, str) and len(source) > 0
+
+
+def _make_git_repo(tmp_path: Path) -> Path:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True, capture_output=True)
+    return tmp_path
+
+
+def test_staged_files_beats_recently_modified(tmp_path):
+    repo = _make_git_repo(tmp_path)
+
+    # Create initial commit so HEAD exists
+    (repo / "old.py").write_text("old")
+    subprocess.run(["git", "add", "old.py"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+
+    # Stage a new file — this is the "current task" signal
+    (repo / "src").mkdir()
+    (repo / "src" / "payment.py").write_text("def pay(): pass")
+    subprocess.run(["git", "add", "src/payment.py"], cwd=repo, check=True, capture_output=True)
+
+    task, source = git.infer_task_with_source(repo)
+    assert source in ("staged", "branch+staged")
+    assert "payment" in task
+
+
+def test_source_label_in_valid_set():
+    valid = {"branch+staged", "staged", "branch+unstaged", "branch+commit", "branch",
+             "unstaged+commit", "unstaged", "commits", "recently_modified", "fallback"}
+    _, source = git.infer_task_with_source(Path("."))
+    assert source in valid
