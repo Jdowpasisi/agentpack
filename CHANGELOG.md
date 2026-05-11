@@ -6,6 +6,20 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.20] — 2026-05-11
+
+### Added
+- `git.staged_files()` — reads git index only (`--cached`), strongest live signal.
+- `git.infer_task_with_source()` — returns `(task, source_label)` with 9-level priority chain: `task.md` → `branch+staged` → `staged` → `branch+unstaged` → `branch+commit` → `branch` → `unstaged` → `commits` → `recently_modified` → `fallback`.
+- Source label logged on auto-inference: `Auto task (branch+staged): feat add-rate-limiting: payments`.
+
+### Fixed
+- `--task auto` previously used recently-modified files (noisy git log history) as primary signal. Now uses staged files first — "what you're about to commit" is the strongest same-session signal.
+- Hook `_resolve_task`: slash commands (`/caveman`, `/agentpack`) and non-coding prompts no longer pollute pack task keywords. Fall back to `"auto"` → git priority chain instead.
+- Hook display task was read from stale `pack_metadata.json` — showed previous session's task. Now uses live `infer_task_with_source()` so displayed task reflects current branch/staged state.
+
+---
+
 ## [0.1.19] — 2026-05-10
 
 ### Fixed
