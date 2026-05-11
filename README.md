@@ -1259,7 +1259,23 @@ Skip writing a task description — agentpack infers it from your branch name, c
 agentpack pack --task auto
 ```
 
-Priority order: branch name → changed file paths → recent commit message. The more descriptive your branch names (`feat/add-rate-limiting` beats `dev`), the better the inferred task.
+Priority order (strongest → weakest):
+
+| Source | Example output |
+|--------|---------------|
+| `task.md` (explicit) | `"migrate DB schema to multi-tenant"` |
+| branch + staged files | `"feat add-rate-limiting: payments, throttle"` |
+| staged files only | `"payments, throttle"` |
+| branch + unstaged | `"feat add-rate-limiting: session, token"` |
+| branch + latest commit | `"feat add-rate-limiting: fix token expiry check"` |
+| branch name alone | `"feat add-rate-limiting"` |
+| unstaged files | `"session, token"` |
+| recent commit messages | `"fix token expiry check; add pagination"` |
+| recently modified files | `"session, payments"` (noisy — last resort) |
+
+The heuristic that fired is logged: `Auto task (branch+staged): feat add-rate-limiting: payments`.
+
+The more descriptive your branch names (`feat/add-rate-limiting` beats `dev`) and the more you stage before running, the more accurate the inference.
 
 ### Concept synonym expansion
 

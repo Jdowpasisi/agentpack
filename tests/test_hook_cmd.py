@@ -12,6 +12,8 @@ from agentpack.commands.hook_cmd import (
     _load_pack_task,
     _current_root_hash,
     _run_user_prompt_submit,
+    _looks_like_coding_prompt,
+    _resolve_task,
 )
 
 
@@ -139,7 +141,8 @@ class TestRunUserPromptSubmit:
         outputs = []
         monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("subprocess.Popen") as mock_popen, \
+             patch("agentpack.commands.hook_cmd._infer_live_task", return_value="fix bug"):
             _run_user_prompt_submit(repo)
 
         mock_popen.assert_called_once()
@@ -159,7 +162,50 @@ class TestRunUserPromptSubmit:
         outputs = []
         monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("subprocess.Popen") as mock_popen, \
+             patch("agentpack.commands.hook_cmd._infer_live_task", return_value="general development"):
             _run_user_prompt_submit(repo)
 
         mock_popen.assert_not_called()
+
+
+class TestLooksLikeCodingPrompt:
+    def test_slash_command_rejected(self):
+        assert not _looks_like_coding_prompt("/caveman ultra")
+        assert not _looks_like_coding_prompt("/agentpack")
+
+    def test_coding_verbs_accepted(self):
+        assert _looks_like_coding_prompt("fix the login bug")
+        assert _looks_like_coding_prompt("add pagination to the API")
+        assert _looks_like_coding_prompt("refactor auth module")
+        assert _looks_like_coding_prompt("implement OAuth flow")
+
+    def test_chat_prompt_rejected(self):
+        assert not _looks_like_coding_prompt("why does this work?")
+        assert not _looks_like_coding_prompt("explain connection pooling")
+
+    def test_empty_rejected(self):
+        assert not _looks_like_coding_prompt("")
+
+
+class TestResolveTask:
+    def test_task_md_wins_over_coding_prompt(self, tmp_path):
+        (tmp_path / ".agentpack").mkdir()
+        (tmp_path / ".agentpack" / "task.md").write_text("migrate DB schema")
+        result = _resolve_task(tmp_path, "fix login bug")
+        assert result == "migrate DB schema"
+
+    def test_coding_prompt_used_when_no_task_md(self, tmp_path):
+        (tmp_path / ".agentpack").mkdir()
+        result = _resolve_task(tmp_path, "fix the auth token")
+        assert result == "fix the auth token"
+
+    def test_slash_command_falls_back_to_auto(self, tmp_path):
+        (tmp_path / ".agentpack").mkdir()
+        result = _resolve_task(tmp_path, "/caveman ultra")
+        assert result == "auto"
+
+    def test_non_coding_prompt_falls_back_to_auto(self, tmp_path):
+        (tmp_path / ".agentpack").mkdir()
+        result = _resolve_task(tmp_path, "why does the DB pool work?")
+        assert result == "auto"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -8,9 +9,14 @@ from pathlib import Path
 import typer
 
 from agentpack.commands._shared import _root
+from agentpack.core import git as _git
 
 _TASK_FILE = ".agentpack/task.md"
 _TASK_FILE_DEFAULT_MARKER = "Write or update the current coding task here."
+_CODING_PROMPT_RE = re.compile(
+    r"(?:fix|add|refactor|impl|implement|update|write|debug|test|build|migrate|remove|delete|rename|optimize)\b",
+    re.IGNORECASE,
+)
 
 
 def register(app: typer.Typer) -> None:
@@ -69,12 +75,22 @@ def _load_task_md(root: Path) -> str:
         return ""
 
 
+def _looks_like_coding_prompt(prompt: str) -> bool:
+    """Return True if prompt looks like a coding task (not a slash command or chat)."""
+    stripped = prompt.strip()
+    if stripped.startswith("/"):
+        return False
+    return bool(_CODING_PROMPT_RE.search(stripped))
+
+
 def _resolve_task(root: Path, prompt: str) -> str:
     """Merge task.md + prompt into best task description for repack."""
     task_md = _load_task_md(root)
     if task_md:
         return task_md
-    return prompt[:200].strip() if prompt else "auto"
+    if prompt and _looks_like_coding_prompt(prompt):
+        return prompt[:200].strip()
+    return "auto"
 
 
 def _load_hints(root: Path, n: int = 5) -> list[dict]:
@@ -114,6 +130,15 @@ def _load_pack_task(root: Path) -> str:
         return json.loads(meta_path.read_text()).get("task", "")
     except Exception:
         return ""
+
+
+def _infer_live_task(root: Path) -> str:
+    """Live task: git priority chain (no stale metadata). Falls back to 'unknown'."""
+    try:
+        task, _ = _git.infer_task_with_source(root)
+        return task
+    except Exception:
+        return "unknown"
 
 
 def _current_root_hash(root: Path) -> str | None:
@@ -179,7 +204,7 @@ def _run_user_prompt_submit(root: Path) -> None:
                 for h in hints
             )
             status_note = "(repacking — call pack_context for fresh results)" if repo_changed else "(index fresh)"
-            current_task = _load_task_md(root) or _load_pack_task(root) or "unknown"
+            current_task = _load_task_md(root) or _infer_live_task(root)
             msg = (
                 f"AgentPack {status_note}\n"
                 f"task: {current_task}\n"
@@ -193,7 +218,7 @@ def _run_user_prompt_submit(root: Path) -> None:
             )
     else:
         hints = _load_hints(root, n=8)
-        current_task = _load_task_md(root) or _load_pack_task(root) or "unknown"
+        current_task = _load_task_md(root) or _infer_live_task(root)
         if hints:
             files_lines = "\n".join(
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
