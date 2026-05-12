@@ -21,6 +21,7 @@ from agentpack.analysis.ranking import (
     extract_keyword_weights,
     enrich_keyword_weights_from_files,
     boost_paired_tests,
+    boost_cross_layer_related,
 )
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
@@ -162,6 +163,7 @@ class FileRanker:
             summaries=summaries,
             churn_counts=churn_counts,
         )
+        scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
         return RankResult(keywords=keywords, scored=scored)
 

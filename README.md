@@ -5,11 +5,27 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.21).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.22).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
-**Token-aware context packing for AI coding agents.**
+**Task-aware context packing for AI coding agents.**
+
+AgentPack scans a repository, ranks files for the task you are working on, and writes a compact markdown context pack for Claude Code, Cursor, Windsurf, Codex, Antigravity, CI jobs, or any LLM workflow.
+
+It is useful when the repo is too large to paste, but you still want the agent to start with more than a blank slate.
+
+**What it is**
+- A local CLI for building task-focused context packs
+- A summary cache, import graph, ranking engine, and token-budget selector
+- Optional integrations for popular coding agents
+- An eval harness for measuring whether selected files match files you actually changed
+
+**What it is not**
+- Not a coding agent
+- Not a semantic code search engine
+- Not a replacement for manual inspection on high-stakes changes
+- Not yet proven across a large public benchmark suite
 
 ---
 
@@ -32,12 +48,12 @@ None of these scale. On a 200-file codebase, option 1 wastes 5–10 turns just o
 AgentPack solves this with a one-time offline analysis pass:
 
 1. **Scans your repo once** — builds a summary cache of every file (signatures, imports, responsibilities). No API calls. Takes a few seconds.
-2. **On each task** — uses git diff + import graph traversal + keyword scoring to rank every file by relevance to what you're working on.
-3. **Packs a tight context document** — changed files get full content, large changed files get relevant symbol bodies, dependencies get summaries, everything else gets dropped. Typically 8k–20k tokens for a 200-file repo.
-4. **Explains pack quality** — noisy-pack diagnostics, score receipts, and token-precision metrics show when the pack is broad and where token noise lives.
+2. **On each task** — uses git diff, import graph traversal, keyword/concept expansion, implementation-role boosts, and cross-layer relatedness to rank every file.
+3. **Packs a tight context document** — changed files get full content, large changed files get relevant symbol bodies, dependencies and likely implementation files get summaries, everything else gets dropped.
+4. **Explains pack quality** — noisy-pack diagnostics, score receipts, token-precision metrics, and benchmark miss reports show when the pack is broad or missing expected files.
 5. **Stays current** — auto-repacks silently on commit, so next session starts fresh.
 
-The result: your agent starts every session with a focused, accurate picture of the relevant code — without you doing anything after opt-in.
+The result: your agent starts with a focused map of the relevant code. It should reduce blind exploration, not replace the agent's own file reads or your judgment.
 
 ```bash
 pip install agentpack-cli
@@ -64,13 +80,53 @@ agentpack global-install --dry-run   # preview first
 agentpack global-install
 ```
 
-Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, **Antigravity** (Google), or any LLM.
+Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, **Antigravity** (Google), or any LLM that can read markdown.
 
 ---
 
-## AgentPack Results (7 days, 21 sessions)
+## What to expect
 
-### Token Compression
+AgentPack's strongest value is repeatable orientation: it gives the agent a compact first-pass map before tool calls begin.
+
+Typical results on large repos:
+
+| Signal | What good looks like |
+|---|---|
+| Token reduction | 90-99% smaller than raw repo text |
+| Pack size | Usually 8k-25k tokens for a specific task |
+| Pack time | Seconds on warm cache; first summarize pass is slower |
+| Recall | Should be high for files you later edit; validate with `agentpack benchmark` |
+| Precision | Often modest; summaries are cheap but can still add noise |
+
+The compression number is easy to verify, but it is not the same as usefulness. The important question is: **did AgentPack include the files you actually needed?**
+
+Use the built-in eval flow:
+
+```bash
+agentpack benchmark --init
+# add real historical tasks and files you actually changed
+agentpack benchmark --compare --misses
+```
+
+For source checkouts, there is also a small smoke suite:
+
+```bash
+agentpack benchmark --sample-fixtures --misses
+```
+
+This runs FastAPI, Next.js, and mixed Python/TypeScript fixture tasks. It is a sanity check, not a substitute for real repo evals.
+
+### Current quality bar
+
+AgentPack is best described as a **map, not a compass**. It is already good at token reduction, changed-file inclusion, related tests, imports, configs, and common concepts like auth/cache/rate limiting. Recent ranking work also improves full-stack tasks by pulling service/controller/schema/handler files when UI routes or pages match the same domain.
+
+Known weak spot: recall can still be low on unfamiliar product domains or cross-language flows. Use `benchmark --misses` and `agentpack explain` when an expected file is absent. Those commands show whether the miss was caused by ignore rules, low score, summary floor, budget cutoff, or missing task signal.
+
+### Observed author-run numbers
+
+These are local author-session numbers, included as anecdotal context rather than a benchmark claim.
+
+#### Token Compression
 
 | Metric | Value |
 |--------|-------|
@@ -82,7 +138,7 @@ Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, **Antigr
 
 Per session: ~4.1M raw repo → ~35K packed context.
 
-### Cost (Sonnet 4.6, input tokens only)
+#### Cost (Sonnet 4.6, input tokens only)
 
 | Scenario | Cost |
 |----------|------|
@@ -92,7 +148,7 @@ Per session: ~4.1M raw repo → ~35K packed context.
 
 > Honest note: raw_tokens = full repo estimate. Real savings depend on how much context you'd pass manually. Compression ratio (99%+) is verifiable; dollar figure is scenario-dependent.
 
-### Quality Signal
+#### Quality Signal
 
 - 42 commits in 7 days (~6/day) vs 4.9/day before
 - Shift from single-file fixes → multi-system coordinated fixes
@@ -166,9 +222,10 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 
 ### What agentpack does NOT do well
 
-- **Interactive sessions on small repos**: if your whole repo is <20k tokens, just use repomix
-- **One-shot public repo questions**: gitingest's "replace hub with ingest" is faster for that
-- **Semantic understanding**: keyword scoring + AST is not a language model — precise technical terms in your task description work better than vague ones
+- **Interactive sessions on small repos**: if your whole repo is <20k tokens, a simple repo dump may be enough
+- **One-shot public repo questions**: gitingest's "replace hub with ingest" is faster for quick read-only exploration
+- **Guaranteed source-of-truth selection**: AgentPack ranks likely files; it can miss task-critical files. Use `agentpack benchmark --misses`, `agentpack explain`, and normal `rg`/agent file reads for correctness.
+- **Deep semantic understanding**: keyword/concept scoring, imports, symbols, and path roles help, but they are not an LLM-level code understanding system
 
 ---
 
@@ -749,6 +806,7 @@ agentpack benchmark --task "fix auth bug" --compare        # compare minimal/bal
 agentpack benchmark --init                                 # scaffold .agentpack/benchmark.toml
 agentpack benchmark                                        # run all cases in benchmark.toml
 agentpack benchmark --sample-fixtures                      # source checkout demo evals
+agentpack benchmark --misses                               # explain expected-file misses
 ```
 
 Output per case:
@@ -799,6 +857,8 @@ expected_files = [
   hit: src/auth/session.py, src/auth/token.py
 ```
 
+Use `--misses` when recall is low. It prints each expected file that was not selected with status, rank, score, and scoring reasons, which helps separate ignored files, budget cuts, low scores, and missing dependency signals.
+
 ---
 
 ### `agentpack scan`
@@ -834,7 +894,7 @@ agentpack benchmark --sample-fixtures
 
 agentpack benchmark --init
 # edit .agentpack/benchmark.toml with real tasks + files you actually changed
-agentpack benchmark --compare
+agentpack benchmark --compare --misses
 ```
 
 `--sample-fixtures` runs bundled FastAPI, Next.js, and mixed Python/TypeScript fixture evals from an AgentPack source checkout. It is a smoke test, not a claim about your repo.
@@ -1190,6 +1250,7 @@ src/agentpack/
     pack.py                    # agentpack pack → PackService.run()
     install.py                 # agentpack install / global-install → installers/
     init.py                    # agentpack init
+    quickstart.py              # agentpack quickstart — guided first-run commands
     scan.py                    # agentpack scan
     diff.py                    # agentpack diff
     status.py                  # agentpack status
@@ -1198,10 +1259,11 @@ src/agentpack/
     monitor.py                 # agentpack monitor
     explain.py                 # agentpack explain
     doctor.py                  # agentpack doctor
-    session.py                 # agentpack session start/stop/status/refresh
+    hook_cmd.py                # agentpack hook — Claude prompt hook + stale detection
+    mcp_cmd.py                 # agentpack mcp — MCP server entrypoint
     watch.py                   # agentpack watch — file watcher with debounce
     claude_cmd.py              # agentpack claude — refresh + launch claude
-    benchmark.py               # agentpack benchmark — token efficiency + selection quality
+    benchmark.py               # agentpack benchmark — token efficiency, recall, miss diagnostics
 ```
 
 ### Key architectural properties
@@ -1329,7 +1391,17 @@ The more descriptive your branch names (`feat/add-rate-limiting` beats `dev`) an
 
 ### Concept synonym expansion
 
-AgentPack expands task keywords automatically — "rate limiting" expands to `throttle`, `leaky`, `bucket`, `quota`, `debounce`; "auth" expands to `jwt`, `bearer`, `token`, `oauth`; "cache" expands to `lru`, `memoize`, `redis`, `ttl`. Files that implement a concept but don't use its exact name still rank correctly.
+AgentPack expands task keywords automatically — "rate limiting" expands to `throttle`, `leaky`, `bucket`, `quota`, `debounce`; "auth" expands to `jwt`, `bearer`, `token`, `oauth`; "cache" expands to `lru`, `memoize`, `redis`, `ttl`; domain terms such as `kundali` expand toward astrology/chart/compatibility terms. Files that implement a concept but don't use its exact name can still rank.
+
+### Full-stack role boosts
+
+When a task points at a page, route, or API surface, AgentPack also gives a controlled boost to related implementation roles such as `service`, `controller`, `schema`, `handler`, `repository`, and `client`. This helps full-stack tasks pull backend implementation files instead of only frontend entrypoints.
+
+This is still heuristic. If a service should have appeared and did not, add it as an `expected_files` entry in `benchmark.toml` and run:
+
+```bash
+agentpack benchmark --compare --misses
+```
 
 ### Content-based keyword enrichment
 
@@ -1380,6 +1452,8 @@ agentpack explain --task "fix auth session bug"
 
 Shows ranked scores and reasons before committing to a pack. Use when a file you expect isn't appearing.
 
+For repeatable evals, prefer `benchmark --misses` because it compares selected files against the files you actually changed for historical tasks.
+
 ### Check what got included and why
 
 Every pack includes a context receipt explaining each file's inclusion or exclusion:
@@ -1411,7 +1485,8 @@ config_file     = 60   # was 25 — configs always matter here
 - **Non-destructive**: never overwrites user files; config patching only touches agentpack-managed blocks
 - **Agent-neutral**: architecture is generic; Claude Code is the primary target (deepest integration); Cursor, Windsurf, Codex, and Antigravity are supported but less battle-tested
 - **No daemons**: file watching is opt-in via `agentpack watch`; git hooks run in the background and are opt-in via `install`
-- **Honest**: packed token count reflects real content, not raw repo size
+- **Measurable**: `benchmark`, `stats`, receipts, and `--misses` are first-class because compression without recall is not enough
+- **Honest**: packed token count reflects real content, and raw-repo savings are presented separately from practical usefulness
 
 ---
 
@@ -1420,6 +1495,7 @@ config_file     = 60   # was 25 — configs always matter here
 - **Windows**: not supported. Git hooks use POSIX shell (`#!/bin/sh`, `>/dev/null 2>&1 &`). The Claude Code session hooks use `python3` and `rm -f`. Contributions welcome.
 - **Monorepos**: single-root repos only. If you `agentpack pack` from a monorepo root, all packages are scanned together with no workspace awareness. Workaround: `cd packages/my-pkg && agentpack init && agentpack pack`.
 - **Symbol extraction**: Python (AST, full) and JavaScript/TypeScript (regex, arrow functions + classes) are well-supported. Go, Rust, Java, Kotlin have import graph traversal but no symbol extraction — they fall back to file-level summaries.
+- **Selection recall**: ranking is heuristic. It can miss files when task language differs from code language, when repos have unusual architecture, or when important files are only connected at runtime.
 - **Secret redaction**: covers AWS keys, GitHub tokens, OpenAI/Anthropic keys, JWTs, and private key blocks. Not a substitute for a dedicated secrets scanner on sensitive repos.
 - **Token estimates**: uses tiktoken `cl100k_base` — approximate, not exact for Claude's billing.
 - **Large repos (>5k files)**: global auto-bootstrap is skipped for repos over 5,000 files to avoid hangs. Run `agentpack init` explicitly in large codebases.
@@ -1433,6 +1509,37 @@ pip install "agentpack-cli[watch]"    # watchdog — faster file watching for ag
 pip install "agentpack-cli[mcp]"      # mcp — expose agentpack as MCP server tools
 pip install "agentpack-cli[all]"      # watch + mcp
 ```
+
+---
+
+## Development
+
+Clone and run locally:
+
+```bash
+git clone https://github.com/vishal2612200/agentpack.git
+cd agentpack
+python -m pip install -e ".[dev,watch,mcp]" build
+pytest
+```
+
+Useful checks before opening a PR:
+
+```bash
+pytest
+python -m build
+agentpack benchmark --sample-fixtures --misses
+```
+
+Good contribution areas:
+
+- More real-world benchmark fixtures and public repo eval cases
+- Windows support for hooks and session integrations
+- Better symbol extraction for Go, Rust, Java, and Kotlin
+- More precise import/dependency resolution for framework-heavy repos
+- Ranking regressions with `expected_files` cases that reproduce misses
+
+Please include tests for ranking changes. A good ranking PR usually adds one focused unit test and one scenario in `tests/test_ranking_evals.py`.
 
 ---
 

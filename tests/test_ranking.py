@@ -1,5 +1,10 @@
 from pathlib import Path
-from agentpack.analysis.ranking import extract_keywords, extract_keyword_weights, score_files
+from agentpack.analysis.ranking import (
+    boost_cross_layer_related,
+    extract_keywords,
+    extract_keyword_weights,
+    score_files,
+)
 from agentpack.core.models import FileInfo
 
 
@@ -126,3 +131,56 @@ def test_score_includes_reasons():
     )
     reasons = scored[0][2]
     assert any("modified" in r or "keyword" in r for r in reasons)
+
+
+def test_kundali_expands_to_astrology_domain_terms():
+    kw = extract_keywords("fix Kundali chart compatibility flow")
+    assert "kundali" in kw
+    assert "astrology" in kw
+    assert "horoscope" in kw or "chart" in kw
+
+
+def test_implementation_role_boost_keeps_astrology_service_above_summary_floor():
+    files = [
+        _fi("frontend/app/charts/page.tsx", language="typescript"),
+        _fi("backend/src/services/astrology.service.ts", language="typescript"),
+        _fi("backend/src/handlers/astrology_handler.py"),
+        _fi("backend/src/utils/date_format.py"),
+    ]
+    scored = score_files(
+        files,
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("fix Kundali chart compatibility flow"),
+    )
+    scores = {s[0].path: s[1] for s in scored}
+    reasons = {s[0].path: s[2] for s in scored}
+
+    assert scores["backend/src/services/astrology.service.ts"] >= 60
+    assert scores["backend/src/handlers/astrology_handler.py"] >= 60
+    assert scores["backend/src/services/astrology.service.ts"] > scores["backend/src/utils/date_format.py"]
+    assert "implementation role match" in reasons["backend/src/services/astrology.service.ts"]
+
+
+def test_cross_layer_boost_connects_page_to_matching_service():
+    files = [
+        _fi("frontend/app/charts/page.tsx", language="typescript"),
+        _fi("backend/src/services/chart.service.ts", language="typescript"),
+        _fi("backend/src/services/payment.service.ts", language="typescript"),
+    ]
+    scored = score_files(
+        files,
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("fix chart rendering"),
+    )
+    boosted = boost_cross_layer_related(scored, extract_keyword_weights("fix chart rendering"))
+    scores = {s[0].path: s[1] for s in boosted}
+    reasons = {s[0].path: s[2] for s in boosted}
+
+    assert scores["backend/src/services/chart.service.ts"] > scores["backend/src/services/payment.service.ts"]
+    assert "cross-layer related implementation" in reasons["backend/src/services/chart.service.ts"]

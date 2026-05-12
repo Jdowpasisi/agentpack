@@ -6,6 +6,25 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.22] — 2026-05-12
+
+### Added
+- `agentpack benchmark --misses` now reports expected files that were not selected, including status, rank, score, and scoring reasons.
+- Sample fixture benchmark output can be paired with `--misses` for repeatable smoke checks across bundled FastAPI, Next.js, and mixed Python/TypeScript fixtures.
+- README now documents AgentPack as an open-source library with clearer expectations, limitations, eval workflow, development commands, and contribution targets.
+
+### Changed
+- Ranking now expands Kundali/astrology/chart compatibility terms to catch product-domain files whose names differ from task text.
+- Ranking now boosts matching implementation roles such as services, controllers, schemas, handlers, repositories, and clients.
+- Full-stack tasks now get a cross-layer relatedness boost so matching backend implementation files can surface when UI pages, routes, or controllers match the same domain.
+- Default scoring config includes `implementation_role` and `cross_layer_related` weights.
+
+### Fixed
+- Low-recall benchmark runs are easier to diagnose: misses now distinguish ignored files, summary-floor exclusions, budget cuts, missing files, and low-score selections.
+- Added Kundali-style regression coverage for backend astrology services, schemas, and Python handlers so similar full-stack recall gaps are less likely to regress.
+
+---
+
 ## [0.1.21] — 2026-05-12
 
 ### Added

@@ -1,3 +1,3 @@
-"""AgentPack — token-aware context packing for AI coding agents."""
+"""AgentPack — task-aware context packing for AI coding agents."""
 
-__version__ = "0.1.21"
+__version__ = "0.1.22"
