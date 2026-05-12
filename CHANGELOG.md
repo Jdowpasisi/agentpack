@@ -8,6 +8,10 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.1.23] — 2026-05-12
+
 ### Added
 - npm wrapper package scaffold under `npm/`, publishing `@vishal2612200/agentpack` as a Node launcher for the Python `agentpack-cli`.
 - npm CI checks for launcher behavior, package contents, and version sync with the Python package.
