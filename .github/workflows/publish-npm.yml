@@ -1,0 +1,70 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  check-release-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tag is on a release branch
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          BRANCHES=$(git branch -r --contains "refs/tags/${TAG}" 2>/dev/null || true)
+          echo "Branches containing tag ${TAG}:"
+          echo "${BRANCHES}"
+          if ! echo "${BRANCHES}" | grep -qE 'origin/release/'; then
+            echo "ERROR: Tag ${TAG} must be created from a release/* branch."
+            exit 1
+          fi
+
+  check-version-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag, Python package, and npm package versions match
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT=$(python3 -c "import tomllib; d=tomllib.loads(open('pyproject.toml').read()); print(d['project']['version'])" 2>/dev/null || python3 -c "import re; m=re.search(r'version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read()); print(m.group(1))")
+          INIT=$(python3 -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/agentpack/__init__.py').read()); print(m.group(1))")
+          NPM=$(python3 -c "import json; print(json.load(open('npm/package.json'))['version'])")
+          echo "tag:              $TAG_VERSION"
+          echo "pyproject.toml:   $PYPROJECT"
+          echo "__init__.py:      $INIT"
+          echo "npm/package.json: $NPM"
+          if [ "$TAG_VERSION" != "$PYPROJECT" ] || [ "$PYPROJECT" != "$INIT" ] || [ "$PYPROJECT" != "$NPM" ]; then
+            echo "ERROR: release versions are not in sync."
+            exit 1
+          fi
+
+  publish:
+    needs: [check-release-branch, check-version-sync]
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@vishal2612200/agentpack
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Test npm wrapper
+        run: npm test
+        working-directory: npm
+      - name: Dry-run npm package contents
+        run: npm pack --dry-run
+        working-directory: npm
+      - name: Publish npm package
+        run: npm publish --access public --provenance
+        working-directory: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
