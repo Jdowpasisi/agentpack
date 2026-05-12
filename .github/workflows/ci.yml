@@ -23,3 +23,18 @@ jobs:
         run: pytest tests/ -v --cov --cov-report=term-missing -m "not slow"
       - name: Lint
         run: ruff check src/ tests/
+
+  npm-wrapper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Test npm wrapper
+        run: npm test --prefix npm
+      - name: Smoke npm package dry run
+        run: |
+          AGENTPACK_NPM_DRY_RUN=1 node npm/bin/agentpack.js --version
+          cd npm
+          npm pack --dry-run

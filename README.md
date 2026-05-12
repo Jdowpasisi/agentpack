@@ -239,6 +239,17 @@ Requires Python 3.10+.
 
 > **PyPI note:** The package is `agentpack-cli` (the name `agentpack` was already taken). The CLI command is still `agentpack`.
 
+### npm wrapper
+
+AgentPack can also be installed from npm:
+
+```bash
+npm install -g @vishal2612200/agentpack
+agentpack --version
+```
+
+The npm package is a thin Node.js wrapper around the Python CLI. It requires Node.js 18+ and Python 3.10+, then installs the matching `agentpack-cli` PyPI package into a per-version virtual environment on first run. This keeps the implementation single-source while giving JavaScript-heavy teams a familiar install path.
+
 ---
 
 ## Start Once, Then Work Normally
@@ -1527,7 +1538,10 @@ Useful checks before opening a PR:
 
 ```bash
 pytest
+python -m ruff check src tests
 python -m build
+npm test --prefix npm
+(cd npm && npm pack --dry-run)
 agentpack benchmark --sample-fixtures --misses
 ```
 
@@ -1538,6 +1552,7 @@ Good contribution areas:
 - Better symbol extraction for Go, Rust, Java, and Kotlin
 - More precise import/dependency resolution for framework-heavy repos
 - Ranking regressions with `expected_files` cases that reproduce misses
+- npm wrapper improvements that preserve the Python CLI as the source of truth
 
 Please include tests for ranking changes. A good ranking PR usually adds one focused unit test and one scenario in `tests/test_ranking_evals.py`.
 

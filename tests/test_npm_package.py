@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _pyproject_version() -> str:
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
+    assert match is not None
+    return match.group(1)
+
+
+def test_npm_package_version_matches_python_package() -> None:
+    package = json.loads((ROOT / "npm" / "package.json").read_text(encoding="utf-8"))
+    init_text = (ROOT / "src" / "agentpack" / "__init__.py").read_text(encoding="utf-8")
+    init_version = re.search(r'__version__ = "([^"]+)"', init_text)
+
+    assert init_version is not None
+    assert package["version"] == _pyproject_version()
+    assert package["version"] == init_version.group(1)
+
+
+def test_npm_launcher_pins_matching_pypi_package() -> None:
+    package = json.loads((ROOT / "npm" / "package.json").read_text(encoding="utf-8"))
+    launcher = (ROOT / "npm" / "bin" / "agentpack.js").read_text(encoding="utf-8")
+
+    assert f'const PACKAGE_VERSION = "{package["version"]}"' in launcher
+    assert "agentpack-cli==" in launcher
+    assert '"agentpack": "bin/agentpack.js"' in (ROOT / "npm" / "package.json").read_text(encoding="utf-8")

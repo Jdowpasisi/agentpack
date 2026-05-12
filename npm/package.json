@@ -1,0 +1,42 @@
+{
+  "name": "@vishal2612200/agentpack",
+  "version": "0.1.22",
+  "description": "Task-aware context packing for AI coding agents. npm wrapper for the Python AgentPack CLI.",
+  "license": "MIT",
+  "homepage": "https://github.com/vishal2612200/agentpack#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vishal2612200/agentpack.git",
+    "directory": "npm"
+  },
+  "bugs": {
+    "url": "https://github.com/vishal2612200/agentpack/issues"
+  },
+  "bin": {
+    "agentpack": "bin/agentpack.js"
+  },
+  "files": [
+    "bin/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "prepack": "node test/version-sync.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai",
+    "cli",
+    "claude",
+    "codex",
+    "context",
+    "cursor",
+    "antigravity",
+    "llm",
+    "packing",
+    "windsurf"
+  ]
+}
