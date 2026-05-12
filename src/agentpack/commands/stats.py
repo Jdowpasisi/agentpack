@@ -45,13 +45,8 @@ def register(app: typer.Typer) -> None:
                     + content.count("Included as: **symbols**")
                 )
 
-        full_files = [f for f in scan_result.packable
-                      if f.estimated_tokens <= cfg.context.max_file_tokens]
-        manual_estimate = min(after_ignore, sum(f.estimated_tokens for f in full_files[:20]))
-        vs_manual = (1 - packed / manual_estimate) * 100 if manual_estimate > 0 else 0
-
         # --- Session info ---
-        from agentpack.session.state import load_session, CONTEXT_FILE
+        from agentpack.session.state import load_session
         session = load_session(root)
 
         if session:
@@ -80,9 +75,19 @@ def register(app: typer.Typer) -> None:
                 except Exception:
                     pass
 
-        context_path_obj = root / CONTEXT_FILE
-        if context_path_obj.exists():
-            top_files = _parse_top_files(context_path_obj)
+        if meta:
+            context_path_obj = root / meta.get("context_path", "")
+            if context_path_obj.exists():
+                top_files = _parse_top_files(context_path_obj)
+
+        token_by_path = {f.path: f.estimated_tokens for f in scan_result.packable}
+        top_estimate = sum(token_by_path.get(path, 0) for path, _mode, _why in top_files[:20])
+        if top_estimate <= 0:
+            full_files = [f for f in scan_result.packable
+                          if f.estimated_tokens <= cfg.context.max_file_tokens]
+            top_estimate = sum(f.estimated_tokens for f in full_files[:20])
+        top_estimate = min(after_ignore, top_estimate)
+        vs_top_files = (1 - packed / top_estimate) * 100 if top_estimate > 0 else 0
 
         # --- Token table ---
         token_tbl = Table(title="Last Context", box=box.SIMPLE, show_header=False, padding=(0, 2))
@@ -92,7 +97,7 @@ def register(app: typer.Typer) -> None:
         token_tbl.add_row("after ignore", f"{after_ignore:,}")
         token_tbl.add_row("packed tokens", f"{packed:,}")
         token_tbl.add_row("vs raw repo", f"[green]{saving:.1f}% smaller[/]")
-        token_tbl.add_row("vs manual (~20 files)", f"[green]{vs_manual:.1f}% smaller[/]")
+        token_tbl.add_row("vs top-20 full files", f"[green]{vs_top_files:.1f}% smaller[/]")
         token_tbl.add_row("files ignored", f"{ignored_count:,}")
         token_tbl.add_row("files full", f"{included_count:,}")
         token_tbl.add_row("files summarized", f"{summarized_count:,}")
@@ -115,17 +120,34 @@ def register(app: typer.Typer) -> None:
             avg_recall = sum(r["selection_recall"] for r in accuracy_rows) / len(accuracy_rows)
             avg_precision = sum(r["selection_precision"] for r in accuracy_rows) / len(accuracy_rows)
             avg_f1 = sum(r["selection_f1"] for r in accuracy_rows) / len(accuracy_rows)
+            token_rows = [r for r in accuracy_rows if "selection_token_precision" in r]
+            avg_token_precision = (
+                sum(r["selection_token_precision"] for r in token_rows) / len(token_rows)
+                if token_rows else None
+            )
+            mode_token_precision: dict[str, float] = {}
+            for mode in ("full", "symbols", "summary"):
+                key = f"selection_token_precision_{mode}"
+                rows = [r for r in accuracy_rows if key in r]
+                if rows:
+                    mode_token_precision[mode] = sum(r[key] for r in rows) / len(rows)
             console.print()
             acc_tbl = Table(title=f"Selection Accuracy (last {len(accuracy_rows)} runs)", box=box.SIMPLE, show_header=False, padding=(0, 2))
             acc_tbl.add_column(style="dim")
             acc_tbl.add_column(justify="right", style="bold")
             acc_tbl.add_row("avg recall", f"{avg_recall:.1%}")
             acc_tbl.add_row("avg precision", f"{avg_precision:.1%}")
+            if avg_token_precision is not None:
+                acc_tbl.add_row("avg token precision", f"{avg_token_precision:.1%}")
+                for mode, value in mode_token_precision.items():
+                    acc_tbl.add_row(f"{mode} token precision", f"{value:.1%}")
             acc_tbl.add_row("avg F1", f"{avg_f1:.1%}")
             console.print(acc_tbl)
             console.print("[dim]recall = how many changed files were in the previous pack[/]")
+            if avg_token_precision is not None:
+                console.print("[dim]token precision = share of previous pack tokens spent on files later changed[/]")
 
-        console.print("[dim]'manual' = hand-picking 20 most relevant full files[/]")
+        console.print("[dim]'top-20 full files' = raw full contents for top included files, capped at 20[/]")
 
 
 def _load_accuracy_rows(metrics_path: Path, n: int = 10) -> list[dict]:

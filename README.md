@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.20).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.21).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -33,8 +33,9 @@ AgentPack solves this with a one-time offline analysis pass:
 
 1. **Scans your repo once** — builds a summary cache of every file (signatures, imports, responsibilities). No API calls. Takes a few seconds.
 2. **On each task** — uses git diff + import graph traversal + keyword scoring to rank every file by relevance to what you're working on.
-3. **Packs a tight context document** — changed files get full content, dependencies get summaries, everything else gets dropped. Typically 8k–20k tokens for a 200-file repo.
-4. **Stays current** — auto-repacks silently on commit, so next session starts fresh.
+3. **Packs a tight context document** — changed files get full content, large changed files get relevant symbol bodies, dependencies get summaries, everything else gets dropped. Typically 8k–20k tokens for a 200-file repo.
+4. **Explains pack quality** — noisy-pack diagnostics, score receipts, and token-precision metrics show when the pack is broad and where token noise lives.
+5. **Stays current** — auto-repacks silently on commit, so next session starts fresh.
 
 The result: your agent starts every session with a focused, accurate picture of the relevant code — without you doing anything after opt-in.
 
@@ -507,6 +508,7 @@ Some checks failed. Run the suggested commands above to fix.
 The new checks in `doctor`:
 - **Local vs global hooks**: warns when Claude hooks are only in the per-project `.claude/settings.json` — context won't auto-inject in other repos
 - **Slash command presence**: checks both local (`.claude/commands/`) and global (`~/.claude/commands/`) installations
+- **Source checkout mismatch**: warns when you're inside an AgentPack source checkout but the `agentpack` executable imports the installed site-packages copy. Use `PYTHONPATH=src python -m agentpack.cli ...` or `pip install -e .` for local development.
 
 ---
 
@@ -593,9 +595,11 @@ Options:
 
 | Mode | What's included |
 |------|----------------|
-| `minimal` | Changed files + direct configs only |
-| `balanced` | Changed files + deps + reverse deps + tests + summaries |
-| `deep` | Everything in balanced + docs + more full-content files |
+| `minimal` | Changed files + direct configs, with a small summary cap |
+| `balanced` | Changed files + deps + reverse deps + tests + capped summaries |
+| `deep` | Everything in balanced + docs + more full-content files, uncapped summaries |
+
+`pack` also prints diagnostics when the pack looks noisy: very short task text, no changed files, mostly filename matches, mostly summaries, many symbol matches, weak summaries excluded by the score floor, or summaries excluded by the mode cap.
 
 ---
 
@@ -793,7 +797,9 @@ Show session state, token statistics, and selection accuracy for the last pack.
 agentpack stats
 ```
 
-When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files by score and avg recall/precision/F1 over the last 10 runs.
+When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files from the latest pack and avg recall/precision/F1 over the last 10 runs.
+
+Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." `stats` also breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible.
 
 ---
 
@@ -878,7 +884,7 @@ agentpack monitor --clear
 | Large unrelated file | −50 |
 | Ignored/binary | −100 |
 
-Keyword scoring uses concept synonym expansion — "rate limiting" in the task expands to `throttle`, `leaky`, `bucket`, `quota` etc., so `leaky_bucket.py` ranks correctly even if the file name doesn't literally contain "rate".
+Keyword scoring uses weighted concept synonym expansion — literal task terms are strongest, normalized variants are slightly weaker, and broad concept synonyms are weaker again. "rate limiting" still expands to `throttle`, `leaky`, `bucket`, `quota`, but broad expansions no longer dominate literal task terms. Matching is token-based, so `task` does not accidentally match every `tasks.py`.
 
 ---
 
@@ -895,6 +901,10 @@ ignore_file = ".agentignore"
 default_budget = 25000
 default_mode = "balanced"
 max_file_tokens = 4000
+min_summary_score = 60
+max_summary_files_minimal = 15
+max_summary_files_balanced = 40
+max_summary_files_deep = 0
 include_tests = true
 include_configs = true
 include_receipts = true

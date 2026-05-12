@@ -22,6 +22,10 @@ class ContextConfig(BaseModel):
     default_budget: int = 25000
     default_mode: str = "balanced"
     max_file_tokens: int = 4000
+    min_summary_score: float = 60
+    max_summary_files_minimal: int = 15
+    max_summary_files_balanced: int = 40
+    max_summary_files_deep: int = 0
     include_tests: bool = True
     include_configs: bool = True
     include_receipts: bool = True
@@ -91,6 +95,10 @@ exclude_globs = []
 default_budget = 25000   # token budget per pack
 default_mode = "balanced"  # minimal | balanced | deep
 max_file_tokens = 4000   # files larger than this are summarised, not inlined
+min_summary_score = 60   # unchanged summary files below this score are excluded
+max_summary_files_minimal = 15   # 0 = no cap
+max_summary_files_balanced = 40  # 0 = no cap
+max_summary_files_deep = 0       # deep mode stays uncapped
 include_tests = true
 include_configs = true
 include_receipts = true

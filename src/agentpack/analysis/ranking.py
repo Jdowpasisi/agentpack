@@ -181,29 +181,38 @@ CONFIG_NAMES = {
 _DEFAULT_WEIGHTS = ScoringWeights()
 
 
-def extract_keywords(task: str) -> set[str]:
+def _add_keyword_weight(weights: dict[str, float], keyword: str, weight: float) -> None:
+    weights[keyword] = max(weights.get(keyword, 0.0), weight)
+
+
+def extract_keyword_weights(task: str) -> dict[str, float]:
     words = re.split(r"[^a-zA-Z0-9]+", task.lower())
-    keywords: set[str] = set()
+    keyword_weights: dict[str, float] = {}
     for word in words:
         if len(word) < 3:
             continue
         if word in _STOPWORDS:
             continue
-        keywords.add(word)
+        _add_keyword_weight(keyword_weights, word, 1.0)
         if word in _VARIANTS:
-            keywords.add(_VARIANTS[word])
+            _add_keyword_weight(keyword_weights, _VARIANTS[word], 0.75)
 
-    # expand via concept map (one level only — no recursion to avoid explosion)
-    expanded: set[str] = set()
-    for kw in keywords:
+    # Expand via concept map one level only. Expanded concepts are weaker than
+    # literal task words so broad terms like "task" do not dominate ranking.
+    expanded: dict[str, float] = {}
+    for kw in keyword_weights:
         if kw in _CONCEPT_MAP:
             for synonym in _CONCEPT_MAP[kw]:
-                expanded.add(synonym)
-                # also apply _VARIANTS to expanded terms
+                _add_keyword_weight(expanded, synonym, 0.35)
                 if synonym in _VARIANTS:
-                    expanded.add(_VARIANTS[synonym])
-    keywords.update(expanded)
-    return keywords
+                    _add_keyword_weight(expanded, _VARIANTS[synonym], 0.35)
+    for kw, weight in expanded.items():
+        _add_keyword_weight(keyword_weights, kw, weight)
+    return keyword_weights
+
+
+def extract_keywords(task: str) -> set[str]:
+    return set(extract_keyword_weights(task))
 
 
 def enrich_keywords_from_files(
@@ -255,21 +264,62 @@ def enrich_keywords_from_files(
     return keywords | set(top)
 
 
-def _path_matches_keywords(path: str, keywords: set[str]) -> bool:
-    path_lower = path.lower()
-    return any(kw in path_lower for kw in keywords)
+def enrich_keyword_weights_from_files(
+    keyword_weights: dict[str, float],
+    changed_paths: set[str],
+    files: list[FileInfo],
+    max_new_keywords: int = 20,
+) -> dict[str, float]:
+    enriched = dict(keyword_weights)
+    enriched_keywords = enrich_keywords_from_files(set(keyword_weights), changed_paths, files, max_new_keywords)
+    for keyword in enriched_keywords - set(keyword_weights):
+        enriched[keyword] = 0.5
+    return enriched
 
 
-def _content_matches_keywords(text: str, keywords: set[str]) -> int:
-    text_lower = text.lower()
-    return sum(1 for kw in keywords if kw in text_lower)
+def _tokens_for_match(text: str) -> set[str]:
+    """Return identifier-ish tokens for exact keyword matching."""
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    raw_tokens = re.split(r"[^a-zA-Z0-9]+", spaced.lower())
+    return {tok for tok in raw_tokens if tok}
 
 
-def _symbol_matches_keywords(symbols: list[str], keywords: set[str]) -> bool:
+def _keyword_token_weights(keywords: set[str] | dict[str, float]) -> dict[str, float]:
+    if isinstance(keywords, dict):
+        items = keywords.items()
+    else:
+        items = ((keyword, 1.0) for keyword in keywords)
+
+    token_weights: dict[str, float] = {}
+    for keyword, weight in items:
+        for token in _tokens_for_match(keyword):
+            if len(token) >= 3:
+                token_weights[token] = max(token_weights.get(token, 0.0), weight)
+    return token_weights
+
+
+def _match_weight(text: str, keywords: set[str] | dict[str, float]) -> float:
+    token_weights = _keyword_token_weights(keywords)
+    matches = _tokens_for_match(text) & set(token_weights)
+    return max((token_weights[token] for token in matches), default=0.0)
+
+
+def _path_matches_keywords(path: str, keywords: set[str] | dict[str, float]) -> float:
+    return _match_weight(path, keywords)
+
+
+def _content_matches_keywords(text: str, keywords: set[str] | dict[str, float]) -> tuple[int, float]:
+    token_weights = _keyword_token_weights(keywords)
+    text_tokens = _tokens_for_match(text)
+    matches = text_tokens & set(token_weights)
+    return len(matches), sum(token_weights[token] for token in matches)
+
+
+def _symbol_matches_keywords(symbols: list[str], keywords: set[str] | dict[str, float]) -> float:
+    best_weight = 0.0
     for sym in symbols:
-        if any(kw in sym.lower() for kw in keywords):
-            return True
-    return False
+        best_weight = max(best_weight, _match_weight(sym, keywords))
+    return best_weight
 
 
 def score_files(
@@ -278,7 +328,7 @@ def score_files(
     staged_paths: set[str],
     recently_modified: list[str],
     dep_graph: "DependencyGraph | dict",
-    keywords: set[str],
+    keywords: set[str] | dict[str, float],
     include_tests: bool = True,
     include_configs: bool = True,
     weights: ScoringWeights | None = None,
@@ -315,8 +365,9 @@ def score_files(
             score += w.staged
             reasons.append("staged")
 
-        if _path_matches_keywords(fi.path, keywords):
-            score += w.filename_keyword
+        filename_weight = _path_matches_keywords(fi.path, keywords)
+        if filename_weight > 0:
+            score += w.filename_keyword * filename_weight
             reasons.append("filename keyword match")
 
         node = dep_graph.get(fi.path)
@@ -327,27 +378,28 @@ def score_files(
                 (s["name"] if isinstance(s, dict) else s.name)
                 for s in raw_syms
             ]
-        if _symbol_matches_keywords(sym_names, keywords):
-            score += w.symbol_keyword
+        symbol_weight = _symbol_matches_keywords(sym_names, keywords)
+        if symbol_weight > 0:
+            score += w.symbol_keyword * symbol_weight
             reasons.append("symbol keyword match")
 
         if fi.content is not None:
-            hits = _content_matches_keywords(fi.content, keywords)
+            hits, hit_weight = _content_matches_keywords(fi.content, keywords)
             if hits > 0:
-                score += min(w.content_keyword_max, hits * w.content_keyword_per_hit)
+                score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                 reasons.append(f"content keyword match ({hits})")
         elif fi.abs_path.exists():
             try:
                 text = fi.abs_path.read_text(errors="replace")
-                hits = _content_matches_keywords(text, keywords)
+                hits, hit_weight = _content_matches_keywords(text, keywords)
                 if hits > 0:
-                    score += min(w.content_keyword_max, hits * w.content_keyword_per_hit)
+                    score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                     reasons.append(f"content keyword match ({hits})")
             except OSError:
                 pass
 
         for dep_path in node.imports:
-            if dep_path in changed_paths or _path_matches_keywords(dep_path, keywords):
+            if dep_path in changed_paths or _path_matches_keywords(dep_path, keywords) > 0:
                 score += w.direct_dep
                 reasons.append("direct dependency of changed file")
                 break
