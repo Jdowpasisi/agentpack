@@ -120,6 +120,12 @@ _CONCEPT_MAP: dict[str, frozenset[str]] = {
 
     # health check / liveness
     "health": frozenset({"ping", "liveness", "readiness", "probe", "heartbeat", "status", "check"}),
+
+    # astrology / charting product domains
+    "kundali": frozenset({"astrology", "horoscope", "chart", "birth", "natal", "compatibility", "matching"}),
+    "astrology": frozenset({"kundali", "horoscope", "chart", "birth", "natal", "compatibility"}),
+    "horoscope": frozenset({"astrology", "kundali", "chart", "natal"}),
+    "compatibility": frozenset({"matching", "match", "compare", "score", "relationship"}),
 }
 
 _VARIANTS: dict[str, str] = {
@@ -179,6 +185,26 @@ CONFIG_NAMES = {
 }
 
 _DEFAULT_WEIGHTS = ScoringWeights()
+
+_IMPLEMENTATION_ROLE_TOKENS = {
+    "api", "apis", "route", "routes", "router", "endpoint", "endpoints",
+    "controller", "controllers", "service", "services", "handler", "handlers",
+    "resolver", "resolvers", "schema", "schemas", "model", "models",
+    "repository", "repositories", "repo", "repos", "client", "clients",
+    "adapter", "adapters", "provider", "providers",
+}
+
+_ENTRYPOINT_ROLE_TOKENS = {
+    "page", "pages", "screen", "screens", "view", "views", "component",
+    "components", "api", "route", "routes", "router", "controller",
+    "controllers", "endpoint", "endpoints",
+}
+
+_PATH_NOISE_TOKENS = {
+    "src", "app", "apps", "lib", "libs", "pkg", "packages", "backend",
+    "frontend", "server", "client", "web", "mobile", "index", "main",
+    "test", "tests", "spec", "specs",
+} | _IMPLEMENTATION_ROLE_TOKENS | _ENTRYPOINT_ROLE_TOKENS
 
 
 def _add_keyword_weight(weights: dict[str, float], keyword: str, weight: float) -> None:
@@ -284,6 +310,15 @@ def _tokens_for_match(text: str) -> set[str]:
     return {tok for tok in raw_tokens if tok}
 
 
+def _path_tokens(path: str) -> set[str]:
+    p = Path(path)
+    pieces = list(p.parts[:-1]) + [p.stem]
+    tokens: set[str] = set()
+    for piece in pieces:
+        tokens |= _tokens_for_match(piece)
+    return tokens
+
+
 def _keyword_token_weights(keywords: set[str] | dict[str, float]) -> dict[str, float]:
     if isinstance(keywords, dict):
         items = keywords.items()
@@ -320,6 +355,14 @@ def _symbol_matches_keywords(symbols: list[str], keywords: set[str] | dict[str, 
     for sym in symbols:
         best_weight = max(best_weight, _match_weight(sym, keywords))
     return best_weight
+
+
+def _has_role(path: str, roles: set[str]) -> bool:
+    return bool(_path_tokens(path) & roles)
+
+
+def _domain_tokens(path: str) -> set[str]:
+    return {tok for tok in _path_tokens(path) if len(tok) >= 3 and tok not in _PATH_NOISE_TOKENS}
 
 
 def score_files(
@@ -383,8 +426,10 @@ def score_files(
             score += w.symbol_keyword * symbol_weight
             reasons.append("symbol keyword match")
 
+        content_hits = 0
         if fi.content is not None:
             hits, hit_weight = _content_matches_keywords(fi.content, keywords)
+            content_hits = hits
             if hits > 0:
                 score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                 reasons.append(f"content keyword match ({hits})")
@@ -392,11 +437,17 @@ def score_files(
             try:
                 text = fi.abs_path.read_text(errors="replace")
                 hits, hit_weight = _content_matches_keywords(text, keywords)
+                content_hits = hits
                 if hits > 0:
                     score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                     reasons.append(f"content keyword match ({hits})")
             except OSError:
                 pass
+
+        matched_task_signal = filename_weight > 0 or symbol_weight > 0 or content_hits > 0
+        if matched_task_signal and _has_role(fi.path, _IMPLEMENTATION_ROLE_TOKENS):
+            score += w.implementation_role
+            reasons.append("implementation role match")
 
         for dep_path in node.imports:
             if dep_path in changed_paths or _path_matches_keywords(dep_path, keywords) > 0:
@@ -448,6 +499,44 @@ def score_files(
         results.append((fi, score, reasons))
 
     return results
+
+
+def boost_cross_layer_related(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    keywords: set[str] | dict[str, float],
+    weights: ScoringWeights | None = None,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Boost service/controller/schema/handler files near high-scoring entrypoints.
+
+    Full-stack tasks often start from a UI page or route, but the actual fix is
+    in a backend service or handler. This boost connects files with shared
+    domain tokens while requiring either a task keyword or a high-scoring
+    entrypoint seed, so generic services do not all float upward.
+    """
+    w = weights or _DEFAULT_WEIGHTS
+    positive_scores = [score for fi, score, _ in scored if score > 0 and not fi.ignored and not fi.binary]
+    if not positive_scores:
+        return scored
+    threshold = sorted(positive_scores, reverse=True)[max(0, min(4, len(positive_scores) - 1))]
+
+    keyword_tokens = set(_keyword_token_weights(keywords))
+    seed_domains: set[str] = set()
+    for fi, score, _reasons in scored:
+        if score >= threshold and _has_role(fi.path, _ENTRYPOINT_ROLE_TOKENS):
+            seed_domains |= _domain_tokens(fi.path)
+
+    related_terms = (keyword_tokens | seed_domains) - _PATH_NOISE_TOKENS
+    if not related_terms:
+        return scored
+
+    result: list[tuple[FileInfo, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        if not fi.ignored and not fi.binary and _has_role(fi.path, _IMPLEMENTATION_ROLE_TOKENS):
+            if _domain_tokens(fi.path) & related_terms and "cross-layer related implementation" not in reasons:
+                score += w.cross_layer_related
+                reasons = reasons + ["cross-layer related implementation"]
+        result.append((fi, score, reasons))
+    return result
 
 
 def boost_paired_tests(

@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+from agentpack.core.models import Receipt
 from agentpack.commands.benchmark import (
     BenchmarkCase,
     CaseResult,
@@ -34,6 +35,7 @@ def _make_result(
     rank_at_k: int | None = None,
     noise_pct: float | None = None,
     random_f1: float | None = None,
+    missed_expected: list[dict] | None = None,
 ) -> CaseResult:
     return CaseResult(
         case=BenchmarkCase(task="t", expected_files=expected),
@@ -53,6 +55,7 @@ def _make_result(
         random_precision=None,
         random_recall=None,
         random_f1=random_f1,
+        missed_expected=missed_expected or [],
     )
 
 
@@ -282,6 +285,7 @@ def _make_mock_plan(files: int = 10, tokens: int = 5000):
     plan.all_changed = {"src/foo.py"}
     plan.phase_times = {"scan": 0.1, "rank": 0.05}
     plan.scored = [(scored_fi, 1.0, ["keyword_match"])]
+    plan.receipts = []
     return plan
 
 
@@ -316,6 +320,34 @@ def test_run_case_with_expected_files_sets_quality_fields(tmp_path: Path) -> Non
     assert result.rank_at_k == 1
     assert result.noise_pct is not None
     assert result.random_f1 is not None
+
+
+def test_run_case_records_miss_diagnostics(tmp_path: Path) -> None:
+    case = BenchmarkCase(task="fix bug", mode="balanced", expected_files=["src/foo.py", "src/missing.py"])
+    mock_plan = _make_mock_plan()
+    mock_plan.receipts = [Receipt(path="src/missing.py", action="excluded", reason="budget exhausted")]
+
+    missing_fi = MagicMock()
+    missing_fi.path = "src/missing.py"
+    missing_fi.estimated_tokens = 200
+    missing_fi.ignored = False
+    missing_fi.binary = False
+    mock_plan.scan_result.packable = mock_plan.scan_result.packable + [missing_fi]
+    mock_plan.scan_result.all_files = mock_plan.scan_result.all_files + [missing_fi]
+    mock_plan.scored = mock_plan.scored + [(missing_fi, 42.0, ["filename keyword match"])]
+
+    with patch("agentpack.application.pack_service.PackPlanner") as MockPlanner, \
+         patch("agentpack.application.pack_service._sf_tokens", return_value=50):
+        MockPlanner.return_value.plan.return_value = mock_plan
+        result = _run_case(tmp_path, case)
+
+    assert result.missed_expected == [{
+        "path": "src/missing.py",
+        "status": "budget exhausted",
+        "rank": 2,
+        "score": 42.0,
+        "reasons": ["filename keyword match"],
+    }]
 
 
 def test_benchmark_cli_single_task(tmp_path: Path) -> None:
@@ -423,3 +455,38 @@ def test_benchmark_result_persisted_after_run(tmp_path: Path) -> None:
     assert record["task"] == "fix auth bug"
     assert "saving_pct_honest" in record
     assert "after_ignore_tokens" in record
+    assert "misses" in record
+
+
+def test_benchmark_cli_misses_prints_diagnostics(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+    from agentpack.cli import app
+    import os
+    os.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "benchmark.toml").write_text(
+        '[[cases]]\n'
+        'task = "fix kundali"\n'
+        'expected_files = ["backend/src/services/astrology.service.ts"]\n',
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    mocked = _make_result(
+        selected=["frontend/app/charts/page.tsx"],
+        expected=["backend/src/services/astrology.service.ts"],
+        missed_expected=[{
+            "path": "backend/src/services/astrology.service.ts",
+            "status": "summary score below floor",
+            "rank": 18,
+            "score": 54.0,
+            "reasons": ["filename keyword match"],
+        }],
+    )
+
+    with patch("agentpack.commands.benchmark._run_case", return_value=mocked):
+        result = runner.invoke(app, ["benchmark", "--misses"])
+
+    assert result.exit_code == 0
+    assert "miss details" in result.output
+    assert "astrology.service.ts" in result.output

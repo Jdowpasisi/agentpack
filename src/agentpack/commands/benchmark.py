@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.table import Table
@@ -43,6 +44,7 @@ class CaseResult:
     random_precision: float | None = None
     random_recall: float | None = None
     random_f1: float | None = None
+    missed_expected: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -240,6 +242,12 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
     if case.expected_files:
         expected_set = set(case.expected_files)
         scored_paths = [fi.path for fi, _score, _reasons in plan.scored]
+        scored_map = {
+            fi.path: {"rank": rank, "score": score, "reasons": reasons}
+            for rank, (fi, score, reasons) in enumerate(plan.scored, 1)
+        }
+        all_file_map = {fi.path: fi for fi in plan.scan_result.all_files}
+        receipt_map = {receipt.path: receipt.reason for receipt in plan.receipts}
         found: set[str] = set()
         for k, path in enumerate(scored_paths, 1):
             if path in expected_set:
@@ -255,6 +263,28 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         packable_token_map = {f.path: f.estimated_tokens for f in plan.scan_result.packable}
         budget = cfg.context.default_budget
         _, rand_p, rand_r, rand_f1 = _random_baseline(packable_paths, packable_token_map, case.expected_files, budget)
+
+        missed_expected = []
+        for expected_path in sorted(expected_set - selected_set):
+            fi = all_file_map.get(expected_path)
+            scored_info = scored_map.get(expected_path)
+            if fi is None:
+                status = "not found in scanned files"
+            elif fi.ignored or fi.binary:
+                status = "ignored or binary"
+            elif expected_path in receipt_map:
+                status = receipt_map[expected_path]
+            else:
+                status = "ranked but not selected" if scored_info else "not scored"
+            missed_expected.append({
+                "path": expected_path,
+                "status": status,
+                "rank": scored_info["rank"] if scored_info else None,
+                "score": round(scored_info["score"], 1) if scored_info else None,
+                "reasons": scored_info["reasons"][:4] if scored_info else [],
+            })
+    else:
+        missed_expected = []
 
     return CaseResult(
         case=case,
@@ -274,6 +304,7 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         random_precision=rand_p,
         random_recall=rand_r,
         random_f1=rand_f1,
+        missed_expected=missed_expected,
     )
 
 
@@ -312,6 +343,7 @@ def _persist_result(root: Path, result: CaseResult) -> None:
         "rank_at_k": result.rank_at_k,
         "noise_pct": round(result.noise_pct, 1) if result.noise_pct is not None else None,
         "random_f1": round(result.random_f1, 3) if result.random_f1 is not None else None,
+        "misses": result.missed_expected,
     }
     try:
         with out.open("a") as fh:
@@ -320,7 +352,7 @@ def _persist_result(root: Path, result: CaseResult) -> None:
         pass
 
 
-def _print_case_detail(result: CaseResult) -> None:
+def _print_case_detail(result: CaseResult, show_misses: bool = False) -> None:
     has_gt = bool(result.case.expected_files)
     p, r, f1 = _precision_recall(result) if has_gt else (0.0, 0.0, 0.0)
 
@@ -376,6 +408,16 @@ def _print_case_detail(result: CaseResult) -> None:
             console.print("  [green]hit:[/]  " + ", ".join(sorted(hits)))
         if misses:
             console.print("  [red]miss:[/] " + ", ".join(sorted(misses)))
+        if show_misses and result.missed_expected:
+            console.print("  [yellow]miss details:[/]")
+            for miss in result.missed_expected:
+                rank = miss["rank"] if miss["rank"] is not None else "-"
+                score = miss["score"] if miss["score"] is not None else "-"
+                reasons = ", ".join(miss["reasons"]) if miss["reasons"] else "no scoring reasons"
+                console.print(
+                    f"    {miss['path']}  status={miss['status']}  "
+                    f"rank={rank}  score={score}  why={reasons}"
+                )
 
     console.print("  [dim]top files:[/] " + ", ".join(result.selected_paths[:5]))
 
@@ -422,6 +464,33 @@ def _print_summary_table(results: list[CaseResult]) -> None:
         tbl.add_row(*row)
 
     console.print()
+    console.print(tbl)
+
+
+def _print_miss_details(results: list[CaseResult]) -> None:
+    rows = [miss | {"task": result.case.task[:30]} for result in results for miss in result.missed_expected]
+    if not rows:
+        return
+
+    tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+    tbl.add_column("task", max_width=30)
+    tbl.add_column("missed file", max_width=42)
+    tbl.add_column("status", max_width=24)
+    tbl.add_column("rank", justify="right")
+    tbl.add_column("score", justify="right")
+    tbl.add_column("why", max_width=40)
+
+    for row in rows:
+        tbl.add_row(
+            row["task"],
+            row["path"],
+            row["status"],
+            str(row["rank"]) if row["rank"] is not None else "-",
+            str(row["score"]) if row["score"] is not None else "-",
+            ", ".join(row["reasons"]) if row["reasons"] else "-",
+        )
+
+    console.print("\n[bold]Miss Details[/]")
     console.print(tbl)
 
 
@@ -492,6 +561,7 @@ def register(app: typer.Typer) -> None:
         init: bool = typer.Option(False, "--init", is_flag=True, help="Scaffold a benchmark.toml and exit."),
         from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
         sample_fixtures: bool = typer.Option(False, "--sample-fixtures", is_flag=True, help="Run bundled FastAPI/Next.js/mixed-repo fixture evals from a source checkout."),
+        misses: bool = typer.Option(False, "--misses", is_flag=True, help="Show diagnostics for expected files that were not selected."),
     ) -> None:
         """Benchmark file selection quality and token efficiency across tasks."""
         root = _root()
@@ -551,10 +621,12 @@ def register(app: typer.Typer) -> None:
             fixture_names = ", ".join(sorted({fixture_case.fixture for fixture_case in fixture_cases}))
             console.print(f"[dim]Fixtures:[/] {fixture_names}")
             if len(results) == 1:
-                _print_case_detail(results[0])
+                _print_case_detail(results[0], show_misses=misses)
             else:
                 console.print("\n[bold]Summary[/]")
                 _print_fixture_summary_table(results)
+                if misses:
+                    _print_miss_details(results)
             return
 
         # Build case list
@@ -604,11 +676,15 @@ def register(app: typer.Typer) -> None:
         # Output
         if compare and len(set(r.case.task for r in results)) == 1:
             _print_compare_table(results[0].case.task, results)
+            if misses:
+                _print_miss_details(results)
         elif len(results) == 1:
-            _print_case_detail(results[0])
+            _print_case_detail(results[0], show_misses=misses)
         else:
             if not compare:
                 for r in results:
-                    _print_case_detail(r)
+                    _print_case_detail(r, show_misses=misses)
             console.print("\n[bold]Summary[/]")
             _print_summary_table(results)
+            if misses:
+                _print_miss_details(results)

@@ -1,7 +1,7 @@
 [project]
 name = "agentpack-cli"
-version = "0.1.21"
-description = "Token-aware context packing for AI coding agents — Claude, Cursor, Windsurf, and Codex"
+version = "0.1.22"
+description = "Task-aware context packing for AI coding agents — Claude, Cursor, Windsurf, Codex, and Antigravity"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentpack.analysis.ranking import extract_keywords, score_files
+from agentpack.analysis.ranking import boost_cross_layer_related, extract_keywords, score_files
 from agentpack.core.models import FileInfo
 
 
@@ -50,6 +50,7 @@ def _run(
         dep_graph={},
         keywords=keywords,
     )
+    scored = boost_cross_layer_related(scored, keywords)
     scored.sort(key=lambda x: -x[1])
     return [(s[0].path, s[1]) for s in scored]
 
@@ -571,3 +572,42 @@ class TestNewConceptExpansions:
     def test_mock_expands(self):
         kw = extract_keywords("mock the database in tests")
         assert "mock" in kw or "stub" in kw or "fixture" in kw
+
+
+# ---------------------------------------------------------------------------
+# Real feedback scenario: Kundali full-stack astrology flow
+# Task text uses product/domain language; implementation lives in service and
+# handler files that may not be directly imported by the selected UI page.
+# ---------------------------------------------------------------------------
+
+class TestKundaliFullStackScenario:
+    FILES = [
+        "frontend/app/charts/page.tsx",
+        "frontend/app/compatibility/page.tsx",
+        "backend/src/controllers/app.controller.ts",
+        "backend/src/services/astrology.service.ts",
+        "backend/src/schemas/kundali.schema.ts",
+        "python/handlers/astrology_handler.py",
+        "backend/src/services/payment.service.ts",
+        "frontend/components/Button.tsx",
+    ]
+
+    def test_backend_astrology_service_in_top4(self):
+        results = _run("fix Kundali chart compatibility calculation", self.FILES)
+        top = _top_paths(results, 4)
+        assert "backend/src/services/astrology.service.ts" in top, (
+            f"astrology.service.ts should be in top-4. Top-4: {top}\n"
+            f"Full ranking: {results}"
+        )
+
+    def test_python_astrology_handler_in_top6(self):
+        results = _run("fix Kundali chart compatibility calculation", self.FILES)
+        top = _top_paths(results, 6)
+        assert "python/handlers/astrology_handler.py" in top, (
+            f"astrology_handler.py should be in top-6. Top-6: {top}\n"
+            f"Full ranking: {results}"
+        )
+
+    def test_payment_service_not_above_astrology_service(self):
+        results = _run("fix Kundali chart compatibility calculation", self.FILES)
+        _assert_ranks_above(results, "backend/src/services/astrology.service.ts", "backend/src/services/payment.service.ts")
