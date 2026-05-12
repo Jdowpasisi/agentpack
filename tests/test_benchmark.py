@@ -10,6 +10,7 @@ from agentpack.commands.benchmark import (
     BenchmarkCase,
     CaseResult,
     _precision_recall,
+    _sample_fixture_cases,
     _load_cases,
     _scaffold_cases,
     _run_case,
@@ -369,6 +370,36 @@ def test_benchmark_cli_from_history(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "fix auth" in result.output
+
+
+def test_sample_fixture_cases_include_framework_repos() -> None:
+    fixtures_root = Path(__file__).parent / "fixtures"
+    fixture_cases = _sample_fixture_cases(fixtures_root)
+
+    fixture_names = {c.fixture for c in fixture_cases}
+    assert {"py_fastapi_app", "nextjs_app", "mixed_repo"} <= fixture_names
+    assert all(c.root.exists() for c in fixture_cases)
+    assert all(c.case.expected_files for c in fixture_cases)
+
+
+def test_benchmark_cli_sample_fixtures_uses_temp_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    from typer.testing import CliRunner
+    from agentpack.cli import app
+
+    source_root = Path(__file__).resolve().parents[1]
+    monkeypatch.chdir(source_root)
+
+    runner = CliRunner()
+    fixture_agentpack = source_root / "tests" / "fixtures" / "py_fastapi_app" / ".agentpack"
+
+    with patch("agentpack.commands.benchmark._run_case") as run_case:
+        run_case.side_effect = lambda _root, _case: _make_result(["src/app/auth.py"], ["src/app/auth.py"])
+        result = runner.invoke(app, ["benchmark", "--sample-fixtures"])
+
+    assert result.exit_code == 0
+    assert "sample fixture benchmark" in result.output
+    assert "py_fastapi_app" in result.output
+    assert not fixture_agentpack.exists()
 
 
 def test_benchmark_result_persisted_after_run(tmp_path: Path) -> None:

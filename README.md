@@ -42,6 +42,9 @@ The result: your agent starts every session with a focused, accurate picture of 
 ```bash
 pip install agentpack-cli
 
+# Show the fastest path for your repo
+agentpack quickstart --task "fix auth token expiry"
+
 # One-time setup per project
 cd your-project
 agentpack init             # creates config, session, task.md — nothing else needed
@@ -182,6 +185,14 @@ Requires Python 3.10+.
 ---
 
 ## Start Once, Then Work Normally
+
+For a guided two-minute path in any repo:
+
+```bash
+agentpack quickstart --task "fix auth token expiry"
+```
+
+It shows the exact commands to initialize, set task text, generate a first pack, inspect stats, start watch mode, and scaffold a small benchmark file for your own tasks.
 
 The full workflow:
 
@@ -603,6 +614,20 @@ Options:
 
 ---
 
+### `agentpack quickstart`
+
+Show the shortest useful path for the current repo.
+
+```bash
+agentpack quickstart
+agentpack quickstart --task "fix auth token expiry"
+agentpack quickstart --task "fix auth token expiry" --write
+```
+
+`quickstart` does not guess at magic. It checks whether `.agentpack/config.toml`, `.agentpack/task.md`, and context packs exist, then prints the next few commands. With `--write`, it writes the supplied task into `.agentpack/task.md`.
+
+---
+
 ### `agentpack session` _(removed)_
 
 Session management was removed in v0.1.12. `agentpack init` bootstraps the session automatically. Use `agentpack watch` to keep context current. To change the task, edit `.agentpack/task.md`.
@@ -723,6 +748,7 @@ agentpack benchmark --task "fix auth token expiry"         # single task
 agentpack benchmark --task "fix auth bug" --compare        # compare minimal/balanced/deep
 agentpack benchmark --init                                 # scaffold .agentpack/benchmark.toml
 agentpack benchmark                                        # run all cases in benchmark.toml
+agentpack benchmark --sample-fixtures                      # source checkout demo evals
 ```
 
 Output per case:
@@ -800,6 +826,20 @@ agentpack stats
 When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files from the latest pack and avg recall/precision/F1 over the last 10 runs.
 
 Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." `stats` also breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible.
+
+To build a real usefulness signal for your repo:
+
+```bash
+agentpack benchmark --sample-fixtures
+
+agentpack benchmark --init
+# edit .agentpack/benchmark.toml with real tasks + files you actually changed
+agentpack benchmark --compare
+```
+
+`--sample-fixtures` runs bundled FastAPI, Next.js, and mixed Python/TypeScript fixture evals from an AgentPack source checkout. It is a smoke test, not a claim about your repo.
+
+For an 8+ usefulness signal, use `benchmark.toml` with real third-party or customer-style repos: 5-20 historical tasks, the files actually changed for each task, and `--compare` results for recall, F1, rank@K, and token noise. That is better than trusting generic benchmarks because it tells you whether AgentPack selects the files that matter in code the package has never seen.
 
 ---
 
