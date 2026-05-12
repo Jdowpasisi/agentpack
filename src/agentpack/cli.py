@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import typer
-from agentpack.commands import init, scan, diff, status, stats, summarize, pack, install, monitor, explain, doctor, watch, claude_cmd, benchmark, mcp_cmd, hook_cmd
+from agentpack.commands import init, scan, diff, status, stats, summarize, pack, install, monitor, explain, doctor, watch, claude_cmd, benchmark, mcp_cmd, hook_cmd, quickstart
 from agentpack import __version__
 
 
@@ -21,7 +21,7 @@ def _main(
     pass
 
 
-for mod in [init, scan, diff, status, stats, summarize, pack, install, monitor, explain, doctor, watch, claude_cmd, benchmark, mcp_cmd, hook_cmd]:
+for mod in [init, scan, diff, status, stats, summarize, pack, install, monitor, explain, doctor, watch, claude_cmd, benchmark, mcp_cmd, hook_cmd, quickstart]:
     mod.register(app)
 
 

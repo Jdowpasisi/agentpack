@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import random
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -43,6 +45,61 @@ class CaseResult:
     random_f1: float | None = None
 
 
+@dataclass
+class FixtureCase:
+    fixture: str
+    root: Path
+    case: BenchmarkCase
+
+
+def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
+    specs = [
+        (
+            "py_fastapi_app",
+            "fix FastAPI auth token validation",
+            ["src/app/auth.py", "tests/test_auth.py"],
+        ),
+        (
+            "py_fastapi_app",
+            "add user profile API endpoint",
+            ["src/app/main.py", "src/app/users.py", "tests/test_users.py"],
+        ),
+        (
+            "nextjs_app",
+            "fix Next.js auth helper and API client",
+            ["src/lib/auth.ts", "src/lib/api.ts"],
+        ),
+        (
+            "nextjs_app",
+            "debug dashboard page data loading",
+            ["src/app/page.tsx", "src/lib/api.ts"],
+        ),
+        (
+            "mixed_repo",
+            "fix TypeScript API serialization utility",
+            ["src/ts/api.ts", "src/ts/utils.ts"],
+        ),
+        (
+            "mixed_repo",
+            "fix Python utility parsing edge case",
+            ["src/py/utils.py"],
+        ),
+    ]
+
+    cases: list[FixtureCase] = []
+    for fixture, task, expected_files in specs:
+        fixture_root = fixtures_root / fixture
+        if fixture_root.exists():
+            cases.append(
+                FixtureCase(
+                    fixture=fixture,
+                    root=fixture_root,
+                    case=BenchmarkCase(task=task, mode="balanced", expected_files=expected_files),
+                )
+            )
+    return cases
+
+
 def _load_cases(path: Path) -> list[BenchmarkCase]:
     try:
         import tomllib
@@ -69,6 +126,11 @@ def _scaffold_cases(root: Path) -> Path:
         '# AgentPack benchmark cases\n'
         '# Each case runs a pack and measures token savings, speed, and\n'
         '# selection quality. Add expected_files for precision/recall scoring.\n\n'
+        '# How to build a useful eval set:\n'
+        '# 1. Add 5-20 real tasks from your repo history.\n'
+        '# 2. Fill expected_files with files you actually edited for that task.\n'
+        '# 3. Run: agentpack benchmark --compare\n'
+        '# 4. Tune task text, .agentignore, and scoring weights until recall/token noise look sane.\n\n'
         '[[cases]]\n'
         'task = "fix auth token expiry"\n'
         'mode = "balanced"\n'
@@ -363,6 +425,32 @@ def _print_summary_table(results: list[CaseResult]) -> None:
     console.print(tbl)
 
 
+def _print_fixture_summary_table(results: list[CaseResult]) -> None:
+    tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+    tbl.add_column("fixture task", max_width=42)
+    tbl.add_column("mode", width=9)
+    tbl.add_column("tokens", justify="right")
+    tbl.add_column("R", justify="right")
+    tbl.add_column("F1", justify="right")
+    tbl.add_column("rank@K", justify="right")
+    tbl.add_column("noise", justify="right")
+
+    for result in results:
+        _p, recall, f1 = _precision_recall(result)
+        tbl.add_row(
+            result.case.task[:40],
+            result.case.mode,
+            f"{result.packed_tokens:,}",
+            f"{recall:.0%}",
+            f"{f1:.0%}",
+            str(result.rank_at_k) if result.rank_at_k is not None else "-",
+            f"{result.noise_pct:.0f}%" if result.noise_pct is not None else "-",
+        )
+
+    console.print()
+    console.print(tbl)
+
+
 def _print_compare_table(task: str, results: list[CaseResult]) -> None:
     console.print(f"\n[bold]Mode comparison:[/] [cyan]{task}[/]\n")
 
@@ -386,6 +474,14 @@ def _print_compare_table(task: str, results: list[CaseResult]) -> None:
     console.print(tbl)
 
 
+def _copy_fixture(source: Path, destination: Path) -> None:
+    shutil.copytree(
+        source,
+        destination,
+        ignore=shutil.ignore_patterns("__pycache__", ".agentpack", ".pytest_cache"),
+    )
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def benchmark(
@@ -395,6 +491,7 @@ def register(app: typer.Typer) -> None:
         compare: bool = typer.Option(False, "--compare", is_flag=True, help="Compare minimal/balanced/deep for each task."),
         init: bool = typer.Option(False, "--init", is_flag=True, help="Scaffold a benchmark.toml and exit."),
         from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
+        sample_fixtures: bool = typer.Option(False, "--sample-fixtures", is_flag=True, help="Run bundled FastAPI/Next.js/mixed-repo fixture evals from a source checkout."),
     ) -> None:
         """Benchmark file selection quality and token efficiency across tasks."""
         root = _root()
@@ -403,6 +500,61 @@ def register(app: typer.Typer) -> None:
             out = _scaffold_cases(root)
             console.print(f"[green]✓[/] Created [bold]{out}[/]")
             console.print("  Edit the file to add your tasks and expected files, then run [bold]agentpack benchmark[/].")
+            return
+
+        if sample_fixtures:
+            fixtures_root = root / "tests" / "fixtures"
+            fixture_cases = _sample_fixture_cases(fixtures_root)
+            if not fixture_cases:
+                console.print(f"[yellow]No bundled fixture repos found at {fixtures_root}[/]")
+                console.print("  This demo is available from an AgentPack source checkout. For your own repo, run [bold]agentpack benchmark --init[/].")
+                raise typer.Exit(1)
+
+            if compare:
+                expanded_fixtures: list[FixtureCase] = []
+                for fixture_case in fixture_cases:
+                    for fixture_mode in ("minimal", "balanced", "deep"):
+                        expanded_fixtures.append(
+                            FixtureCase(
+                                fixture=fixture_case.fixture,
+                                root=fixture_case.root,
+                                case=BenchmarkCase(
+                                    task=fixture_case.case.task,
+                                    mode=fixture_mode,
+                                    expected_files=fixture_case.case.expected_files,
+                                ),
+                            )
+                        )
+                fixture_cases = expanded_fixtures
+
+            console.print(f"\n[bold]Running {len(fixture_cases)} sample fixture benchmark case(s)...[/]\n")
+
+            results: list[CaseResult] = []
+            with tempfile.TemporaryDirectory(prefix="agentpack-benchmark-") as temp_dir:
+                temp_root = Path(temp_dir)
+                for i, fixture_case in enumerate(fixture_cases, 1):
+                    case_root = temp_root / f"{i:02d}-{fixture_case.fixture}"
+                    _copy_fixture(fixture_case.root, case_root)
+                    label = f"[{i}/{len(fixture_cases)}] {fixture_case.fixture}: {fixture_case.case.task[:42]}  mode={fixture_case.case.mode}"
+                    with console.status(f"[dim]{label}[/]"):
+                        try:
+                            result = _run_case(case_root, fixture_case.case)
+                            result.case.task = f"{fixture_case.fixture}: {result.case.task}"
+                            results.append(result)
+                        except Exception as e:
+                            console.print(f"[red]Error on fixture case '{fixture_case.case.task}': {e}[/]")
+
+            if not results:
+                raise typer.Exit(1)
+
+            console.print("[dim]Sample fixtures are small source-checkout evals. Use your own benchmark.toml for true third-party repo scores.[/]")
+            fixture_names = ", ".join(sorted({fixture_case.fixture for fixture_case in fixture_cases}))
+            console.print(f"[dim]Fixtures:[/] {fixture_names}")
+            if len(results) == 1:
+                _print_case_detail(results[0])
+            else:
+                console.print("\n[bold]Summary[/]")
+                _print_fixture_summary_table(results)
             return
 
         # Build case list
