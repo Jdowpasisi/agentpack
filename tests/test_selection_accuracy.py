@@ -74,12 +74,29 @@ def test_compute_accuracy_perfect_recall(tmp_path):
 
 def test_compute_accuracy_partial(tmp_path):
     p = tmp_path / ".agentpack" / "metrics.jsonl"
-    _write_metrics(p, [{"selected_paths": ["a.py", "b.py", "c.py", "d.py"]}])
+    _write_metrics(p, [{
+        "selected_paths": ["a.py", "b.py", "c.py", "d.py"],
+        "selected_tokens": {"a.py": 100, "b.py": 300, "c.py": 500, "d.py": 100},
+    }])
     # prev selected 4 files, 2 actually changed
     result = _compute_selection_accuracy(tmp_path, p, [], {"a.py", "b.py"})
     assert result["selection_recall"] == 1.0      # both changed files were selected
     assert result["selection_precision"] == 0.5   # 2 of 4 selected were relevant
     assert result["selection_f1"] == pytest.approx(2 / 3, abs=0.001)
+    assert result["selection_token_precision"] == 0.4
+    assert result["selection_noise_pct"] == 60.0
+
+
+def test_compute_accuracy_mode_token_precision(tmp_path):
+    p = tmp_path / ".agentpack" / "metrics.jsonl"
+    _write_metrics(p, [{
+        "selected_paths": ["a.py", "b.py", "c.py"],
+        "selected_tokens": {"a.py": 100, "b.py": 100, "c.py": 300},
+        "selected_modes": {"a.py": "full", "b.py": "full", "c.py": "summary"},
+    }])
+    result = _compute_selection_accuracy(tmp_path, p, [], {"a.py", "c.py"})
+    assert result["selection_token_precision_full"] == 0.5
+    assert result["selection_token_precision_summary"] == 1.0
 
 
 def test_compute_accuracy_zero_hits(tmp_path):

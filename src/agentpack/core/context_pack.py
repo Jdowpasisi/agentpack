@@ -124,11 +124,14 @@ def select_files(
     budget: int,
     max_file_tokens: int,
     keywords: set[str] | None = None,
+    min_summary_score: float = 0,
+    max_summary_files: int = 0,
 ) -> tuple[list[SelectedFile], list[Receipt]]:
     opts = _MODE_WEIGHTS[mode]
     selected: list[SelectedFile] = []
     receipts: list[Receipt] = []
     tokens_used = 0
+    summaries_used = 0
     kw = keywords or set()
 
     for fi, score, reasons in sorted(scored, key=lambda x: -x[1]):
@@ -142,6 +145,12 @@ def select_files(
 
         is_changed = fi.path in changed_paths
         summary_data = summaries.get(fi.path)
+        will_be_summary = not is_changed and not (
+            opts["extra_full"] and fi.estimated_tokens <= max_file_tokens
+        )
+        if will_be_summary and score < min_summary_score:
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="summary score below floor"))
+            continue
 
         # Determine inclusion mode
         if is_changed and fi.estimated_tokens <= max_file_tokens:
@@ -163,11 +172,17 @@ def select_files(
             content = None
             tok = min(fi.estimated_tokens, 200)
 
+        if mode_str == "summary" and max_summary_files > 0 and summaries_used >= max_summary_files:
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="summary cap reached"))
+            continue
+
         if tokens_used + tok > budget:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
             continue
 
         tokens_used += tok
+        if mode_str == "summary":
+            summaries_used += 1
 
         # Build symbol list
         syms: list[Symbol] = []

@@ -338,6 +338,8 @@ class TestExplainCommand:
             budget=deep_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=plan.keywords,
+            min_summary_score=cfg.context.min_summary_score,
+            max_summary_files=0,
         )
         deep_selected_paths = {
             r.path for r in deep_receipts if r.action in ("included", "summarized")

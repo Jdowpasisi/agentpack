@@ -133,6 +133,16 @@ def _print_pack_summary(result: PackResult) -> None:
     console.print()
     console.print(Columns([stats, files_tbl], equal=False, expand=False))
 
+    diagnostics = _pack_diagnostics(result)
+    if diagnostics:
+        diag_text = "\n".join(f"  [yellow]![/] {line}" for line in diagnostics)
+        console.print(Panel(
+            diag_text,
+            title="[bold yellow]Pack diagnostics[/]",
+            border_style="yellow",
+            padding=(0, 1),
+        ))
+
     if changed_files:
         console.print(f"\n[bold]Changed files[/] ({len(changed_files)}):")
         console.print(changed_lines)
@@ -159,6 +169,37 @@ def _print_pack_summary(result: PackResult) -> None:
     console.print("\n[bold]Next step:[/]")
     console.print(f"  [bold white]claude < {out_path}[/]")
     console.print()
+
+
+def _pack_diagnostics(result: PackResult) -> list[str]:
+    selected = result.pack.selected_files
+    receipts = result.pack.receipts
+    diagnostics: list[str] = []
+    summary_count = sum(1 for sf in selected if sf.include_mode == "summary")
+    filename_matches = sum(1 for sf in selected if "filename keyword match" in sf.reasons)
+    symbol_matches = sum(1 for sf in selected if "symbol keyword match" in sf.reasons)
+    score_floor_excluded = sum(1 for r in receipts if r.reason == "summary score below floor")
+    summary_cap_excluded = sum(1 for r in receipts if r.reason == "summary cap reached")
+
+    task_words = [
+        part for part in result.pack.task.replace("_", " ").replace("-", " ").split()
+        if len(part) >= 3
+    ]
+    if len(task_words) <= 3:
+        diagnostics.append("Task is very short; add subsystem, file, or symptom words for better precision.")
+    if not result.changed_files:
+        diagnostics.append("No changed files detected; pack relies mostly on task keywords and cached summaries.")
+    if selected and filename_matches / len(selected) >= 0.6:
+        diagnostics.append("Most selected files matched by filename; task terms may be broad.")
+    if selected and summary_count / len(selected) >= 0.7:
+        diagnostics.append("Pack is mostly summaries; use minimal mode or a more specific task for edit work.")
+    if symbol_matches > 25:
+        diagnostics.append(f"Many symbol matches selected ({symbol_matches}); inspect repeated task terms with explain.")
+    if score_floor_excluded:
+        diagnostics.append(f"{score_floor_excluded} weak summaries excluded by score floor.")
+    if summary_cap_excluded:
+        diagnostics.append(f"{summary_cap_excluded} summaries excluded by mode cap.")
+    return diagnostics[:5]
 
 
 def _pack_watch(

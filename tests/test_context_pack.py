@@ -56,6 +56,54 @@ def test_budget_respected():
     assert len(selected) <= 3
 
 
+def test_summary_score_floor_excludes_weak_unchanged_files():
+    fi = _fi("weak.py")
+    selected, receipts = select_files(
+        files=[fi],
+        scored=[(fi, 10.0, ["content keyword match (1)"])],
+        changed_paths=set(),
+        summaries={"weak.py": {"summary": "Weak match.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        min_summary_score=60,
+    )
+    assert selected == []
+    assert receipts[0].reason == "summary score below floor"
+
+
+def test_summary_score_floor_keeps_changed_files():
+    f = _fi("changed.py", tokens=5)
+    selected, _ = select_files(
+        files=[f],
+        scored=[(f, 10.0, ["modified"])],
+        changed_paths={"changed.py"},
+        summaries={},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        min_summary_score=60,
+    )
+    assert len(selected) == 1
+
+
+def test_summary_cap_limits_unchanged_summaries():
+    files = [_fi(f"file{i}.py") for i in range(3)]
+    scored = [(fi, 100.0 - i, ["filename keyword match"]) for i, fi in enumerate(files)]
+    selected, receipts = select_files(
+        files=files,
+        scored=scored,
+        changed_paths=set(),
+        summaries={fi.path: {"summary": f"Summary {i}", "symbols": []} for i, fi in enumerate(files)},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=2,
+    )
+    assert [sf.path for sf in selected] == ["file0.py", "file1.py"]
+    assert any(r.reason == "summary cap reached" for r in receipts)
+
+
 def test_excluded_ignored_files():
     fi = FileInfo(
         path="node_modules/x.js",

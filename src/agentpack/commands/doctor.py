@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import typer
@@ -36,6 +37,15 @@ def register(app: typer.Typer) -> None:
         else:
             console.print("  [red]✗[/] agentpack not on PATH — run: pipx install agentpack-cli")
             ok = False
+
+        try:
+            root = _root()
+            warning = _source_checkout_warning(root, Path(__file__), sys.executable, binary)
+            if warning:
+                console.print(f"  [yellow]![/] {warning}")
+                ok = False
+        except Exception:
+            pass
 
         # --- Git template hooks ---
         console.print("\n[bold]Git template hooks (~/.git-templates/hooks/)[/]")
@@ -232,6 +242,30 @@ def _check_agent_file(root: Path, filename: str, agent: str) -> None:
             console.print(f"  [dim]-[/] {filename} exists but agentpack not configured — run: agentpack install --agent {agent}")
     else:
         console.print(f"  [dim]-[/] {filename} not present (optional)")
+
+
+def _source_checkout_warning(
+    root: Path,
+    package_file: Path,
+    executable: str,
+    binary: str | None,
+) -> str | None:
+    source_pkg = root / "src" / "agentpack"
+    if not source_pkg.exists():
+        return None
+    try:
+        package_path = package_file.resolve()
+        source_path = source_pkg.resolve()
+    except OSError:
+        return None
+    if package_path.is_relative_to(source_path):
+        return None
+    binary_text = f" via {binary}" if binary else ""
+    return (
+        "source checkout detected, but CLI imports installed package "
+        f"at {package_path}{binary_text}. Use `PYTHONPATH=src python -m agentpack.cli ...` "
+        "or install editable with `pip install -e .`."
+    )
 
 
 def _print_summary(ok: bool) -> None:

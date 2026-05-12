@@ -6,6 +6,26 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.21] — 2026-05-12
+
+### Added
+- Pack diagnostics: `agentpack pack` now warns when a pack looks noisy, such as broad filename matching, no changed files, mostly-summary output, or many weak summaries excluded.
+- Token-weighted selection accuracy: metrics now store selected token counts and `agentpack stats` reports token precision overall and by inclusion mode (`full`, `symbols`, `summary`).
+- Mode-aware summary caps: `minimal` and `balanced` modes now cap unchanged summaries by default to keep packs focused and predictable.
+- `agentpack doctor` warns when running from a source checkout but the `agentpack` binary imports an installed package instead of local `src/`.
+
+### Changed
+- Keyword ranking now weights literal task terms higher than variants and concept expansions, reducing broad synonym noise while keeping useful concept matches.
+- Keyword matching now uses whole identifier/path tokens instead of substring matching, so broad fragments no longer match unrelated names.
+- `agentpack stats` now compares packed context against raw full contents for the top included files instead of a misleading arbitrary "manual 20 files" estimate.
+- `agentpack stats` reads the last pack metadata path for the top-included table, so it reflects the actual latest pack.
+
+### Fixed
+- Weak unchanged summaries no longer fill the token budget just because they had any positive score.
+- Selection accuracy metrics now distinguish file-level precision from token-level precision, making summary noise visible instead of over-penalizing useful full/symbol context.
+
+---
+
 ## [0.1.20] — 2026-05-11
 
 ### Added

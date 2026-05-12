@@ -16,7 +16,12 @@ from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata
 from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
 from agentpack.core.token_estimator import estimate_tokens
-from agentpack.analysis.ranking import score_files, extract_keywords, enrich_keywords_from_files, boost_paired_tests
+from agentpack.analysis.ranking import (
+    score_files,
+    extract_keyword_weights,
+    enrich_keyword_weights_from_files,
+    boost_paired_tests,
+)
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
 from agentpack.summaries.base import build_all_summaries
@@ -131,8 +136,9 @@ class FileRanker:
         root: Path | None = None,
     ) -> RankResult:
         from agentpack.core import git as _git
-        keywords = extract_keywords(task)
-        keywords = enrich_keywords_from_files(keywords, changes.all_changed, packable)
+        keyword_weights = extract_keyword_weights(task)
+        keyword_weights = enrich_keyword_weights_from_files(keyword_weights, changes.all_changed, packable)
+        keywords = set(keyword_weights)
         all_paths = {f.path for f in packable}
 
         for fi in packable:
@@ -149,7 +155,7 @@ class FileRanker:
             staged_paths=changes.git_staged,
             recently_modified=changes.recently_modified,
             dep_graph=dep_graph,
-            keywords=keywords,
+            keywords=keyword_weights,
             include_tests=cfg.context.include_tests,
             include_configs=cfg.context.include_configs,
             weights=cfg.scoring,
@@ -209,6 +215,8 @@ class PackPlanner:
             budget=effective_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=rank_result.keywords,
+            min_summary_score=cfg.context.min_summary_score,
+            max_summary_files=_summary_cap_for_mode(cfg, request.mode),
         )
         phase_times["select"] = time.perf_counter() - t0
 
@@ -317,6 +325,8 @@ class PackService:
             selected_count=len(plan.selected),
             changed_count=len(plan.all_changed),
             selected_paths=[sf.path for sf in plan.selected],
+            selected_tokens={sf.path: _sf_tokens(sf) for sf in plan.selected},
+            selected_modes={sf.path: sf.include_mode for sf in plan.selected},
             selected_hints=[{"path": sf.path, "why": sf.reasons[0] if sf.reasons else ""} for sf in plan.selected[:8]],
             current_changed=plan.all_changed,
             excluded_count=len(excluded_receipts),
@@ -345,6 +355,16 @@ def _sf_tokens(sf: SelectedFile) -> int:
         if sym.signature:
             parts.append(sym.signature)
     return estimate_tokens("\n".join(parts)) if parts else 50
+
+
+def _summary_cap_for_mode(cfg: Any, mode: str) -> int:
+    if mode == "minimal":
+        return cfg.context.max_summary_files_minimal
+    if mode == "balanced":
+        return cfg.context.max_summary_files_balanced
+    if mode == "deep":
+        return cfg.context.max_summary_files_deep
+    return 0
 
 
 def _load_last_record(metrics_path: Path) -> dict[str, Any] | None:
@@ -390,11 +410,41 @@ def _compute_selection_accuracy(
     recall = len(hits) / len(actual_changed)
     precision = len(hits) / len(prev_selected)
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
-    return {
+    result = {
         "selection_recall": round(recall, 3),
         "selection_precision": round(precision, 3),
         "selection_f1": round(f1, 3),
     }
+    token_map = prev.get("selected_tokens") or {}
+    if isinstance(token_map, dict):
+        total_tokens = sum(v for v in token_map.values() if isinstance(v, int | float))
+        hit_tokens = sum(
+            token_map.get(path, 0)
+            for path in hits
+            if isinstance(token_map.get(path, 0), int | float)
+        )
+        if total_tokens > 0:
+            token_precision = hit_tokens / total_tokens
+            result["selection_token_precision"] = round(token_precision, 3)
+            result["selection_noise_pct"] = round((1 - token_precision) * 100, 1)
+        mode_map = prev.get("selected_modes") or {}
+        if isinstance(mode_map, dict):
+            for mode in ("full", "symbols", "summary"):
+                mode_paths = {path for path, value in mode_map.items() if value == mode}
+                mode_total = sum(
+                    token_map.get(path, 0)
+                    for path in mode_paths
+                    if isinstance(token_map.get(path, 0), int | float)
+                )
+                if mode_total <= 0:
+                    continue
+                mode_hit_tokens = sum(
+                    token_map.get(path, 0)
+                    for path in mode_paths & hits
+                    if isinstance(token_map.get(path, 0), int | float)
+                )
+                result[f"selection_token_precision_{mode}"] = round(mode_hit_tokens / mode_total, 3)
+    return result
 
 
 def _record_metrics(
@@ -409,6 +459,8 @@ def _record_metrics(
     selected_count: int,
     changed_count: int,
     selected_paths: list[str],
+    selected_tokens: dict[str, int],
+    selected_modes: dict[str, str],
     current_changed: set[str],
     selected_hints: list[dict] | None = None,
     excluded_count: int = 0,
@@ -428,6 +480,8 @@ def _record_metrics(
         "excluded_files": excluded_count,
         "excluded_paths": excluded_paths or [],
         "selected_paths": selected_paths,
+        "selected_tokens": selected_tokens,
+        "selected_modes": selected_modes,
         "selected_hints": selected_hints or [],
         "phases": {k: round(v, 3) for k, v in phase_times.items()},
         "total_s": round(sum(phase_times.values()), 3),
