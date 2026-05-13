@@ -16,6 +16,8 @@ from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
 from agentpack.core.snapshot import build_snapshot
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.cli import app
+from typer.testing import CliRunner
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -462,3 +464,16 @@ class TestStatusCommand:
 
         assert old_snap["root_hash"] != current_snap["root_hash"], \
             "Snapshot root_hash should differ after editing a file"
+
+    def test_status_stale_after_task_change(self, tmp_path: Path, monkeypatch) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        _pack(root, task="fix auth token", agent="generic")
+        (root / ".agentpack" / "task.md").write_text("fix numerology dashboard\n", encoding="utf-8")
+
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["status"])
+
+        assert result.exit_code == 1
+        assert ".agentpack/task.md changed since last pack" in result.output
+        assert "fix auth token" in result.output
+        assert "fix numerology dashboard" in result.output

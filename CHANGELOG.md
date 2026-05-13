@@ -10,6 +10,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.26] — 2026-05-13
+
+### Changed
+- Claude hook context now treats a clearly different coding prompt as a task switch, updates `.agentpack/task.md`, and repacks even when repo files have not changed.
+- Task-switch detection is configurable via `[hooks] task_switch_detection` and `task_switch_min_terms` in `.agentpack/config.toml`.
+- Cursor, Windsurf, Codex, Antigravity, and generated context instructions now include an explicit task-switch protocol: write `.agentpack/task.md`, repack, then read the fresh context before editing.
+
+### Fixed
+- `agentpack status` and `agentpack stats` now report stale context when `.agentpack/task.md` differs from the packed task, not only when source files changed.
+
+---
+
 ## [0.1.25] — 2026-05-13
 
 ### Added

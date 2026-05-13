@@ -10,8 +10,10 @@ _CURSOR_RULE = """\
 <!-- agentpack:rule:start -->
 At the start of every coding task:
 1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
-2. Read `.agentpack/context.md` — git hooks keep it fresh automatically.
-3. Use files listed in context as starting points, but verify with actual code before editing.
+2. Run `agentpack pack --task auto` to refresh context for that task.
+3. Read `.agentpack/context.md`.
+4. Use files listed in context as starting points, but verify with actual code before editing.
+When the user switches to a different coding task, repeat steps 1-3 before editing.
 If context is missing: `agentpack pack --agent cursor --task "<task>"`
 <!-- agentpack:rule:end -->"""
 
@@ -58,8 +60,11 @@ alwaysApply: true
 At the start of every coding task:
 
 1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
-2. Read `.agentpack/context.md` — git hooks keep it fresh automatically.
-3. Use files listed in context as starting points, but verify with actual code before editing.
+2. Run `agentpack pack --task auto` to refresh context for that task.
+3. Read `.agentpack/context.md`.
+4. Use files listed in context as starting points, but verify with actual code before editing.
+
+When the user switches to a different coding task, repeat steps 1-3 before editing.
 
 If context is missing: `agentpack pack --agent cursor --task "<task>"`
 """

@@ -31,7 +31,10 @@ def test_freshness_diagnostics_report_task_and_snapshot_mismatch(tmp_path: Path)
     )
 
     assert "Task terms are broad/generic." in diagnostics
-    assert ".agentpack/task.md differs from the latest packed task." in diagnostics
+    assert (
+        ".agentpack/task.md differs from the latest packed task "
+        "(packed: old task; current: fix current bug)."
+    ) in diagnostics
     assert "Files changed since the latest pack; refresh before trusting top included files." in diagnostics
     assert "Recorded context path is missing: .agentpack/missing.md." in diagnostics
     assert "Session last refresh timestamp is older than latest pack metadata." in diagnostics

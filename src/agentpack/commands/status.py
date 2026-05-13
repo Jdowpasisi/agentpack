@@ -11,6 +11,24 @@ from agentpack.application.pack_service import AdapterRegistry
 from agentpack.commands._shared import console, _root
 
 
+def _task_md_body(root) -> str:
+    path = root / ".agentpack" / "task.md"
+    if not path.exists():
+        return ""
+    try:
+        lines = [
+            line.strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+    except OSError:
+        return ""
+    body = lines[0] if lines else ""
+    if "Write or update the current coding task here." in body:
+        return ""
+    return body
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def status() -> None:
@@ -32,12 +50,19 @@ def register(app: typer.Typer) -> None:
         )
         current = build_snapshot(scan_result.packable)
 
-        if current["root_hash"] == meta.get("snapshot_root_hash"):
+        task_md = _task_md_body(root)
+        task_changed = bool(task_md and task_md != meta.get("task"))
+        if current["root_hash"] == meta.get("snapshot_root_hash") and not task_changed:
             console.print("[green]Context pack is up to date.[/]")
             console.print(f"  Task: {meta.get('task')}")
             console.print(f"  Generated: {meta.get('generated_at')}")
         else:
-            console.print("[yellow]Context pack is STALE.[/] Files changed since last pack.")
+            if task_changed:
+                console.print("[yellow]Context pack is STALE.[/] .agentpack/task.md changed since last pack.")
+                console.print(f"  Packed task: {meta.get('task')}")
+                console.print(f"  Current task: {task_md}")
+            else:
+                console.print("[yellow]Context pack is STALE.[/] Files changed since last pack.")
             console.print(f"  Last generated: {meta.get('generated_at')}")
             console.print("  Run [bold]agentpack pack[/] to refresh.")
             raise typer.Exit(1)

@@ -16,6 +16,8 @@ class TestCursorAdapter:
         content = (tmp_path / ".cursorrules").read_text()
         assert "agentpack:rule:start" in content
         assert "task.md" in content
+        assert "agentpack pack --task auto" in content
+        assert "When the user switches to a different coding task" in content
         assert "context.md" in content
 
     def test_patch_cursor_rules_idempotent(self, tmp_path):
@@ -53,6 +55,8 @@ class TestCursorAdapter:
         content = mdc.read_text()
         assert "alwaysApply: true" in content
         assert "task.md" in content
+        assert "agentpack pack --task auto" in content
+        assert "When the user switches to a different coding task" in content
         assert "context.md" in content
 
     def test_patch_cursor_mdc_idempotent(self, tmp_path):
@@ -78,6 +82,8 @@ class TestWindsurfAdapter:
         content = (tmp_path / ".windsurfrules").read_text()
         assert "agentpack:rule:start" in content
         assert "task.md" in content
+        assert "agentpack pack --task auto" in content
+        assert "When the user switches to a different coding task" in content
         assert "context.md" in content
 
     def test_patch_windsurfrules_idempotent(self, tmp_path):

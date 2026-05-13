@@ -104,8 +104,9 @@ def render_claude(pack: ContextPack) -> str:
         "Priority order: changed files → keyword-matched files → dependencies → summaries.\n"
         "Files marked `full` contain complete source. Files marked `symbols` contain relevant "
         "function/class bodies. Files marked `summary` are unchanged context.\n"
-        "If the pack looks stale (changed files list is empty but you expect changes), "
-        "ask the user to run `agentpack pack --task \"<task>\"` to refresh."
+        "If this pack's task does not match the user's current task, write the new task to "
+        "`.agentpack/task.md`, run `agentpack pack --task auto`, re-read the context, then proceed. "
+        "If the pack looks stale (changed files list is empty but you expect changes), refresh the pack before editing."
     )
     sections.append("")
 
