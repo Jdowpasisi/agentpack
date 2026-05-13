@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -12,7 +13,8 @@ from rich import box
 from agentpack.core import git
 from agentpack.core.ignore import SENSITIVE_PATTERNS
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
-from agentpack.commands._shared import console, _root
+from agentpack.commands._shared import console, _root, _file_hash, _now_iso
+from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
 
 
 def register(app: typer.Typer) -> None:
@@ -50,6 +52,7 @@ def register(app: typer.Typer) -> None:
             refresh=refresh,
             task_source=task_source,
         ))
+        _mark_session_refreshed(_root(), result)
         _print_pack_summary(result)
 
 
@@ -177,6 +180,20 @@ def _print_pack_summary(result: PackResult) -> None:
     console.print()
 
 
+def _mark_session_refreshed(root: Path, result: PackResult) -> None:
+    state = load_session(root)
+    if state is None or not state.active:
+        return
+    freshness = result.pack.freshness or {}
+    state.last_refresh_at = freshness.get("generated_at") or _now_iso()
+    state.refresh_count += 1
+    state.last_task_hash = _file_hash(root / TASK_FILE)
+    state.last_git_hash = freshness.get("snapshot_root_hash", "")
+    state.last_resolved_agent = getattr(result.pack, "agent", state.last_resolved_agent)
+    save_session(root, state)
+    log_activity(root, f"pack refresh — {len(result.pack.selected_files)} files, {result.packed_tokens:,} tokens")
+
+
 def _pack_diagnostics(result: PackResult) -> list[str]:
     selected = result.pack.selected_files
     receipts = result.pack.receipts
@@ -186,6 +203,9 @@ def _pack_diagnostics(result: PackResult) -> list[str]:
     symbol_matches = sum(1 for sf in selected if "symbol keyword match" in sf.reasons)
     score_floor_excluded = sum(1 for r in receipts if r.reason == "summary score below floor")
     summary_cap_excluded = sum(1 for r in receipts if r.reason == "summary cap reached")
+    changed_set = set(result.changed_files)
+    top_changed = sum(1 for sf in selected[:10] if sf.path in changed_set)
+    strong_live_signal = bool(changed_set) and top_changed >= min(len(changed_set), 5)
 
     task_words = [
         part for part in result.pack.task.replace("_", " ").replace("-", " ").split()
@@ -195,9 +215,9 @@ def _pack_diagnostics(result: PackResult) -> list[str]:
         diagnostics.append("Task is very short; add subsystem, file, or symptom words for better precision.")
     if not result.changed_files:
         diagnostics.append("No changed files detected; pack relies mostly on task keywords and cached summaries.")
-    if selected and filename_matches / len(selected) >= 0.6:
+    if selected and not strong_live_signal and filename_matches / len(selected) >= 0.6:
         diagnostics.append("Most selected files matched by filename; task terms may be broad.")
-    if selected and summary_count / len(selected) >= 0.7:
+    if selected and not strong_live_signal and summary_count / len(selected) >= 0.7:
         diagnostics.append("Pack is mostly summaries; use minimal mode or a more specific task for edit work.")
     if symbol_matches > 25:
         diagnostics.append(f"Many symbol matches selected ({symbol_matches}); inspect repeated task terms with explain.")
@@ -232,6 +252,7 @@ def _pack_watch(
             root=root, agent=agent, task=task, mode=mode, budget=budget,
             since=since, refresh=False, task_source="watch",
         ))
+        _mark_session_refreshed(root, result)
         _print_pack_summary(result)
 
     _run_pack()

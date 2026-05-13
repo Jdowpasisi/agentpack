@@ -16,6 +16,7 @@ from agentpack.integrations.global_install import (
     _detect_rc_file,
 )
 from agentpack.commands._shared import console, _root
+from agentpack.core.context_pack import load_pack_metadata
 
 
 def register(app: typer.Typer) -> None:
@@ -104,11 +105,11 @@ def register(app: typer.Typer) -> None:
             return
 
         config_path = root / ".agentpack" / "config.toml"
-        context_path = root / ".agentpack" / "context.claude.md"
         if not config_path.exists():
             console.print(f"  [yellow]![/] Not initialized in {root} — run: agentpack init")
         else:
             console.print("  [green]✓[/] .agentpack/config.toml present")
+            context_path = _latest_context_path(root)
             if context_path.exists():
                 import time
                 age = time.time() - context_path.stat().st_mtime
@@ -216,6 +217,16 @@ def register(app: typer.Typer) -> None:
         if not _local_has_mcp and not _global_has_mcp:
             console.print("  [yellow]![/] MCP server not registered — mcp__agentpack__* tools unavailable")
 
+        # --- Release hygiene ---
+        console.print("\n[bold]Release hygiene[/]")
+        findings = _release_hygiene_findings(root)
+        if findings:
+            for finding in findings:
+                console.print(f"  [yellow]![/] {finding}")
+            ok = False
+        else:
+            console.print("  [green]✓[/] no generated release-noise files staged or untracked")
+
         # --- Slash command ---
         console.print("\n[bold]Slash command (/agentpack)[/]")
         local_cmd = root / ".claude" / "commands" / "agentpack.md"
@@ -244,6 +255,23 @@ def _check_agent_file(root: Path, filename: str, agent: str) -> None:
         console.print(f"  [dim]-[/] {filename} not present (optional)")
 
 
+def _latest_context_path(root: Path) -> Path:
+    meta = load_pack_metadata(root)
+    if meta and meta.get("context_path"):
+        candidate = root / str(meta["context_path"])
+        if candidate.exists():
+            return candidate
+    for rel in (
+        ".agentpack/context.md",
+        ".agentpack/context.claude.md",
+        ".agent/skills/agentpack/SKILL.md",
+    ):
+        candidate = root / rel
+        if candidate.exists():
+            return candidate
+    return root / ".agentpack" / "context.md"
+
+
 def _source_checkout_warning(
     root: Path,
     package_file: Path,
@@ -266,6 +294,51 @@ def _source_checkout_warning(
         f"at {package_path}{binary_text}. Use `PYTHONPATH=src python -m agentpack.cli ...` "
         "or install editable with `pip install -e .`."
     )
+
+
+_RELEASE_NOISE_PREFIXES = (
+    ".agent/",
+    ".agentpack/",
+    ".claude/worktrees/",
+    ".codex/",
+    ".cursor/",
+    ".vscode/",
+)
+_RELEASE_NOISE_FILES = {".coverage"}
+
+
+def _release_hygiene_findings(root: Path) -> list[str]:
+    """Flag local generated artifacts that should not be staged or released."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ["could not inspect git status for release hygiene"]
+    if result.returncode != 0:
+        return []
+
+    noisy: list[str] = []
+    for raw in result.stdout.splitlines():
+        if not raw.strip():
+            continue
+        status = raw[:2].strip() or "modified"
+        path = raw[3:].strip()
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        norm = path.replace("\\", "/")
+        if norm in _RELEASE_NOISE_FILES or any(norm.startswith(prefix) for prefix in _RELEASE_NOISE_PREFIXES):
+            noisy.append(f"{status} {norm}")
+
+    if not noisy:
+        return []
+    sample = ", ".join(noisy[:8])
+    extra = f", ... {len(noisy) - 8} more" if len(noisy) > 8 else ""
+    return [f"generated/local artifacts present: {sample}{extra}"]
 
 
 def _print_summary(ok: bool) -> None:

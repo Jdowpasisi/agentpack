@@ -10,6 +10,7 @@ from agentpack.core.context_pack import select_files
 from agentpack.commands._shared import console, _root
 from agentpack.commands.pack import _resolve_task
 from agentpack.core.config import load_config, ScoringWeights
+from agentpack.analysis.ranking import extract_keyword_weights, generic_task_term_ratio, _GENERIC_TASK_TERMS
 
 
 def _resolve_signal_weight(reason: str, weights: ScoringWeights) -> float:
@@ -111,6 +112,50 @@ def _print_file_detail(
     console.print()
 
 
+def _noise_report(task: str, plan: object) -> list[str]:
+    keyword_weights = extract_keyword_weights(task)
+    generic_terms = sorted(term for term in keyword_weights if term in _GENERIC_TASK_TERMS)
+    specific_terms = sorted(term for term in keyword_weights if term not in _GENERIC_TASK_TERMS)
+    selected = list(plan.selected)  # type: ignore[attr-defined]
+    summary_count = sum(1 for sf in selected if sf.include_mode == "summary")
+    filename_count = sum(1 for sf in selected if "filename keyword match" in sf.reasons)
+    symbol_count = sum(1 for sf in selected if "symbol keyword match" in sf.reasons)
+    excluded = [r for r in plan.receipts if r.action == "excluded"]  # type: ignore[attr-defined]
+    summary_cap = sum(1 for r in excluded if r.reason == "summary cap reached")
+    score_floor = sum(1 for r in excluded if r.reason == "summary score below floor")
+
+    lines = [
+        "## Pack noise report",
+        "",
+        f"- generic task ratio: {generic_task_term_ratio(task):.0%}",
+        f"- generic terms: {', '.join(generic_terms) if generic_terms else '(none)'}",
+        f"- specific terms: {', '.join(specific_terms) if specific_terms else '(none)'}",
+        f"- selected summaries: {summary_count}/{len(selected)}",
+        f"- filename-match selections: {filename_count}/{len(selected)}",
+        f"- symbol-match selections: {symbol_count}/{len(selected)}",
+        f"- excluded by summary cap: {summary_cap}",
+        f"- excluded by weak summary score: {score_floor}",
+        "",
+        "### Sharpen task wording",
+        "",
+    ]
+    if generic_terms:
+        lines.append("- Replace broad terms with subsystem, file, or symptom words.")
+        lines.append(f"- Broad terms driving matches: {', '.join(generic_terms[:8])}.")
+    else:
+        lines.append("- Task terms are already specific; inspect changed files or score weights next.")
+    if summary_count and selected and summary_count / len(selected) >= 0.7:
+        lines.append("- Try `--mode minimal` for edit work, or add exact module/file names.")
+    if filename_count and selected and filename_count / len(selected) >= 0.6:
+        lines.append("- Filename matches dominate; add behavior words that appear inside target files.")
+    return lines
+
+
+def _print_noise_report(task: str, plan: object) -> None:
+    for line in _noise_report(task, plan):
+        console.print(line)
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def explain(
@@ -120,6 +165,7 @@ def register(app: typer.Typer) -> None:
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
         file: Optional[str] = typer.Option(None, "--file", help="Show detailed score breakdown for a specific file."),
         omitted: bool = typer.Option(False, "--omitted", is_flag=True, help="Show top-10 excluded files and why."),
+        why_noisy: bool = typer.Option(False, "--why-noisy", is_flag=True, help="Explain broad task terms and noisy selection signals."),
     ) -> None:
         """Explain which files would be selected and why, without writing a context file."""
         if mode not in ("minimal", "balanced", "deep"):
@@ -196,6 +242,12 @@ def register(app: typer.Typer) -> None:
                         f"[dim]score={score_val:.0f}   {r.reason}[/]"
                         + (f"  [dim]({reason_str})[/]" if reason_str and reason_str != r.reason else "")
                     )
+            console.print()
+            return
+
+        if why_noisy:
+            console.print(f"\n[bold]Task:[/] [cyan]{resolved_task}[/]  [dim]mode={mode}  budget={plan.budget:,}[/]\n")
+            _print_noise_report(resolved_task, plan)
             console.print()
             return
 

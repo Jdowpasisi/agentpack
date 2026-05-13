@@ -57,6 +57,7 @@ def save_pack_metadata(
     token_estimate: int = 0,
     freshness: dict[str, Any] | None = None,
     freshness_warnings: list[str] | None = None,
+    selected_files: list[dict[str, Any]] | None = None,
 ) -> None:
     generated_at = (
         freshness.get("generated_at")
@@ -72,6 +73,7 @@ def save_pack_metadata(
         "mode": mode,
         "budget": budget,
         "token_estimate": token_estimate,
+        "selected_files_meta": selected_files or [],
         "freshness": freshness or {},
         "freshness_warnings": freshness_warnings or [],
     }

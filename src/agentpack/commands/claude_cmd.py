@@ -30,6 +30,7 @@ def register(app: typer.Typer) -> None:
             state.last_refresh_at = _now_iso()
             state.refresh_count += 1
             state.last_task_hash = _file_hash(root / TASK_FILE)
+            state.last_resolved_agent = state.agent
             save_session(root, state)
             log_activity(root, f"claude cmd — {result['files']} files, {result['tokens']:,} tokens")
         else:

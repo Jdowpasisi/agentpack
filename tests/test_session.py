@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from agentpack.commands.pack import _mark_session_refreshed
 from agentpack.session.state import (
     ACTIVITY_LOG,
     COMPACT_FILE,
@@ -75,6 +77,33 @@ def test_save_and_load_session(tmp_root: Path) -> None:
     assert loaded is not None
     assert loaded.refresh_count == 3
     assert loaded.agent == "cursor"
+
+
+def test_pack_mark_session_refreshed_updates_active_session(tmp_root: Path) -> None:
+    state = create_session(tmp_root, agent="generic", mode="balanced")
+    task_path = tmp_root / TASK_FILE
+    task_path.write_text("fix refresh state\n", encoding="utf-8")
+    result = SimpleNamespace(
+        pack=SimpleNamespace(
+            freshness={
+                "generated_at": "2026-05-13T01:02:03+00:00",
+                "snapshot_root_hash": "snap123",
+            },
+            agent="generic",
+            selected_files=[object(), object()],
+        ),
+        packed_tokens=1234,
+    )
+
+    _mark_session_refreshed(tmp_root, result)
+    loaded = load_session(tmp_root)
+
+    assert loaded is not None
+    assert loaded.last_refresh_at == "2026-05-13T01:02:03+00:00"
+    assert loaded.refresh_count == state.refresh_count + 1
+    assert loaded.last_task_hash
+    assert loaded.last_git_hash == "snap123"
+    assert loaded.last_resolved_agent == "generic"
 
 
 def test_stop_session_marks_inactive(tmp_root: Path) -> None:

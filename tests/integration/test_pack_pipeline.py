@@ -66,6 +66,22 @@ class TestPyFastapiApp:
         content = result.out_path.read_text()
         assert "## Task" in content
 
+    def test_pack_always_refreshes_canonical_context(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        stale_context = root / ".agentpack" / "context.md"
+        stale_context.write_text("# stale\n\nold task\n", encoding="utf-8")
+
+        result = _pack(root, task="fix auth token freshness", agent="antigravity")
+
+        assert result.out_path == root / ".agent" / "skills" / "agentpack" / "SKILL.md"
+        assert result.out_path.exists()
+        canonical = stale_context.read_text(encoding="utf-8")
+        assert "fix auth token freshness" in canonical
+        assert "# stale" not in canonical
+
+        result2 = _pack(root, task="fix auth token freshness", agent="antigravity")
+        assert ".agent/skills/agentpack/SKILL.md" not in result2.changed_files
+
     def test_token_budget_respected(self, tmp_path: Path) -> None:
         root = _setup_repo(tmp_path, "py_fastapi_app")
         result = _pack(root)

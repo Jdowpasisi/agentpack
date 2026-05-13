@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.24).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.25).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -603,6 +603,7 @@ agentpack init --share-cache    # commit cache/ to git for team sharing
 
 Creates:
 ```
+.gitignore                # patched idempotently with AgentPack generated artifacts
 .agentignore              # gitignore-style file exclusion rules
 .agentpack/
   config.toml             # configuration (safe to commit)
@@ -1075,8 +1076,11 @@ Works like `.gitignore`. Default rules exclude:
 .agentignore              ✓ commit
 .agentpack/config.toml    ✓ commit
 .agentpack/cache/         ✓ commit if --share-cache (recommended for teams)
+.agentpack/.gitignore     ✗ gitignored
 .agentpack/snapshots/     ✗ gitignored
 .agentpack/context.*      ✗ gitignored
+.agentpack/task.md        ✗ gitignored (local current task)
+.agent/skills/agentpack/  ✗ gitignored (generated Antigravity context)
 ```
 
 ---

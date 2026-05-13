@@ -180,11 +180,22 @@ def test_save_pack_metadata_persists_freshness(tmp_path):
             "changed_files_source": "git working tree",
         },
         freshness_warnings=["refresh"],
+        selected_files=[
+            {
+                "path": "src/auth.py",
+                "mode": "full",
+                "score": 100,
+                "why": "modified",
+                "tokens": 10,
+            }
+        ],
     )
     meta = (tmp_path / ".agentpack" / "pack_metadata.json").read_text()
     assert '"git_sha": "abc123"' in meta
     assert '"task_source": "task.md"' in meta
     assert '"freshness_warnings": [' in meta
+    assert '"selected_files_meta": [' in meta
+    assert '"path": "src/auth.py"' in meta
 
 
 def test_generic_task_tightens_summary_floor_and_cap():

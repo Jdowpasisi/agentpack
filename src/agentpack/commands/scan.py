@@ -6,6 +6,7 @@ from rich.table import Table
 from agentpack.core.config import load_config
 from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
+from agentpack.application.pack_service import AdapterRegistry
 from agentpack.commands._shared import console, _root
 
 
@@ -18,7 +19,12 @@ def register(app: typer.Typer) -> None:
         ignore_spec = load_spec(root / cfg.project.ignore_file)
 
         console.print("[bold]Scanning repository...[/]")
-        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        scan_result = scan(
+            root,
+            ignore_spec,
+            cfg.context.max_file_tokens,
+            always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
+        )
 
         total = len(scan_result.all_files)
         ignored = len(scan_result.ignored) + len(scan_result.binary)
