@@ -857,6 +857,7 @@ Mode comparison: fix auth token expiry
 [[cases]]
 task = "fix auth token expiry"
 mode = "balanced"
+task_type = "backend-api"
 expected_files = [
   "src/auth/token.py",
   "src/auth/session.py",
@@ -869,6 +870,8 @@ expected_files = [
 ```
 
 Use `--misses` when recall is low. It prints each expected file that was not selected with status, rank, score, and scoring reasons, which helps separate ignored files, budget cuts, low scores, and missing dependency signals.
+
+Add `task_type` to group results by workflow area. Benchmark summaries report average precision, recall, F1, and token noise by type, so a repo can show "backend-api is good, frontend-web is noisy" instead of hiding that under one aggregate.
 
 ---
 
@@ -910,7 +913,7 @@ agentpack benchmark --compare --misses
 
 `--sample-fixtures` runs bundled FastAPI, Next.js, and mixed Python/TypeScript fixture evals from an AgentPack source checkout. It is a smoke test, not a claim about your repo.
 
-For an 8+ usefulness signal, use `benchmark.toml` with real third-party or customer-style repos: 5-20 historical tasks, the files actually changed for each task, and `--compare` results for recall, F1, rank@K, and token noise. That is better than trusting generic benchmarks because it tells you whether AgentPack selects the files that matter in code the package has never seen.
+For an 8+ usefulness signal, use `benchmark.toml` with real third-party or customer-style repos: 5-20 historical tasks, `task_type` labels, the files actually changed for each task, and `--compare` results for recall, F1, rank@K, and token noise. That is better than trusting generic benchmarks because it tells you whether AgentPack selects the files that matter in code the package has never seen.
 
 ---
 

@@ -71,6 +71,26 @@ def render_claude(pack: ContextPack) -> str:
 
     sections.append("## Task")
     sections.append("")
+
+    if pack.freshness or pack.freshness_warnings:
+        sections.append("## Freshness")
+        sections.append("")
+        if pack.freshness_warnings:
+            sections.append("> **Refresh recommended:** " + " ".join(pack.freshness_warnings))
+            sections.append("")
+        for label, key in (
+            ("Generated", "generated_at"),
+            ("Git branch", "git_branch"),
+            ("Git SHA", "git_sha"),
+            ("Task source", "task_source"),
+            ("Changed-file source", "changed_files_source"),
+            ("Snapshot hash", "snapshot_root_hash"),
+            ("Dirty files at pack time", "dirty_files_count"),
+        ):
+            value = pack.freshness.get(key)
+            if value is not None:
+                sections.append(f"- **{label}:** {value}")
+        sections.append("")
     sections.append(pack.task)
     sections.append("")
 

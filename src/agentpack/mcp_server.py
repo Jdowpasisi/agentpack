@@ -27,6 +27,7 @@ import json
 import sys
 from pathlib import Path
 
+from agentpack.core import git
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -110,13 +111,44 @@ def _get_context_impl(root: Path) -> str:
 
     generated_at = metadata.get("generated_at", "unknown") if metadata else "unknown"
     token_estimate = metadata.get("token_estimate", 0) if metadata else 0
+    stale_reasons: list[str] = []
 
     if metadata is None or snapshot is None or metadata.get("snapshot_root_hash") != snapshot.get("root_hash"):
-        header = f"> **Stale context** — repo changed since last pack (generated: {generated_at}). Run pack_context() to refresh.\n\n"
+        stale_reasons.append("repo snapshot changed")
+    if metadata:
+        saved_sha = metadata.get("git_sha") or (metadata.get("freshness") or {}).get("git_sha")
+        current_sha = git.current_sha(root) if git.is_git_repo(root) else None
+        if saved_sha and current_sha and saved_sha != current_sha:
+            stale_reasons.append("git HEAD changed")
+        task_md = _task_md_body(root)
+        if task_md and task_md != metadata.get("task"):
+            stale_reasons.append(".agentpack/task.md differs")
+
+    if stale_reasons:
+        reason_text = ", ".join(stale_reasons)
+        header = (
+            f"> **Stale context** — {reason_text} since last pack "
+            f"(generated: {generated_at}). Run pack_context() to refresh.\n\n"
+        )
     else:
         header = f"> Context is fresh (generated: {generated_at}, {token_estimate:,} tokens).\n\n"
 
     return header + content
+
+
+def _task_md_body(root: Path) -> str | None:
+    path = root / ".agentpack" / "task.md"
+    if not path.exists():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    lines = [line for line in content.splitlines() if line.strip() and not line.startswith("#")]
+    body = lines[0].strip() if lines else ""
+    if body and "Write or update the current coding task here." not in body:
+        return body
+    return None
 
 
 def _explain_file_impl(root: Path, path: str, task: str = "") -> str:

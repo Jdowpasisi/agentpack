@@ -1,6 +1,9 @@
 from pathlib import Path
-from agentpack.core.context_pack import select_files
-from agentpack.core.models import FileInfo
+from agentpack.application.pack_service import _summary_cap_for_mode, _summary_score_floor
+from agentpack.core.config import DEFAULT_CONFIG
+from agentpack.core.context_pack import save_pack_metadata, select_files
+from agentpack.core.models import ContextPack, FileInfo
+from agentpack.renderers.markdown import render_claude
 
 
 def _fi(path: str, tokens: int = 100, hash_val: str = "h1") -> FileInfo:
@@ -124,3 +127,67 @@ def test_excluded_ignored_files():
     )
     assert len(selected) == 0
     assert any(r.action == "excluded" for r in receipts)
+
+
+def test_render_includes_freshness_metadata():
+    pack = ContextPack(
+        task="fix auth",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+        freshness={
+            "generated_at": "2026-05-13T00:00:00+00:00",
+            "git_branch": "codex/example",
+            "git_sha": "abc123",
+            "task_source": "task.md",
+            "changed_files_source": "git working tree",
+            "snapshot_root_hash": "root123",
+            "dirty_files_count": 2,
+        },
+        freshness_warnings=["Task terms are broad/generic; pack tightened weak-summary selection."],
+    )
+
+    rendered = render_claude(pack)
+
+    assert "## Freshness" in rendered
+    assert "**Generated:** 2026-05-13T00:00:00+00:00" in rendered
+    assert "**Task source:** task.md" in rendered
+    assert "Refresh recommended" in rendered
+
+
+def test_save_pack_metadata_persists_freshness(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+    save_pack_metadata(
+        tmp_path,
+        context_path=".agentpack/context.md",
+        snapshot_root_hash="root123",
+        task="fix auth",
+        agent="generic",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        freshness={
+            "generated_at": "2026-05-13T00:00:00+00:00",
+            "git_sha": "abc123",
+            "task_source": "task.md",
+            "changed_files_source": "git working tree",
+        },
+        freshness_warnings=["refresh"],
+    )
+    meta = (tmp_path / ".agentpack" / "pack_metadata.json").read_text()
+    assert '"git_sha": "abc123"' in meta
+    assert '"task_source": "task.md"' in meta
+    assert '"freshness_warnings": [' in meta
+
+
+def test_generic_task_tightens_summary_floor_and_cap():
+    cfg = DEFAULT_CONFIG
+    assert _summary_score_floor(cfg, 0.6) > cfg.context.min_summary_score
+    assert _summary_cap_for_mode(cfg, "balanced", 0.6) < cfg.context.max_summary_files_balanced

@@ -8,6 +8,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Added
+- Context packs now render freshness metadata, including generated time, git branch/SHA, task source, changed-file source, snapshot hash, and dirty-file count.
+- Benchmark cases can declare `task_type`, and benchmark summaries now report precision/recall/F1 grouped by task type.
+- Miss diagnostics now include the changed-file basis used when expected files were missed.
+
+### Changed
+- Broad generic task terms are downweighted so words like "fix", "release", "task", and "implementation" no longer dominate concrete domain/file terms.
+- Broad tasks tighten weak summary inclusion by raising the summary floor and reducing summary caps.
+
+### Fixed
+- MCP `get_context` now marks context stale when `.agentpack/task.md` differs from the packed task or git HEAD changed after the pack.
+
 ---
 
 ## [0.1.23] — 2026-05-12

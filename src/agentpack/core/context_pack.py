@@ -55,17 +55,30 @@ def save_pack_metadata(
     mode: str,
     budget: int,
     token_estimate: int = 0,
+    freshness: dict[str, Any] | None = None,
+    freshness_warnings: list[str] | None = None,
 ) -> None:
+    generated_at = (
+        freshness.get("generated_at")
+        if freshness and freshness.get("generated_at")
+        else datetime.now(timezone.utc).isoformat()
+    )
     meta = {
         "context_path": context_path,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
         "snapshot_root_hash": snapshot_root_hash,
         "task": task,
         "agent": agent,
         "mode": mode,
         "budget": budget,
         "token_estimate": token_estimate,
+        "freshness": freshness or {},
+        "freshness_warnings": freshness_warnings or [],
     }
+    if freshness:
+        for key in ("git_sha", "git_branch", "task_source", "changed_files_source"):
+            if key in freshness:
+                meta[key] = freshness[key]
     _metadata_path(root).write_text(json.dumps(meta, indent=2))
 
 

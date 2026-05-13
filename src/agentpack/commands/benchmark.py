@@ -23,6 +23,7 @@ class BenchmarkCase:
     task: str
     mode: str = "balanced"
     expected_files: list[str] = field(default_factory=list)
+    task_type: str = "general"
 
 
 @dataclass
@@ -60,43 +61,54 @@ def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
             "py_fastapi_app",
             "fix FastAPI auth token validation",
             ["src/app/auth.py", "tests/test_auth.py"],
+            "backend-api",
         ),
         (
             "py_fastapi_app",
             "add user profile API endpoint",
             ["src/app/main.py", "src/app/users.py", "tests/test_users.py"],
+            "backend-api",
         ),
         (
             "nextjs_app",
             "fix Next.js auth helper and API client",
             ["src/lib/auth.ts", "src/lib/api.ts"],
+            "frontend-web",
         ),
         (
             "nextjs_app",
             "debug dashboard page data loading",
             ["src/app/page.tsx", "src/lib/api.ts"],
+            "frontend-web",
         ),
         (
             "mixed_repo",
             "fix TypeScript API serialization utility",
             ["src/ts/api.ts", "src/ts/utils.ts"],
+            "typescript",
         ),
         (
             "mixed_repo",
             "fix Python utility parsing edge case",
             ["src/py/utils.py"],
+            "python",
         ),
     ]
 
     cases: list[FixtureCase] = []
-    for fixture, task, expected_files in specs:
+    for fixture, task, expected_files, task_type in specs:
         fixture_root = fixtures_root / fixture
         if fixture_root.exists():
             cases.append(
                 FixtureCase(
                     fixture=fixture,
                     root=fixture_root,
-                    case=BenchmarkCase(task=task, mode="balanced", expected_files=expected_files),
+                    case=BenchmarkCase(
+                        task=task,
+                        mode="balanced",
+                        expected_files=expected_files,
+                        task_type=task_type,
+                    ),
                 )
             )
     return cases
@@ -115,6 +127,7 @@ def _load_cases(path: Path) -> list[BenchmarkCase]:
             task=raw["task"],
             mode=raw.get("mode", "balanced"),
             expected_files=raw.get("expected_files", []),
+            task_type=raw.get("task_type", "general"),
         ))
     return cases
 
@@ -136,13 +149,15 @@ def _scaffold_cases(root: Path) -> Path:
         '[[cases]]\n'
         'task = "fix auth token expiry"\n'
         'mode = "balanced"\n'
+        'task_type = "backend-api"\n'
         '# expected_files = [\n'
         '#   "src/auth/token.py",\n'
         '#   "src/auth/session.py",\n'
         '# ]\n\n'
         '[[cases]]\n'
         'task = "add rate limiting to API endpoints"\n'
-        'mode = "balanced"\n',
+        'mode = "balanced"\n'
+        'task_type = "backend-api"\n',
         encoding="utf-8",
     )
     return out
@@ -170,7 +185,7 @@ def _load_history_cases(root: Path, n: int) -> list[BenchmarkCase]:
                     break
         except json.JSONDecodeError:
             pass
-    return [BenchmarkCase(task=t, mode=m) for t, m in seen]
+    return [BenchmarkCase(task=t, mode=m, task_type="history") for t, m in seen]
 
 
 def _random_baseline(
@@ -268,20 +283,20 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         for expected_path in sorted(expected_set - selected_set):
             fi = all_file_map.get(expected_path)
             scored_info = scored_map.get(expected_path)
-            if fi is None:
-                status = "not found in scanned files"
-            elif fi.ignored or fi.binary:
-                status = "ignored or binary"
-            elif expected_path in receipt_map:
-                status = receipt_map[expected_path]
-            else:
-                status = "ranked but not selected" if scored_info else "not scored"
+            status = _miss_status(
+                fi=fi,
+                expected_path=expected_path,
+                receipt_map=receipt_map,
+                scored_info=scored_info,
+                changed_files_source=plan.changed_files_source,
+            )
             missed_expected.append({
                 "path": expected_path,
                 "status": status,
                 "rank": scored_info["rank"] if scored_info else None,
                 "score": round(scored_info["score"], 1) if scored_info else None,
                 "reasons": scored_info["reasons"][:4] if scored_info else [],
+                "basis": plan.changed_files_source,
             })
     else:
         missed_expected = []
@@ -320,12 +335,37 @@ def _precision_recall(result: CaseResult) -> tuple[float, float, float]:
     return p, r, f1
 
 
+def _miss_status(
+    *,
+    fi: Any,
+    expected_path: str,
+    receipt_map: dict[str, str],
+    scored_info: dict[str, Any] | None,
+    changed_files_source: str,
+) -> str:
+    suffix = ""
+    if changed_files_source.startswith("no live changes"):
+        suffix = "; no live changed-file signal"
+    if fi is None:
+        return "not found in scanned files"
+    if fi.ignored or fi.binary:
+        return "ignored or binary"
+    if expected_path in receipt_map:
+        return receipt_map[expected_path] + suffix
+    if scored_info:
+        if scored_info["score"] <= 0:
+            return "scored too low" + suffix
+        return "ranked but not selected" + suffix
+    return "not scored" + suffix
+
+
 def _persist_result(root: Path, result: CaseResult) -> None:
     out = root / ".agentpack" / "benchmark_results.jsonl"
     p, r, f1 = _precision_recall(result) if result.case.expected_files else (None, None, None)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "task": result.case.task,
+        "task_type": result.case.task_type,
         "mode": result.case.mode,
         "packed_tokens": result.packed_tokens,
         "raw_tokens": result.raw_tokens,
@@ -356,7 +396,10 @@ def _print_case_detail(result: CaseResult, show_misses: bool = False) -> None:
     has_gt = bool(result.case.expected_files)
     p, r, f1 = _precision_recall(result) if has_gt else (0.0, 0.0, 0.0)
 
-    console.print(f"\n[bold cyan]{result.case.task}[/]  [dim]mode={result.case.mode}[/]")
+    console.print(
+        f"\n[bold cyan]{result.case.task}[/]  "
+        f"[dim]mode={result.case.mode} type={result.case.task_type}[/]"
+    )
 
     tbl = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
     tbl.add_column(style="dim")
@@ -464,6 +507,42 @@ def _print_summary_table(results: list[CaseResult]) -> None:
         tbl.add_row(*row)
 
     console.print()
+    console.print(tbl)
+
+
+def _print_task_type_summary(results: list[CaseResult]) -> None:
+    grouped: dict[str, list[CaseResult]] = {}
+    for result in results:
+        if result.case.expected_files:
+            grouped.setdefault(result.case.task_type, []).append(result)
+    if not grouped:
+        return
+
+    tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+    tbl.add_column("task type", max_width=28)
+    tbl.add_column("cases", justify="right")
+    tbl.add_column("avg P", justify="right")
+    tbl.add_column("avg R", justify="right")
+    tbl.add_column("avg F1", justify="right")
+    tbl.add_column("avg noise", justify="right")
+
+    for task_type, rows in sorted(grouped.items()):
+        metrics = [_precision_recall(row) for row in rows]
+        avg_p = sum(item[0] for item in metrics) / len(metrics)
+        avg_r = sum(item[1] for item in metrics) / len(metrics)
+        avg_f1 = sum(item[2] for item in metrics) / len(metrics)
+        noise_values = [row.noise_pct for row in rows if row.noise_pct is not None]
+        avg_noise = sum(noise_values) / len(noise_values) if noise_values else None
+        tbl.add_row(
+            task_type,
+            str(len(rows)),
+            f"{avg_p:.1%}",
+            f"{avg_r:.1%}",
+            f"{avg_f1:.1%}",
+            f"{avg_noise:.0f}%" if avg_noise is not None else "-",
+        )
+
+    console.print("\n[bold]By Task Type[/]")
     console.print(tbl)
 
 
@@ -588,11 +667,12 @@ def register(app: typer.Typer) -> None:
                             FixtureCase(
                                 fixture=fixture_case.fixture,
                                 root=fixture_case.root,
-                                case=BenchmarkCase(
-                                    task=fixture_case.case.task,
-                                    mode=fixture_mode,
-                                    expected_files=fixture_case.case.expected_files,
-                                ),
+                case=BenchmarkCase(
+                    task=fixture_case.case.task,
+                    mode=fixture_mode,
+                    expected_files=fixture_case.case.expected_files,
+                    task_type=fixture_case.case.task_type,
+                ),
                             )
                         )
                 fixture_cases = expanded_fixtures
@@ -625,6 +705,7 @@ def register(app: typer.Typer) -> None:
             else:
                 console.print("\n[bold]Summary[/]")
                 _print_fixture_summary_table(results)
+                _print_task_type_summary(results)
                 if misses:
                     _print_miss_details(results)
             return
@@ -654,7 +735,14 @@ def register(app: typer.Typer) -> None:
             expanded: list[BenchmarkCase] = []
             for c in bench_cases:
                 for m in ("minimal", "balanced", "deep"):
-                    expanded.append(BenchmarkCase(task=c.task, mode=m, expected_files=c.expected_files))
+                    expanded.append(
+                        BenchmarkCase(
+                            task=c.task,
+                            mode=m,
+                            expected_files=c.expected_files,
+                            task_type=c.task_type,
+                        )
+                    )
             bench_cases = expanded
 
         console.print(f"\n[bold]Running {len(bench_cases)} benchmark case(s)...[/]\n")
@@ -686,5 +774,6 @@ def register(app: typer.Typer) -> None:
                     _print_case_detail(r, show_misses=misses)
             console.print("\n[bold]Summary[/]")
             _print_summary_table(results)
+            _print_task_type_summary(results)
             if misses:
                 _print_miss_details(results)
