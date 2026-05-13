@@ -8,6 +8,10 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.1.24] — 2026-05-13
+
 ### Added
 - Context packs now render freshness metadata, including generated time, git branch/SHA, task source, changed-file source, snapshot hash, and dirty-file count.
 - Benchmark cases can declare `task_type`, and benchmark summaries now report precision/recall/F1 grouped by task type.
