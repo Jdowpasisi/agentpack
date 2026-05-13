@@ -144,6 +144,17 @@ def test_load_cases_parses_toml(tmp_path: Path) -> None:
     assert cases[0].task == "fix bug"
     assert cases[0].mode == "minimal"
     assert cases[0].expected_files == ["a.py"]
+    assert cases[0].task_type == "general"
+
+
+def test_load_cases_parses_task_type(tmp_path: Path) -> None:
+    f = tmp_path / "bench.toml"
+    f.write_text(
+        '[[cases]]\ntask = "fix bug"\ntask_type = "backend-api"\nexpected_files = ["a.py"]\n',
+        encoding="utf-8",
+    )
+    cases = _load_cases(f)
+    assert cases[0].task_type == "backend-api"
 
 
 def test_load_cases_defaults_mode(tmp_path: Path) -> None:
@@ -172,6 +183,7 @@ def test_persist_result_writes_jsonl(tmp_path: Path) -> None:
     assert out.exists()
     record = json.loads(out.read_text().strip())
     assert record["task"] == "t"
+    assert record["task_type"] == "general"
     assert record["after_ignore_tokens"] == 8000
     assert "saving_pct_honest" in record
     assert record["rank_at_k"] == 3
@@ -286,6 +298,7 @@ def _make_mock_plan(files: int = 10, tokens: int = 5000):
     plan.phase_times = {"scan": 0.1, "rank": 0.05}
     plan.scored = [(scored_fi, 1.0, ["keyword_match"])]
     plan.receipts = []
+    plan.changed_files_source = "git working tree"
     return plan
 
 
@@ -347,6 +360,7 @@ def test_run_case_records_miss_diagnostics(tmp_path: Path) -> None:
         "rank": 2,
         "score": 42.0,
         "reasons": ["filename keyword match"],
+        "basis": mock_plan.changed_files_source,
     }]
 
 
@@ -412,6 +426,7 @@ def test_sample_fixture_cases_include_framework_repos() -> None:
     assert {"py_fastapi_app", "nextjs_app", "mixed_repo"} <= fixture_names
     assert all(c.root.exists() for c in fixture_cases)
     assert all(c.case.expected_files for c in fixture_cases)
+    assert {c.case.task_type for c in fixture_cases} >= {"backend-api", "frontend-web"}
 
 
 def test_benchmark_cli_sample_fixtures_uses_temp_copies(monkeypatch: pytest.MonkeyPatch) -> None:

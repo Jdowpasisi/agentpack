@@ -16,6 +16,16 @@ _STOPWORDS = {
     "use", "using", "used", "how", "what", "when", "where", "why",
 }
 
+_GENERIC_TASK_TERMS = {
+    "add", "added", "change", "changed", "changes", "clean", "cleanup",
+    "code", "commit", "context", "debug", "dev", "development", "doc",
+    "docs", "eval", "evals", "feature", "fix", "freshness", "general",
+    "impl", "implement", "implementation", "improve", "issue", "metric", "metrics",
+    "noise", "noisy", "package", "pack", "packs", "release", "repo",
+    "source", "sync", "task", "tasks", "test", "tests", "update", "use",
+    "useful", "usefulness", "version", "workflow", "workflows",
+}
+
 _CONCEPT_MAP: dict[str, frozenset[str]] = {
     # rate limiting
     "rate": frozenset({"throttle", "ratelimit", "leaky", "bucket", "debounce", "backoff", "quota"}),
@@ -219,15 +229,18 @@ def extract_keyword_weights(task: str) -> dict[str, float]:
             continue
         if word in _STOPWORDS:
             continue
-        _add_keyword_weight(keyword_weights, word, 1.0)
+        literal_weight = 0.25 if word in _GENERIC_TASK_TERMS else 1.0
+        _add_keyword_weight(keyword_weights, word, literal_weight)
         if word in _VARIANTS:
-            _add_keyword_weight(keyword_weights, _VARIANTS[word], 0.75)
+            variant = _VARIANTS[word]
+            variant_weight = 0.25 if variant in _GENERIC_TASK_TERMS else min(0.75, literal_weight)
+            _add_keyword_weight(keyword_weights, variant, variant_weight)
 
     # Expand via concept map one level only. Expanded concepts are weaker than
     # literal task words so broad terms like "task" do not dominate ranking.
     expanded: dict[str, float] = {}
     for kw in keyword_weights:
-        if kw in _CONCEPT_MAP:
+        if kw in _CONCEPT_MAP and kw not in _GENERIC_TASK_TERMS:
             for synonym in _CONCEPT_MAP[kw]:
                 _add_keyword_weight(expanded, synonym, 0.35)
                 if synonym in _VARIANTS:
@@ -235,6 +248,17 @@ def extract_keyword_weights(task: str) -> dict[str, float]:
     for kw, weight in expanded.items():
         _add_keyword_weight(keyword_weights, kw, weight)
     return keyword_weights
+
+
+def generic_task_term_ratio(task: str) -> float:
+    words = [
+        word for word in re.split(r"[^a-zA-Z0-9]+", task.lower())
+        if len(word) >= 3 and word not in _STOPWORDS
+    ]
+    if not words:
+        return 0.0
+    generic = sum(1 for word in words if word in _GENERIC_TASK_TERMS)
+    return generic / len(words)
 
 
 def extract_keywords(task: str) -> set[str]:

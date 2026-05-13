@@ -74,6 +74,38 @@ def changed_files_since(root: Path, ref: str) -> set[str]:
     return result
 
 
+def current_sha(root: Path) -> str | None:
+    out = _run(["git", "rev-parse", "HEAD"], root)
+    return out.strip() if out else None
+
+
+def current_branch(root: Path) -> str | None:
+    out = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
+    if not out:
+        return None
+    branch = out.strip()
+    return branch if branch and branch != "HEAD" else None
+
+
+def dirty_files(root: Path) -> set[str]:
+    """Tracked and untracked files in git status --short output."""
+    out = _run(["git", "status", "--short"], root)
+    if not out:
+        return set()
+    paths: set[str] = set()
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Handles ordinary status lines and simple renames.
+        raw_path = line[3:].strip() if len(line) > 3 else line
+        if " -> " in raw_path:
+            raw_path = raw_path.rsplit(" -> ", 1)[1]
+        if raw_path:
+            paths.add(raw_path)
+    return paths
+
+
 def file_churn_counts(root: Path, max_commits: int = 200) -> dict[str, int]:
     """Return commit count per file from the last max_commits commits.
 

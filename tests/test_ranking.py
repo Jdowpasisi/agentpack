@@ -3,6 +3,7 @@ from agentpack.analysis.ranking import (
     boost_cross_layer_related,
     extract_keywords,
     extract_keyword_weights,
+    generic_task_term_ratio,
     score_files,
 )
 from agentpack.core.models import FileInfo
@@ -40,6 +41,27 @@ def test_extract_keyword_weights_downweight_expanded_concepts():
     weights = extract_keyword_weights("queue")
     assert weights["queue"] == 1.0
     assert weights["task"] < weights["queue"]
+
+
+def test_generic_task_terms_are_downweighted():
+    weights = extract_keyword_weights("fix auth implementation")
+    assert weights["fix"] < weights["auth"]
+    assert weights["impl"] < weights["auth"]
+    assert generic_task_term_ratio("fix release implementation task") >= 0.75
+
+
+def test_generic_terms_do_not_dominate_concrete_file_matches():
+    files = [_fi("src/release_notes.py"), _fi("src/auth/session.py")]
+    scored = score_files(
+        files,
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("fix auth release implementation"),
+    )
+    scores = {s[0].path: s[1] for s in scored}
+    assert scores["src/auth/session.py"] > scores["src/release_notes.py"]
 
 
 def test_changed_file_gets_high_score():

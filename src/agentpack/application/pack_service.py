@@ -22,6 +22,7 @@ from agentpack.analysis.ranking import (
     enrich_keyword_weights_from_files,
     boost_paired_tests,
     boost_cross_layer_related,
+    generic_task_term_ratio,
 )
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
@@ -37,6 +38,7 @@ class PackRequest:
     budget: int
     since: str | None
     refresh: bool
+    task_source: str = "explicit"
 
 
 @dataclass
@@ -57,6 +59,7 @@ class ChangeSet:
     all_changed: set[str]
     git_staged: set[str]
     recently_modified: list[str]
+    source: str
     current_snap: dict[str, Any] = field(default_factory=dict)
 
 
@@ -64,6 +67,7 @@ class ChangeSet:
 class RankResult:
     """Result of keyword extraction and file scoring."""
     keywords: set[str]
+    generic_ratio: float
     scored: list[tuple[Any, float, list[str]]]
 
 
@@ -80,6 +84,8 @@ class PackPlan:
     git_staged: set[str]
     recently_modified: list[str]
     keywords: set[str]
+    generic_task_ratio: float
+    changed_files_source: str
     scored: list[tuple[Any, float, list[str]]]
     selected: list[SelectedFile]
     receipts: list[Receipt]
@@ -119,6 +125,7 @@ class ChangeDetector:
             all_changed=changed_from_snap | git_changed,
             git_staged=git_staged,
             recently_modified=recently_modified,
+            source=_change_source(root, since, changed_from_snap, git_changed),
             current_snap=current_snap,
         )
 
@@ -140,6 +147,7 @@ class FileRanker:
         keyword_weights = extract_keyword_weights(task)
         keyword_weights = enrich_keyword_weights_from_files(keyword_weights, changes.all_changed, packable)
         keywords = set(keyword_weights)
+        generic_ratio = generic_task_term_ratio(task)
         all_paths = {f.path for f in packable}
 
         for fi in packable:
@@ -165,7 +173,7 @@ class FileRanker:
         )
         scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
-        return RankResult(keywords=keywords, scored=scored)
+        return RankResult(keywords=keywords, generic_ratio=generic_ratio, scored=scored)
 
 
 class PackPlanner:
@@ -217,8 +225,8 @@ class PackPlanner:
             budget=effective_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=rank_result.keywords,
-            min_summary_score=cfg.context.min_summary_score,
-            max_summary_files=_summary_cap_for_mode(cfg, request.mode),
+            min_summary_score=_summary_score_floor(cfg, rank_result.generic_ratio),
+            max_summary_files=_summary_cap_for_mode(cfg, request.mode, rank_result.generic_ratio),
         )
         phase_times["select"] = time.perf_counter() - t0
 
@@ -233,6 +241,8 @@ class PackPlanner:
             git_staged=changes.git_staged,
             recently_modified=changes.recently_modified,
             keywords=rank_result.keywords,
+            generic_task_ratio=rank_result.generic_ratio,
+            changed_files_source=changes.source,
             scored=rank_result.scored,
             selected=selected,
             receipts=receipts,
@@ -279,6 +289,13 @@ class PackService:
         saving_pct = (1 - packed_tokens / all_tokens) * 100 if all_tokens > 0 else 0.0
 
         all_redaction_warnings = [w for sf in plan.selected for w in sf.redaction_warnings]
+        freshness = _build_freshness_metadata(
+            root,
+            request=request,
+            plan=plan,
+            snapshot_root_hash=plan.current_snap["root_hash"],
+        )
+        freshness_warnings = _freshness_warnings(root, request, freshness)
 
         pack_obj = ContextPack(
             task=request.task,
@@ -294,6 +311,8 @@ class PackService:
             receipts=plan.receipts if cfg.context.include_receipts else [],
             redaction_warnings=all_redaction_warnings,
             stale=False,
+            freshness=freshness,
+            freshness_warnings=freshness_warnings,
         )
 
         adapter = AdapterRegistry.get(request.agent, cfg)
@@ -312,6 +331,8 @@ class PackService:
             mode=request.mode,
             budget=plan.budget,
             token_estimate=packed_tokens,
+            freshness=freshness,
+            freshness_warnings=freshness_warnings,
         )
         excluded_receipts = [r for r in plan.receipts if r.action == "excluded"]
         # Budget-cut: files that scored OK but didn't fit — more useful signal than "score too low"
@@ -359,14 +380,104 @@ def _sf_tokens(sf: SelectedFile) -> int:
     return estimate_tokens("\n".join(parts)) if parts else 50
 
 
-def _summary_cap_for_mode(cfg: Any, mode: str) -> int:
+def _summary_score_floor(cfg: Any, generic_ratio: float) -> float:
+    floor = cfg.context.min_summary_score
+    if generic_ratio >= 0.5:
+        return floor + 15
+    if generic_ratio >= 0.35:
+        return floor + 8
+    return floor
+
+
+def _summary_cap_for_mode(cfg: Any, mode: str, generic_ratio: float = 0.0) -> int:
     if mode == "minimal":
-        return cfg.context.max_summary_files_minimal
-    if mode == "balanced":
-        return cfg.context.max_summary_files_balanced
-    if mode == "deep":
-        return cfg.context.max_summary_files_deep
-    return 0
+        cap = cfg.context.max_summary_files_minimal
+    elif mode == "balanced":
+        cap = cfg.context.max_summary_files_balanced
+    elif mode == "deep":
+        cap = cfg.context.max_summary_files_deep
+    else:
+        cap = 0
+    if cap > 0 and generic_ratio >= 0.5:
+        return max(8, cap // 2)
+    if cap > 0 and generic_ratio >= 0.35:
+        return max(12, int(cap * 0.75))
+    return cap
+
+
+def _change_source(root: Path, since: str | None, snapshot_changed: set[str], git_changed: set[str]) -> str:
+    if not git.is_git_repo(root):
+        return "snapshot diff"
+    if since:
+        return f"git diff since {since} + snapshot diff"
+    if git_changed and snapshot_changed:
+        return "git working tree + snapshot diff"
+    if git_changed:
+        return "git working tree"
+    if snapshot_changed:
+        return "snapshot diff"
+    return "no live changes; ranking used task keywords and history"
+
+
+def _task_md_body(root: Path) -> str | None:
+    task_md_path = root / ".agentpack" / "task.md"
+    if not task_md_path.exists():
+        return None
+    try:
+        content = task_md_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    lines = [ln for ln in content.splitlines() if ln.strip() and not ln.startswith("#")]
+    body = lines[0].strip() if lines else ""
+    placeholder = "Write or update the current coding task here."
+    if body and placeholder not in body:
+        return body
+    return None
+
+
+def _build_freshness_metadata(
+    root: Path,
+    *,
+    request: PackRequest,
+    plan: PackPlan,
+    snapshot_root_hash: str,
+) -> dict[str, Any]:
+    dirty = git.dirty_files(root) if git.is_git_repo(root) else set()
+    metadata: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "task_source": request.task_source,
+        "changed_files_source": plan.changed_files_source,
+        "snapshot_root_hash": snapshot_root_hash,
+        "generic_task_ratio": round(plan.generic_task_ratio, 3),
+        "dirty_files_count": len(dirty),
+    }
+    if git.is_git_repo(root):
+        metadata["git_sha"] = git.current_sha(root)
+        metadata["git_branch"] = git.current_branch(root)
+    if dirty:
+        metadata["dirty_files_sample"] = sorted(dirty)[:8]
+    task_md = _task_md_body(root)
+    if task_md:
+        metadata["task_md"] = task_md
+    return metadata
+
+
+def _freshness_warnings(root: Path, request: PackRequest, freshness: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    task_md = freshness.get("task_md")
+    if task_md and task_md != request.task:
+        warnings.append(
+            ".agentpack/task.md differs from the packed task; rerun with --task auto if task.md should win."
+        )
+    if freshness.get("changed_files_source") == "no live changes; ranking used task keywords and history":
+        warnings.append("No live changed files were detected; treat selected files as keyword-based hints.")
+    if freshness.get("generic_task_ratio", 0) >= 0.5:
+        warnings.append("Task terms are broad/generic; pack tightened weak-summary selection.")
+    saved_sha = freshness.get("git_sha")
+    current_sha = git.current_sha(root) if git.is_git_repo(root) else None
+    if saved_sha and current_sha and saved_sha != current_sha:
+        warnings.append("Git HEAD changed since this pack was generated.")
+    return warnings
 
 
 def _load_last_record(metrics_path: Path) -> dict[str, Any] | None:

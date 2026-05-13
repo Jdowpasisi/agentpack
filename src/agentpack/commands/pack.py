@@ -33,7 +33,7 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
 
         resolved_agent = _resolve_agent(agent)
-        resolved_task = _resolve_task(task)
+        resolved_task, task_source = _resolve_task_with_source(task)
 
         if watch or session:
             _pack_watch(agent=resolved_agent, task=resolved_task, mode=mode, budget=budget,
@@ -48,6 +48,7 @@ def register(app: typer.Typer) -> None:
             budget=budget,
             since=since,
             refresh=refresh,
+            task_source=task_source,
         ))
         _print_pack_summary(result)
 
@@ -62,8 +63,13 @@ def _resolve_agent(agent: str) -> str:
 
 
 def _resolve_task(task: str) -> str:
+    resolved, _source = _resolve_task_with_source(task)
+    return resolved
+
+
+def _resolve_task_with_source(task: str) -> tuple[str, str]:
     if task != "auto":
-        return task
+        return task, "explicit"
     root = _root()
     # task.md takes priority over all git heuristics
     task_md_path = root / ".agentpack" / "task.md"
@@ -74,10 +80,10 @@ def _resolve_task(task: str) -> str:
         _PLACEHOLDER = "Write or update the current coding task here."
         if body and _PLACEHOLDER not in body:
             console.print(f"[dim]Auto task (task.md): {body}[/]")
-            return body
+            return body, "task.md"
     inferred, source = git.infer_task_with_source(root)
     console.print(f"[dim]Auto task ({source}): {inferred}[/]")
-    return inferred
+    return inferred, source
 
 
 def _print_pack_summary(result: PackResult) -> None:
@@ -224,7 +230,7 @@ def _pack_watch(
     def _run_pack() -> None:
         result = PackService().run(PackRequest(
             root=root, agent=agent, task=task, mode=mode, budget=budget,
-            since=since, refresh=False,
+            since=since, refresh=False, task_source="watch",
         ))
         _print_pack_summary(result)
 

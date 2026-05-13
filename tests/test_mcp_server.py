@@ -130,6 +130,28 @@ def test_get_context_stale_when_hashes_differ(tmp_path):
 
     result = _get_context_impl(tmp_path)
     assert "Stale context" in result
+
+
+def test_get_context_stale_when_task_md_differs(tmp_path):
+    from agentpack.mcp_server import _get_context_impl
+
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "context.md").write_text("# AgentPack Context\n")
+    (tmp_path / ".agentpack" / "task.md").write_text("fix different task\n")
+    (tmp_path / ".agentpack" / "pack_metadata.json").write_text(json.dumps({
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "snapshot_root_hash": "abc123",
+        "task": "fix old task",
+        "token_estimate": 100,
+    }))
+    snap_dir = tmp_path / ".agentpack" / "snapshots"
+    snap_dir.mkdir()
+    (snap_dir / "latest.json").write_text(json.dumps({"root_hash": "abc123"}))
+
+    result = _get_context_impl(tmp_path)
+
+    assert "Stale context" in result
+    assert ".agentpack/task.md differs" in result
     assert "pack_context()" in result
 
 

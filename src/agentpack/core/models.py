@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
-from pydantic import BaseModel
+from typing import Any
+from pydantic import BaseModel, Field
 
 
 class ScanResult(BaseModel):
@@ -81,6 +82,8 @@ class ContextPack(BaseModel):
     receipts: list[Receipt]
     redaction_warnings: list[str] = []
     stale: bool = False
+    freshness: dict[str, Any] = Field(default_factory=dict)
+    freshness_warnings: list[str] = Field(default_factory=list)
 
 
 class DependencyNode(BaseModel):
