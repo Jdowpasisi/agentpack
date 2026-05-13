@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from agentpack.commands.explain import _resolve_signal_weight
+from types import SimpleNamespace
+
+from agentpack.commands.explain import _noise_report, _resolve_signal_weight
 from agentpack.core.config import ScoringWeights
 
 
@@ -83,3 +85,24 @@ def test_case_insensitive_matching() -> None:
     assert _resolve_signal_weight("Modified", _WEIGHTS) == 100.0
     assert _resolve_signal_weight("STAGED", _WEIGHTS) == 90.0
     assert _resolve_signal_weight("Filename Keyword Match", _WEIGHTS) == 80.0
+
+
+def test_noise_report_names_generic_terms() -> None:
+    plan = SimpleNamespace(
+        selected=[
+            SimpleNamespace(include_mode="summary", reasons=["filename keyword match"]),
+            SimpleNamespace(include_mode="summary", reasons=["filename keyword match"]),
+        ],
+        receipts=[
+            SimpleNamespace(action="excluded", reason="summary cap reached"),
+            SimpleNamespace(action="excluded", reason="summary score below floor"),
+        ],
+    )
+
+    report = "\n".join(_noise_report("fix pack stats noise", plan))
+
+    assert "generic terms:" in report
+    assert "pack" in report
+    assert "stats" in report
+    assert "excluded by summary cap: 1" in report
+    assert "Try `--mode minimal`" in report

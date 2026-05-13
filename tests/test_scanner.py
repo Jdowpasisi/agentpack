@@ -22,6 +22,24 @@ def test_scan_excludes_ignored(tmp_path):
     assert not any("node_modules" in p for p in packable_paths)
 
 
+def test_scan_excludes_agentpack_antigravity_skill(tmp_path):
+    (tmp_path / ".agent" / "skills" / "agentpack").mkdir(parents=True)
+    (tmp_path / ".agent" / "skills" / "agentpack" / "SKILL.md").write_text("# generated context")
+    (tmp_path / ".agent" / "skills" / "custom").mkdir(parents=True)
+    (tmp_path / ".agent" / "skills" / "custom" / "SKILL.md").write_text("# custom skill")
+
+    spec = _spec()
+    result = scan(
+        tmp_path,
+        spec,
+        always_skip_paths={".agent/skills/agentpack/SKILL.md"},
+    )
+    packable_paths = {f.path for f in result.packable}
+
+    assert ".agent/skills/agentpack/SKILL.md" not in packable_paths
+    assert ".agent/skills/custom/SKILL.md" in packable_paths
+
+
 def test_scan_marks_ignored(tmp_path):
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "x.js").write_text("x")

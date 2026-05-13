@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
 from rich.table import Table
 from rich import box
+from rich.panel import Panel
 
+from agentpack.core import git
 from agentpack.core.config import load_config
 from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
+from agentpack.core.snapshot import build_snapshot
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.application.pack_service import AdapterRegistry
 from agentpack.commands._shared import console, _root
+from agentpack.session.state import SessionState
 
 
 def register(app: typer.Typer) -> None:
@@ -22,7 +28,12 @@ def register(app: typer.Typer) -> None:
         cfg = load_config(root)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
 
-        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        scan_result = scan(
+            root,
+            ignore_spec,
+            cfg.context.max_file_tokens,
+            always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
+        )
         meta = load_pack_metadata(root)
 
         raw = sum(f.estimated_tokens for f in scan_result.all_files)
@@ -55,6 +66,8 @@ def register(app: typer.Typer) -> None:
             sess_tbl.add_column(style="bold")
             sess_tbl.add_row("active", "[green]yes[/]" if session.active else "[red]no[/]")
             sess_tbl.add_row("agent", session.agent)
+            if session.last_resolved_agent and session.last_resolved_agent != session.agent:
+                sess_tbl.add_row("last pack agent", session.last_resolved_agent)
             sess_tbl.add_row("mode", session.mode)
             if session.started_at:
                 sess_tbl.add_row("started", session.started_at[:19].replace("T", " "))
@@ -75,10 +88,23 @@ def register(app: typer.Typer) -> None:
                 except Exception:
                     pass
 
+        context_path_obj = None
         if meta:
             context_path_obj = root / meta.get("context_path", "")
-            if context_path_obj.exists():
+            top_files = _top_files_from_metadata(meta)
+            if not top_files and context_path_obj.exists():
                 top_files = _parse_top_files(context_path_obj)
+
+        freshness_diagnostics = _freshness_diagnostics(
+            root=root,
+            meta=meta,
+            session=session,
+            current_root_hash=build_snapshot(scan_result.packable)["root_hash"],
+            context_path=context_path_obj,
+        )
+        if freshness_diagnostics:
+            console.print()
+            console.print(_advice_panel("Freshness advice", freshness_diagnostics))
 
         token_by_path = {f.path: f.estimated_tokens for f in scan_result.packable}
         top_estimate = sum(token_by_path.get(path, 0) for path, _mode, _why in top_files[:20])
@@ -116,6 +142,11 @@ def register(app: typer.Typer) -> None:
 
         # --- Selection accuracy (last 10 runs) ---
         accuracy_rows = _load_accuracy_rows(metrics_path, n=10)
+        noise_diagnostics = _noise_diagnostics(top_files, accuracy_rows)
+        if noise_diagnostics:
+            console.print()
+            console.print(_advice_panel("Pack quality advice", noise_diagnostics))
+
         if accuracy_rows:
             avg_recall = sum(r["selection_recall"] for r in accuracy_rows) / len(accuracy_rows)
             avg_precision = sum(r["selection_precision"] for r in accuracy_rows) / len(accuracy_rows)
@@ -172,6 +203,126 @@ def _load_accuracy_rows(metrics_path: Path, n: int = 10) -> list[dict]:
         return rows
     except Exception:
         return []
+
+
+def _task_md_body(root: Path) -> str | None:
+    path = root / ".agentpack" / "task.md"
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    lines = [line for line in content.splitlines() if line.strip() and not line.startswith("#")]
+    body = lines[0].strip() if lines else ""
+    if body and "Write or update the current coding task here." not in body:
+        return body
+    return None
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _freshness_diagnostics(
+    *,
+    root: Path,
+    meta: dict | None,
+    session: SessionState | None,
+    current_root_hash: str,
+    context_path: Path | None,
+) -> list[str]:
+    if not meta:
+        return ["No pack metadata found; run `agentpack pack --task auto`."]
+
+    diagnostics: list[str] = []
+    for warning in meta.get("freshness_warnings") or []:
+        diagnostics.append(str(warning))
+
+    task_md = _task_md_body(root)
+    if task_md and task_md != meta.get("task"):
+        diagnostics.append(".agentpack/task.md differs from the latest packed task.")
+
+    if meta.get("snapshot_root_hash") and meta.get("snapshot_root_hash") != current_root_hash:
+        diagnostics.append("Files changed since the latest pack; refresh before trusting top included files.")
+
+    if git.is_git_repo(root):
+        packed_sha = meta.get("git_sha") or (meta.get("freshness") or {}).get("git_sha")
+        current_sha = git.current_sha(root)
+        if packed_sha and current_sha and packed_sha != current_sha:
+            diagnostics.append("Git HEAD changed since the latest pack.")
+
+    if context_path is not None and not context_path.exists():
+        diagnostics.append(f"Recorded context path is missing: {context_path.relative_to(root)}.")
+
+    if session and session.active:
+        packed_at = _parse_iso(meta.get("generated_at"))
+        refreshed_at = _parse_iso(session.last_refresh_at)
+        if not session.last_refresh_at:
+            diagnostics.append("Session is active but has no last refresh timestamp.")
+        elif packed_at and refreshed_at and refreshed_at < packed_at:
+            diagnostics.append("Session last refresh timestamp is older than latest pack metadata.")
+
+    return diagnostics[:5]
+
+
+def _noise_diagnostics(
+    top_files: list[tuple[str, str, str]],
+    accuracy_rows: list[dict],
+) -> list[str]:
+    diagnostics: list[str] = []
+    if top_files:
+        summary_count = sum(1 for _path, mode, _why in top_files if mode == "summary")
+        filename_matches = sum(1 for _path, _mode, why in top_files if "filename keyword match" in why)
+        if summary_count / len(top_files) >= 0.7:
+            diagnostics.append("Latest pack is mostly summaries; use minimal mode or a narrower task for edit work.")
+        if filename_matches / len(top_files) >= 0.6:
+            diagnostics.append("Top files mostly matched by filename; task terms may be broad.")
+
+    if accuracy_rows:
+        avg_precision = sum(r["selection_precision"] for r in accuracy_rows) / len(accuracy_rows)
+        token_rows = [r for r in accuracy_rows if "selection_token_precision" in r]
+        avg_token_precision = (
+            sum(r["selection_token_precision"] for r in token_rows) / len(token_rows)
+            if token_rows else None
+        )
+        summary_rows = [r for r in accuracy_rows if "selection_token_precision_summary" in r]
+        avg_summary_precision = (
+            sum(r["selection_token_precision_summary"] for r in summary_rows) / len(summary_rows)
+            if summary_rows else None
+        )
+        if avg_precision < 0.05:
+            diagnostics.append("Selection file precision is very low; many selected files were not later changed.")
+        if avg_token_precision is not None and avg_token_precision < 0.2:
+            diagnostics.append("Token precision is low; most packed tokens became noise in recent runs.")
+        if avg_summary_precision == 0:
+            diagnostics.append("Summary token precision is 0%; summary context has not matched later edits.")
+    return diagnostics[:5]
+
+
+def _top_files_from_metadata(meta: dict) -> list[tuple[str, str, str]]:
+    files = meta.get("selected_files_meta") or []
+    if not isinstance(files, list):
+        return []
+    result: list[tuple[str, str, str]] = []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        mode = item.get("mode")
+        why = item.get("why") or ""
+        if isinstance(path, str) and isinstance(mode, str):
+            result.append((path, mode, str(why)))
+    return result
+
+
+def _advice_panel(title: str, diagnostics: list[str]) -> Panel:
+    body = "\n".join(f"  [cyan]i[/] {line}" for line in diagnostics)
+    return Panel(body, title=f"[bold cyan]{title}[/]", border_style="cyan", padding=(0, 1))
 
 
 def _parse_top_files(context_path: Path) -> list[tuple[str, str, str]]:

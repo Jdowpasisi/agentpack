@@ -10,9 +10,21 @@ build/
 venv/
 env/
 
+# agentpack:start
+# AgentPack generated context/cache (safe to ignore)
 .agentpack/cache/
 .agentpack/snapshots/
-.agentpack/context.*
+.agentpack/context*
+.agentpack/metrics.jsonl
+.agentpack/pack_metadata.json
+.agentpack/activity.log
+.agentpack/.gitignore
+.agentpack/.mcp_reminded
+.agentpack/session.json
+.agentpack/task.md
+.agentpack/benchmark_results.jsonl
+.agent/skills/agentpack/
+# agentpack:end
 
 .pytest_cache/
 .mypy_cache/

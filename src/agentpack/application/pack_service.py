@@ -16,6 +16,7 @@ from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata
 from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
 from agentpack.core.token_estimator import estimate_tokens
+from agentpack.renderers.markdown import render_generic
 from agentpack.analysis.ranking import (
     score_files,
     extract_keyword_weights,
@@ -193,6 +194,7 @@ class PackPlanner:
             previous_snapshot=previous_snap,
             include_globs=cfg.project.include_globs or None,
             exclude_globs=cfg.project.exclude_globs or None,
+            always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
         )
         phase_times["scan"] = time.perf_counter() - t0
 
@@ -255,7 +257,7 @@ class AdapterRegistry:
     """Maps agent names to adapter instances; extensible without touching PackService."""
 
     @staticmethod
-    def get(agent: str, cfg: Any) -> Any:
+    def _factories(cfg: Any) -> dict[str, Any]:
         from agentpack.adapters.antigravity import AntigravityAdapter
         from agentpack.adapters.claude import ClaudeAdapter
         from agentpack.adapters.codex import CodexAdapter
@@ -263,14 +265,32 @@ class AdapterRegistry:
         from agentpack.adapters.windsurf import WindsurfAdapter
         from agentpack.adapters.generic import GenericAdapter
 
-        adapters = {
+        return {
             "antigravity": lambda: AntigravityAdapter(),
             "claude": lambda: ClaudeAdapter(cfg.agents.claude.output),
             "cursor": lambda: CursorAdapter(cfg.agents.generic.output),
             "windsurf": lambda: WindsurfAdapter(cfg.agents.generic.output),
             "codex": lambda: CodexAdapter(cfg.agents.generic.output),
+            "generic": lambda: GenericAdapter(cfg.agents.generic.output),
         }
+
+    @staticmethod
+    def get(agent: str, cfg: Any) -> Any:
+        from agentpack.adapters.generic import GenericAdapter
+
+        adapters = AdapterRegistry._factories(cfg)
         return adapters.get(agent, lambda: GenericAdapter(cfg.agents.generic.output))()
+
+    @staticmethod
+    def generated_output_paths(root: Path, cfg: Any) -> set[str]:
+        paths: set[str] = set()
+        for factory in AdapterRegistry._factories(cfg).values():
+            try:
+                out_path = factory().output_path(root)
+                paths.add(str(out_path.relative_to(root)).replace("\\", "/"))
+            except (OSError, ValueError):
+                continue
+        return paths
 
 
 class PackService:
@@ -319,6 +339,7 @@ class PackService:
 
         t0 = time.perf_counter()
         out_path = adapter.write(pack_obj, root)
+        _write_canonical_context(pack_obj, root, out_path)
         plan.phase_times["render"] = time.perf_counter() - t0
 
         save_snapshot(plan.current_snap, root)
@@ -333,6 +354,7 @@ class PackService:
             token_estimate=packed_tokens,
             freshness=freshness,
             freshness_warnings=freshness_warnings,
+            selected_files=_selected_file_metadata(plan.selected),
         )
         excluded_receipts = [r for r in plan.receipts if r.action == "excluded"]
         # Budget-cut: files that scored OK but didn't fit — more useful signal than "score too low"
@@ -366,6 +388,33 @@ class PackService:
             changed_files=sorted(plan.all_changed),
             scan_result=plan.scan_result,
         )
+
+
+def _write_canonical_context(pack: ContextPack, root: Path, out_path: Path) -> None:
+    """Keep .agentpack/context.md fresh even when the target agent writes elsewhere."""
+    canonical_path = root / ".agentpack" / "context.md"
+    try:
+        if out_path.resolve() == canonical_path.resolve():
+            return
+    except OSError:
+        if out_path == canonical_path:
+            return
+    canonical_path.parent.mkdir(parents=True, exist_ok=True)
+    canonical_path.write_text(render_generic(pack), encoding="utf-8")
+
+
+def _selected_file_metadata(selected: list[SelectedFile]) -> list[dict[str, Any]]:
+    return [
+        {
+            "path": sf.path,
+            "mode": sf.include_mode,
+            "score": round(sf.score, 1),
+            "why": sf.reasons[0] if sf.reasons else "",
+            "reasons": sf.reasons,
+            "tokens": _sf_tokens(sf),
+        }
+        for sf in selected
+    ]
 
 
 def _sf_tokens(sf: SelectedFile) -> int:

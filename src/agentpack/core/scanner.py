@@ -91,6 +91,7 @@ def scan(
     previous_snapshot: dict | None = None,
     include_globs: list[str] | None = None,
     exclude_globs: list[str] | None = None,
+    always_skip_paths: set[str] | None = None,
 ) -> ScanResult:
     packable: list[FileInfo] = []
     ignored: list[FileInfo] = []
@@ -98,6 +99,7 @@ def scan(
 
     prev_files: dict[str, dict] = (previous_snapshot or {}).get("files", {})
     inc_spec, exc_spec = _build_glob_specs(include_globs or [], exclude_globs or [])
+    generated_paths = {p.replace("\\", "/") for p in (always_skip_paths or set())}
 
     for abs_path in root.rglob("*"):
         if not abs_path.is_file():
@@ -110,6 +112,8 @@ def scan(
             continue
 
         rel_str = str(rel)
+        if rel_str.replace("\\", "/") in generated_paths:
+            continue
 
         if inc_spec is not None and not inc_spec.match_file(rel_str):
             ignored.append(FileInfo(

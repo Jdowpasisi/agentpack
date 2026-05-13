@@ -10,6 +10,26 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.25] — 2026-05-13
+
+### Added
+- `agentpack explain --why-noisy` reports broad task terms, noisy selection signals, and concrete wording advice.
+- `agentpack doctor` now includes a release hygiene check for generated local artifacts that should not be staged.
+- Pack metadata now stores structured selected-file details so stats does not depend on parsing rendered markdown.
+
+### Changed
+- `agentpack init` now patches the repo `.gitignore` idempotently with AgentPack generated artifacts, keeping `.agentpack/config.toml` trackable while ignoring local context, cache, snapshot, session, task, metrics, and generated Antigravity skill files.
+- Pack diagnostics now adapt to strong changed-file signal and avoid noisy filename/summary warnings when live edits are already ranked near the top.
+- `agentpack stats` now presents pack quality guidance as calmer advice and shows both configured and last resolved agent when they differ.
+- Generated adapter output paths are skipped consistently across scan, diff, status, stats, summarize, pack planning, explain, MCP, and benchmark flows.
+
+### Fixed
+- Manual `agentpack pack` refreshes active session timestamps and counters, preventing stale session warnings immediately after a successful pack.
+- Antigravity-generated AgentPack skill output no longer pollutes future packs as a changed input.
+- `agentpack doctor` now reads the latest context path from pack metadata instead of reporting stale `context.claude.md` age.
+
+---
+
 ## [0.1.24] — 2026-05-13
 
 ### Added

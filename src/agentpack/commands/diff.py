@@ -8,6 +8,7 @@ from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
 from agentpack.core.snapshot import build_snapshot, load_snapshot
 from agentpack.core.diff import diff_snapshots
+from agentpack.application.pack_service import AdapterRegistry
 from agentpack.commands._shared import console, _root
 
 
@@ -19,7 +20,12 @@ def register(app: typer.Typer) -> None:
         cfg = load_config(root)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
 
-        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        scan_result = scan(
+            root,
+            ignore_spec,
+            cfg.context.max_file_tokens,
+            always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
+        )
         current = build_snapshot(scan_result.packable)
         previous = load_snapshot(root)
         result = diff_snapshots(previous, current)

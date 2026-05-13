@@ -34,6 +34,7 @@ class SessionState:
     last_refresh_at: Optional[str] = None
     last_task_hash: str = ""
     last_git_hash: str = ""
+    last_resolved_agent: str = ""
     refresh_count: int = 0
 
 
@@ -53,6 +54,7 @@ def load_session(root: Path) -> Optional[SessionState]:
             last_refresh_at=data.get("last_refresh_at"),
             last_task_hash=data.get("last_task_hash", ""),
             last_git_hash=data.get("last_git_hash", ""),
+            last_resolved_agent=data.get("last_resolved_agent", ""),
             refresh_count=data.get("refresh_count", 0),
         )
     except FileNotFoundError:

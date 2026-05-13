@@ -5,6 +5,7 @@ import typer
 from agentpack.core.config import load_config
 from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
+from agentpack.application.pack_service import AdapterRegistry
 from agentpack.summaries.base import get_or_build_summary
 from agentpack.commands._shared import console, _root
 
@@ -21,7 +22,12 @@ def register(app: typer.Typer) -> None:
 
         console.print("[bold]Building offline summaries...[/]")
 
-        scan_result = scan(root, ignore_spec, cfg.context.max_file_tokens)
+        scan_result = scan(
+            root,
+            ignore_spec,
+            cfg.context.max_file_tokens,
+            always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
+        )
         active = scan_result.packable
 
         if refresh:

@@ -10,6 +10,54 @@ from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 from agentpack.commands._shared import console, _root
 from agentpack.session.state import load_session, create_session, SESSION_FILE, TASK_FILE
 
+_GITIGNORE_START = "# agentpack:start"
+_GITIGNORE_END = "# agentpack:end"
+
+
+def _repo_gitignore_block(share_cache: bool = False) -> str:
+    cache_line = "" if share_cache else ".agentpack/cache/\n"
+    return (
+        f"{_GITIGNORE_START}\n"
+        "# AgentPack generated context/cache (safe to ignore)\n"
+        f"{cache_line}"
+        ".agentpack/snapshots/\n"
+        ".agentpack/context*\n"
+        ".agentpack/metrics.jsonl\n"
+        ".agentpack/pack_metadata.json\n"
+        ".agentpack/activity.log\n"
+        ".agentpack/.gitignore\n"
+        ".agentpack/.mcp_reminded\n"
+        ".agentpack/session.json\n"
+        ".agentpack/task.md\n"
+        ".agentpack/benchmark_results.jsonl\n"
+        ".agent/skills/agentpack/\n"
+        f"{_GITIGNORE_END}\n"
+    )
+
+
+def _patch_repo_gitignore(root, share_cache: bool = False) -> str:
+    gitignore = root / ".gitignore"
+    block = _repo_gitignore_block(share_cache)
+    if not gitignore.exists():
+        gitignore.write_text(block, encoding="utf-8")
+        return "created"
+
+    content = gitignore.read_text(encoding="utf-8")
+    start = content.find(_GITIGNORE_START)
+    end = content.find(_GITIGNORE_END)
+    if start != -1 and end != -1 and end >= start:
+        end += len(_GITIGNORE_END)
+        replacement = block.rstrip()
+        updated = content[:start].rstrip() + "\n\n" + replacement + "\n" + content[end:].lstrip("\n")
+        if updated == content:
+            return "unchanged"
+        gitignore.write_text(updated, encoding="utf-8")
+        return "updated"
+
+    prefix = content.rstrip() + "\n\n" if content.strip() else ""
+    gitignore.write_text(prefix + block, encoding="utf-8")
+    return "updated"
+
 
 def register(app: typer.Typer) -> None:
     @app.command()
@@ -47,6 +95,14 @@ def register(app: typer.Typer) -> None:
                 console.print("  [dim]cache/ not gitignored — commit it so teammates skip agentpack summarize[/]")
         else:
             console.print("[dim]Skipped[/] .agentpack/.gitignore (exists)")
+
+        gitignore_action = _patch_repo_gitignore(root, share_cache=share_cache)
+        if gitignore_action == "created":
+            console.print("[green]Created[/] .gitignore [dim](AgentPack generated artifacts ignored)[/]")
+        elif gitignore_action == "updated":
+            console.print("[green]Updated[/] .gitignore [dim](AgentPack generated artifacts ignored)[/]")
+        else:
+            console.print("[dim]Skipped[/] .gitignore (AgentPack block unchanged)")
 
         config_path_file = agentpack_dir / "config.toml"
         if not config_path_file.exists() or force:
