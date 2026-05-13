@@ -245,7 +245,10 @@ def _freshness_diagnostics(
 
     task_md = _task_md_body(root)
     if task_md and task_md != meta.get("task"):
-        diagnostics.append(".agentpack/task.md differs from the latest packed task.")
+        diagnostics.append(
+            ".agentpack/task.md differs from the latest packed task "
+            f"(packed: {meta.get('task')}; current: {task_md})."
+        )
 
     if meta.get("snapshot_root_hash") and meta.get("snapshot_root_hash") != current_root_hash:
         diagnostics.append("Files changed since the latest pack; refresh before trusting top included files.")

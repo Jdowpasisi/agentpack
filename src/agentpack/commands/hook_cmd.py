@@ -10,6 +10,7 @@ import typer
 
 from agentpack.commands._shared import _root
 from agentpack.core import git as _git
+from agentpack.core.config import load_config
 
 _TASK_FILE = ".agentpack/task.md"
 _TASK_FILE_DEFAULT_MARKER = "Write or update the current coding task here."
@@ -17,6 +18,37 @@ _CODING_PROMPT_RE = re.compile(
     r"(?:fix|add|refactor|impl|implement|update|write|debug|test|build|migrate|remove|delete|rename|optimize)\b",
     re.IGNORECASE,
 )
+_TASK_STOPWORDS = {
+    "add",
+    "all",
+    "and",
+    "bug",
+    "build",
+    "can",
+    "change",
+    "changes",
+    "code",
+    "delete",
+    "fix",
+    "for",
+    "implement",
+    "improve",
+    "make",
+    "please",
+    "refactor",
+    "remove",
+    "task",
+    "test",
+    "that",
+    "the",
+    "these",
+    "this",
+    "update",
+    "with",
+    "work",
+    "write",
+    "you",
+}
 
 
 def register(app: typer.Typer) -> None:
@@ -83,13 +115,66 @@ def _looks_like_coding_prompt(prompt: str) -> bool:
     return bool(_CODING_PROMPT_RE.search(stripped))
 
 
-def _resolve_task(root: Path, prompt: str) -> str:
+def _prompt_task(prompt: str) -> str:
+    if not prompt or not _looks_like_coding_prompt(prompt):
+        return ""
+    task = " ".join(prompt.strip().split())[:200]
+    if not _task_terms(task):
+        return ""
+    return task
+
+
+def _task_terms(text: str) -> set[str]:
+    terms: set[str] = set()
+    for raw in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]*", text.lower()):
+        for part in re.split(r"[-_]", raw):
+            if len(part) >= 3 and part not in _TASK_STOPWORDS:
+                terms.add(part)
+    return terms
+
+
+def _looks_like_task_switch(current_task: str, prompt: str, min_terms: int = 1) -> bool:
+    """Heuristic: a coding prompt with disjoint concrete terms likely starts a new task."""
+    prompt_task = _prompt_task(prompt)
+    if not current_task or not prompt_task:
+        return False
+    if current_task.strip().lower() == prompt_task.lower():
+        return False
+    current_terms = _task_terms(current_task)
+    prompt_terms = _task_terms(prompt_task)
+    required_terms = max(1, min_terms)
+    if len(current_terms) < required_terms or len(prompt_terms) < required_terms:
+        return False
+    return bool(current_terms and prompt_terms and current_terms.isdisjoint(prompt_terms))
+
+
+def _write_task_md(root: Path, task: str) -> None:
+    task_path = root / _TASK_FILE
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    task_path.write_text(task.strip() + "\n", encoding="utf-8")
+
+
+def _resolve_task(
+    root: Path,
+    prompt: str,
+    *,
+    task_switch_detection: bool = True,
+    task_switch_min_terms: int = 1,
+) -> str:
     """Merge task.md + prompt into best task description for repack."""
     task_md = _load_task_md(root)
+    prompt_task = _prompt_task(prompt)
+    if (
+        task_switch_detection
+        and task_md
+        and prompt_task
+        and _looks_like_task_switch(task_md, prompt_task, min_terms=task_switch_min_terms)
+    ):
+        return prompt_task
     if task_md:
         return task_md
-    if prompt and _looks_like_coding_prompt(prompt):
-        return prompt[:200].strip()
+    if prompt_task:
+        return prompt_task
     return "auto"
 
 
@@ -177,13 +262,37 @@ def _run_user_prompt_submit(root: Path) -> None:
     except Exception:
         prompt = ""
 
-    task = _resolve_task(root, prompt)
+    cfg = load_config(root)
+    task_md = _load_task_md(root)
+    task_switched = bool(
+        cfg.hooks.task_switch_detection
+        and _looks_like_task_switch(
+            task_md,
+            prompt,
+            min_terms=cfg.hooks.task_switch_min_terms,
+        )
+    )
+    task = _resolve_task(
+        root,
+        prompt,
+        task_switch_detection=cfg.hooks.task_switch_detection,
+        task_switch_min_terms=cfg.hooks.task_switch_min_terms,
+    )
+    if task_switched and task != "auto":
+        try:
+            _write_task_md(root, task)
+        except Exception:
+            pass
 
     current_hash = _current_root_hash(root)
     reminded_hash = snap_sentinel.read_text().strip() if snap_sentinel.exists() else None
     repo_changed = current_hash != reminded_hash
+    packed_task = _load_pack_task(root)
+    pack_task_changed = bool(task != "auto" and packed_task and packed_task != task)
 
-    if repo_changed:
+    should_repack = repo_changed or task_switched or pack_task_changed
+
+    if should_repack:
         subprocess.Popen(
             ["agentpack", "pack", "--task", task, "--mode", "balanced", "--since", "HEAD~1"],
             stdout=subprocess.DEVNULL,
@@ -203,7 +312,7 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
                 for h in hints
             )
-            status_note = "(repacking — call pack_context for fresh results)" if repo_changed else "(index fresh)"
+            status_note = "(repacking — call pack_context for fresh results)" if should_repack else "(index fresh)"
             current_task = _load_task_md(root) or _infer_live_task(root)
             msg = (
                 f"AgentPack {status_note}\n"
@@ -224,7 +333,7 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
                 for h in hints
             )
-            changed_note = " (repacking in background)" if repo_changed else ""
+            changed_note = " (repacking in background)" if should_repack else ""
             msg = (
                 f"AgentPack context{changed_note}\n"
                 f"task: {current_task}\n"

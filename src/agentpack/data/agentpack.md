@@ -33,9 +33,9 @@ Pack repo context and immediately start working on the task.
 
 If a session is already running (`.agentpack/session.json` exists and `"active": true`):
 
-1. Read `.agentpack/context.md` — context is already fresh.
-2. If the user gives a new coding task, write a one-line summary to `.agentpack/task.md`.
-3. Re-read `.agentpack/context.md` after watch mode refreshes it (a few seconds).
+1. If the user gives a new coding task, write a one-line summary to `.agentpack/task.md`.
+2. Run `agentpack pack --task auto` unless watch mode already refreshed after the task write.
+3. Read `.agentpack/context.md` — context now matches the current task.
 4. Proceed with the task using the context you just read.
 
 To start a session:
@@ -95,8 +95,9 @@ test -f .agentpack/config.toml || agentpack init --yes
 ### Step 3: Determine workflow
 
 **Session active** (`.agentpack/session.json` exists, `"active": true`):
-- Read `.agentpack/context.md`
 - Update `.agentpack/task.md` if task changed
+- Run `agentpack pack --task auto` unless watch already refreshed it
+- Read `.agentpack/context.md`
 - Proceed immediately
 
 **No session**:

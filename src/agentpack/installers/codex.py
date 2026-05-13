@@ -15,6 +15,8 @@ At the start of every coding task:
 2. Run `agentpack pack --task auto` to refresh context.
 3. Read `.agentpack/context.md` — it lists the files most relevant to your task.
 4. Use those files as starting points, but verify with actual code before editing.
+
+When the user switches to a different coding task, repeat steps 1-3 before editing.
 <!-- agentpack:end -->"""
 
 _BLOCK_RE = re.compile(

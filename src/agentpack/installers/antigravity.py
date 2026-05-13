@@ -10,6 +10,14 @@ _GEMINI_BLOCK = """\
 <!-- agentpack:block:start -->
 skills:
   - agentpack
+
+At the start of every coding task:
+1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
+2. Run `agentpack pack --task auto` to refresh context for that task.
+3. Read `.agent/skills/agentpack/SKILL.md`.
+4. Use files listed in context as starting points, but verify with actual code before editing.
+
+When the user switches to a different coding task, repeat steps 1-3 before editing.
 <!-- agentpack:block:end -->"""
 
 _BLOCK_RE = re.compile(

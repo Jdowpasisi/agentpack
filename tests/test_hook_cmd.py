@@ -13,6 +13,7 @@ from agentpack.commands.hook_cmd import (
     _current_root_hash,
     _run_user_prompt_submit,
     _looks_like_coding_prompt,
+    _looks_like_task_switch,
     _resolve_task,
 )
 
@@ -137,18 +138,18 @@ class TestRunUserPromptSubmit:
         (repo / ".agentpack" / ".mcp_reminded").write_text("oldhash")
 
         import io
-        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix bug"})))
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix login bug"})))
         outputs = []
         monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
 
         with patch("subprocess.Popen") as mock_popen, \
-             patch("agentpack.commands.hook_cmd._infer_live_task", return_value="fix bug"):
+             patch("agentpack.commands.hook_cmd._infer_live_task", return_value="fix login bug"):
             _run_user_prompt_submit(repo)
 
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
         assert "pack" in args
-        assert "fix bug" in " ".join(args)
+        assert "fix login bug" in " ".join(args)
 
     def test_repo_unchanged_no_repack(self, repo: Path, monkeypatch) -> None:
         _write_snapshot(repo, "samehash")
@@ -167,6 +168,60 @@ class TestRunUserPromptSubmit:
             _run_user_prompt_submit(repo)
 
         mock_popen.assert_not_called()
+
+    def test_task_switch_updates_task_md_and_repacks(self, repo: Path, monkeypatch) -> None:
+        _write_snapshot(repo, "samehash")
+        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
+        (repo / ".agentpack" / "task.md").write_text("add production-grade Kundali generation API\n")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+        _write_metrics(repo, ["src/old.py"])
+        _write_metadata(repo, task="add production-grade Kundali generation API")
+
+        import io
+        prompt = "fix numerology dashboard layout"
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": prompt})))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_user_prompt_submit(repo)
+
+        mock_popen.assert_called_once()
+        args = mock_popen.call_args[0][0]
+        assert args[:3] == ["agentpack", "pack", "--task"]
+        assert args[3] == prompt
+        assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == prompt + "\n"
+        ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
+        assert "repacking" in ctx
+        assert f"task: {prompt}" in ctx
+
+    def test_task_switch_can_be_disabled_in_config(self, repo: Path, monkeypatch) -> None:
+        _write_snapshot(repo, "samehash")
+        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
+        (repo / ".agentpack" / "task.md").write_text("add production-grade Kundali generation API\n")
+        (repo / ".agentpack" / "config.toml").write_text(
+            "[hooks]\ntask_switch_detection = false\n",
+            encoding="utf-8",
+        )
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+        _write_metrics(repo, ["src/old.py"])
+        _write_metadata(repo, task="add production-grade Kundali generation API")
+
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix numerology dashboard layout"})))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_user_prompt_submit(repo)
+
+        mock_popen.assert_not_called()
+        assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == (
+            "add production-grade Kundali generation API\n"
+        )
+        ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
+        assert "index fresh" in ctx
+        assert "task: add production-grade Kundali generation API" in ctx
 
 
 class TestLooksLikeCodingPrompt:
@@ -189,10 +244,22 @@ class TestLooksLikeCodingPrompt:
 
 
 class TestResolveTask:
-    def test_task_md_wins_over_coding_prompt(self, tmp_path):
+    def test_task_md_wins_over_related_coding_prompt(self, tmp_path):
+        (tmp_path / ".agentpack").mkdir()
+        (tmp_path / ".agentpack" / "task.md").write_text("fix login flow")
+        result = _resolve_task(tmp_path, "fix login bug")
+        assert result == "fix login flow"
+
+    def test_distinct_coding_prompt_wins_over_stale_task_md(self, tmp_path):
         (tmp_path / ".agentpack").mkdir()
         (tmp_path / ".agentpack" / "task.md").write_text("migrate DB schema")
         result = _resolve_task(tmp_path, "fix login bug")
+        assert result == "fix login bug"
+
+    def test_distinct_coding_prompt_can_be_ignored_when_switch_detection_disabled(self, tmp_path):
+        (tmp_path / ".agentpack").mkdir()
+        (tmp_path / ".agentpack" / "task.md").write_text("migrate DB schema")
+        result = _resolve_task(tmp_path, "fix login bug", task_switch_detection=False)
         assert result == "migrate DB schema"
 
     def test_coding_prompt_used_when_no_task_md(self, tmp_path):
@@ -209,3 +276,20 @@ class TestResolveTask:
         (tmp_path / ".agentpack").mkdir()
         result = _resolve_task(tmp_path, "why does the DB pool work?")
         assert result == "auto"
+
+
+class TestTaskSwitchDetection:
+    def test_detects_disjoint_coding_task(self):
+        assert _looks_like_task_switch(
+            "add production-grade Kundali generation API",
+            "fix numerology dashboard layout",
+        )
+
+    def test_related_task_is_not_switch(self):
+        assert not _looks_like_task_switch("fix login flow", "fix login button bug")
+
+    def test_vague_prompt_is_not_switch(self):
+        assert not _looks_like_task_switch("fix login flow", "can you fix these")
+
+    def test_min_terms_requires_more_concrete_overlap(self):
+        assert not _looks_like_task_switch("fix login flow", "fix dashboard", min_terms=2)

@@ -160,6 +160,8 @@ def test_render_includes_freshness_metadata():
     assert "**Generated:** 2026-05-13T00:00:00+00:00" in rendered
     assert "**Task source:** task.md" in rendered
     assert "Refresh recommended" in rendered
+    assert "If this pack's task does not match the user's current task" in rendered
+    assert "agentpack pack --task auto" in rendered
 
 
 def test_save_pack_metadata_persists_freshness(tmp_path):

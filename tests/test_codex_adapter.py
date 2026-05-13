@@ -11,6 +11,7 @@ class TestCodexAdapter:
         assert "agentpack pack --task auto" in content
         assert ".agentpack/task.md" in content
         assert ".agentpack/context.md" in content
+        assert "When the user switches to a different coding task" in content
 
     def test_patch_agents_md_idempotent(self, tmp_path):
         adapter = CodexAdapter()

@@ -338,7 +338,7 @@ Configures:
 - `CLAUDE.md` — tells Claude to read the context pack before each task
 - `.claude/settings.json` — two hooks:
   - `SessionStart`: clears injection sentinel so first prompt gets context
-  - `UserPromptSubmit`: runs `agentpack hook` — detects repo changes via `root_hash`, triggers background repack using your prompt as task. With MCP: emits Option-B hint (~100 tokens, task + top files). Without MCP: emits capped fallback (top 8 files, ≤3k chars)
+  - `UserPromptSubmit`: runs `agentpack hook` — detects repo changes via `root_hash`, detects clear task switches, updates `.agentpack/task.md`, and triggers background repack using your prompt as task. With MCP: emits Option-B hint (~100 tokens, task + top files). Without MCP: emits capped fallback (top 8 files, ≤3k chars)
 
 After this, context is injected automatically into every Claude Code session. No `/agentpack` command needed — it just happens.
 
@@ -349,7 +349,7 @@ agentpack install --agent cursor
 ```
 
 Configures:
-- `.cursorrules` — rule: read `.agentpack/context.md` before every conversation
+- `.cursorrules` — rule: write current task, run `agentpack pack --task auto`, then read `.agentpack/context.md`
 - `.cursor/rules/agentpack.mdc` — `alwaysApply: true` rule (Cursor v0.43+)
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 - `.vscode/tasks.json` — "AgentPack: Repack context" in Command Palette + `runOn: folderOpen`
@@ -361,7 +361,7 @@ agentpack install --agent windsurf
 ```
 
 Configures:
-- `.windsurfrules` — rule: read `.agentpack/context.md` before every conversation
+- `.windsurfrules` — rule: write current task, run `agentpack pack --task auto`, then read `.agentpack/context.md`
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 - `.vscode/tasks.json` — "AgentPack: Repack context" in Command Palette + `runOn: folderOpen`
 
@@ -372,7 +372,7 @@ agentpack install --agent codex
 ```
 
 Configures:
-- `AGENTS.md` — tells Codex to read the context pack before each task
+- `AGENTS.md` — tells Codex to write current task, repack, and read the context pack before each task
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 
 ### Antigravity
@@ -383,7 +383,7 @@ agentpack install --agent antigravity
 
 Configures:
 - `.agent/skills/agentpack/SKILL.md` — AgentPack context as a Skill; Antigravity activates it automatically for coding tasks
-- `GEMINI.md` — registers the agentpack skill reference
+- `GEMINI.md` — registers the agentpack skill reference and task-switch protocol
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 - `.vscode/tasks.json` — "AgentPack: Repack context" in Command Palette + `runOn: folderOpen`
 
@@ -1023,6 +1023,10 @@ max_summary_files_deep = 0
 include_tests = true
 include_configs = true
 include_receipts = true
+
+[hooks]
+task_switch_detection = true
+task_switch_min_terms = 1
 
 [agents.claude]
 output = ".agentpack/context.claude.md"

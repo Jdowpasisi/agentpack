@@ -36,6 +36,11 @@ class SummaryConfig(BaseModel):
     schema_version: int = 1
 
 
+class HooksConfig(BaseModel):
+    task_switch_detection: bool = True
+    task_switch_min_terms: int = 1
+
+
 class AgentConfig(BaseModel):
     output: str
     patch_claude_md: bool = False
@@ -78,6 +83,7 @@ class Config(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scoring: ScoringWeights = Field(default_factory=ScoringWeights)
 
@@ -104,6 +110,12 @@ max_summary_files_deep = 0       # deep mode stays uncapped
 include_tests = true
 include_configs = true
 include_receipts = true
+
+[hooks]
+# Claude UserPromptSubmit can detect a clearly different coding prompt,
+# update .agentpack/task.md, and repack even if files did not change.
+task_switch_detection = true
+task_switch_min_terms = 1
 
 [scoring]
 # Scoring weights — higher wins budget allocation.
