@@ -17,13 +17,23 @@ from agentpack.integrations.global_install import (
 )
 from agentpack.commands._shared import console, _root
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.integrations.agents import SUPPORTED_AGENTS, check_agent_integration, expand_agents
 
 
 def register(app: typer.Typer) -> None:
     @app.command()
-    def doctor() -> None:
+    def doctor(
+        agent: str = typer.Option(
+            "auto",
+            "--agent",
+            help=f"Agent integration to audit ({' | '.join(SUPPORTED_AGENTS)}). Use all for the full matrix.",
+        ),
+    ) -> None:
         """Diagnose agentpack installation state — global hooks, per-repo config, agent setup."""
         ok = True
+        if agent not in SUPPORTED_AGENTS:
+            console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(SUPPORTED_AGENTS)}[/]")
+            raise typer.Exit(1)
 
         # --- CLI binary ---
         console.print("[bold]CLI[/]")
@@ -216,6 +226,21 @@ def register(app: typer.Typer) -> None:
                 pass
         if not _local_has_mcp and not _global_has_mcp:
             console.print("  [yellow]![/] MCP server not registered — mcp__agentpack__* tools unavailable")
+
+        # --- Agent integration matrix ---
+        console.print("\n[bold]Agent integration audit[/]")
+        agents = expand_agents(agent, root)
+        if agent == "auto":
+            console.print(f"  [dim]Auto-detected agent: {agents[0]}[/]")
+        for selected in agents:
+            console.print(f"  [bold]{selected}[/]")
+            for check in check_agent_integration(root, selected):
+                if check.ok:
+                    console.print(f"    [green]✓[/] {check.label}: {check.detail}")
+                    continue
+                fix = f" — run: {check.fix}" if check.fix else ""
+                console.print(f"    [red]✗[/] {check.label}: {check.detail}{fix}")
+                ok = False
 
         # --- Release hygiene ---
         console.print("\n[bold]Release hygiene[/]")

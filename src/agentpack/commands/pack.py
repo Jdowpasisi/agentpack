@@ -106,7 +106,13 @@ def _print_pack_summary(result: PackResult) -> None:
     stats.add_row("raw tokens", f"{raw_tokens:,}")
     stats.add_row("saving", f"[green]{saving_pct:.1f}%[/]")
 
-    MODE_STYLE = {"full": "green", "symbols": "yellow", "summary": "dim"}
+    MODE_STYLE = {
+        "full": "green",
+        "diff": "cyan",
+        "symbols": "yellow",
+        "skeleton": "blue",
+        "summary": "dim",
+    }
     files_tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
     files_tbl.add_column("file", style="dim", no_wrap=False, max_width=55)
     files_tbl.add_column("mode", justify="center", width=8)
@@ -115,10 +121,11 @@ def _print_pack_summary(result: PackResult) -> None:
     changed_set = set(changed_files)
     for sf in selected[:20]:
         style = MODE_STYLE.get(sf.include_mode, "")
+        mode_text = f"[{style}]{sf.include_mode}[/]" if style else sf.include_mode
         changed_marker = " [red]●[/]" if sf.path in changed_set else ""
         files_tbl.add_row(
             f"{sf.path}{changed_marker}",
-            f"[{style}]{sf.include_mode}[/]",
+            mode_text,
             ", ".join(sf.reasons) if sf.reasons else "",
         )
     if len(selected) > 20:

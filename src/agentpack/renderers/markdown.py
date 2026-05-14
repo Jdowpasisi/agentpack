@@ -31,7 +31,7 @@ def _file_section(sf: SelectedFile) -> str:
             parts.append(f"- {r}")
         parts.append("")
 
-    if sf.include_mode in ("full", "symbols") and sf.content:
+    if sf.include_mode in ("full", "diff", "symbols", "skeleton") and sf.content:
         parts.append("```" + _lang_fence(sf.language))
         parts.append(sf.content)
         parts.append("```")
@@ -82,6 +82,7 @@ def render_claude(pack: ContextPack) -> str:
             ("Generated", "generated_at"),
             ("Git branch", "git_branch"),
             ("Git SHA", "git_sha"),
+            ("Task class", "task_class"),
             ("Task source", "task_source"),
             ("Changed-file source", "changed_files_source"),
             ("Snapshot hash", "snapshot_root_hash"),
@@ -102,8 +103,9 @@ def render_claude(pack: ContextPack) -> str:
         "2. **Diagnose or plan** — find the root cause (bug fix) or outline the approach (feature).\n"
         "3. **Work** — edit files, write code, fix the issue. Do not wait for more instructions.\n\n"
         "Priority order: changed files → keyword-matched files → dependencies → summaries.\n"
-        "Files marked `full` contain complete source. Files marked `symbols` contain relevant "
-        "function/class bodies. Files marked `summary` are unchanged context.\n"
+        "Files marked `full` contain complete source. Files marked `diff` contain relevant changed hunks. "
+        "Files marked `symbols` contain relevant function/class bodies. Files marked `skeleton` contain imports/signatures. "
+        "Files marked `summary` are unchanged context.\n"
         "If this pack's task does not match the user's current task, write the new task to "
         "`.agentpack/task.md`, run `agentpack pack --task auto`, re-read the context, then proceed. "
         "If the pack looks stale (changed files list is empty but you expect changes), refresh the pack before editing."
@@ -117,6 +119,18 @@ def render_claude(pack: ContextPack) -> str:
     sections.append(f"Packed tokens: {pack.token_estimate:,}")
     sections.append(f"Estimated saving: {pack.estimated_savings_percent:.1f}%")
     sections.append("")
+
+    if pack.delta_summary:
+        sections.append("## Delta Since Last Pack")
+        sections.append("")
+        sections.append(pack.delta_summary)
+        sections.append("")
+
+    if pack.repo_map:
+        sections.append("## Repo Map")
+        sections.append("")
+        sections.append(pack.repo_map)
+        sections.append("")
 
     if pack.redaction_warnings:
         sections.append("## Security")

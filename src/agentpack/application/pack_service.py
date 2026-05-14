@@ -13,7 +13,7 @@ from agentpack.core.scanner import scan
 from agentpack.core.snapshot import build_snapshot, save_snapshot, load_snapshot
 from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
-from agentpack.core.context_pack import select_files, save_pack_metadata
+from agentpack.core.context_pack import select_files, save_pack_metadata, load_pack_metadata
 from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
 from agentpack.core.token_estimator import estimate_tokens
 from agentpack.renderers.markdown import render_generic
@@ -25,6 +25,8 @@ from agentpack.analysis.ranking import (
     boost_cross_layer_related,
     generic_task_term_ratio,
 )
+from agentpack.analysis.repo_map import build_repo_map
+from agentpack.analysis.task_classifier import classify_task
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
 from agentpack.summaries.base import build_all_summaries
@@ -69,6 +71,9 @@ class RankResult:
     """Result of keyword extraction and file scoring."""
     keywords: set[str]
     generic_ratio: float
+    task_class: str
+    task_class_confidence: float
+    task_class_signals: list[str]
     scored: list[tuple[Any, float, list[str]]]
 
 
@@ -86,7 +91,11 @@ class PackPlan:
     recently_modified: list[str]
     keywords: set[str]
     generic_task_ratio: float
+    task_class: str
+    task_class_confidence: float
+    task_class_signals: list[str]
     changed_files_source: str
+    repo_map: str
     scored: list[tuple[Any, float, list[str]]]
     selected: list[SelectedFile]
     receipts: list[Receipt]
@@ -149,6 +158,7 @@ class FileRanker:
         keyword_weights = enrich_keyword_weights_from_files(keyword_weights, changes.all_changed, packable)
         keywords = set(keyword_weights)
         generic_ratio = generic_task_term_ratio(task)
+        task_classification = classify_task(task)
         all_paths = {f.path for f in packable}
 
         for fi in packable:
@@ -174,7 +184,16 @@ class FileRanker:
         )
         scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
-        return RankResult(keywords=keywords, generic_ratio=generic_ratio, scored=scored)
+        if root is not None:
+            scored = _apply_history_penalties(root, scored, changes.all_changed)
+        return RankResult(
+            keywords=keywords,
+            generic_ratio=generic_ratio,
+            task_class=task_classification.kind,
+            task_class_confidence=task_classification.confidence,
+            task_class_signals=task_classification.signals,
+            scored=scored,
+        )
 
 
 class PackPlanner:
@@ -218,13 +237,26 @@ class PackPlanner:
         phase_times["rank"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
+        repo_map_budget = _repo_map_budget_for_mode(request.mode, effective_budget)
+        repo_map = build_repo_map(
+            files=packable,
+            scored=rank_result.scored,
+            summaries=summaries,
+            dep_graph=dep_graph,
+            changed_paths=changes.all_changed,
+            budget_tokens=repo_map_budget,
+        )
+        phase_times["repo_map"] = time.perf_counter() - t0
+        selection_budget = max(0, effective_budget - estimate_tokens(repo_map))
+
+        t0 = time.perf_counter()
         selected, receipts = select_files(
             files=packable,
             scored=rank_result.scored,
             changed_paths=changes.all_changed,
             summaries=summaries,
             mode=request.mode,  # type: ignore[arg-type]
-            budget=effective_budget,
+            budget=selection_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=rank_result.keywords,
             min_summary_score=_summary_score_floor(cfg, rank_result.generic_ratio),
@@ -244,7 +276,11 @@ class PackPlanner:
             recently_modified=changes.recently_modified,
             keywords=rank_result.keywords,
             generic_task_ratio=rank_result.generic_ratio,
+            task_class=rank_result.task_class,
+            task_class_confidence=rank_result.task_class_confidence,
+            task_class_signals=rank_result.task_class_signals,
             changed_files_source=changes.source,
+            repo_map=repo_map,
             scored=rank_result.scored,
             selected=selected,
             receipts=receipts,
@@ -305,8 +341,14 @@ class PackService:
         packable = plan.scan_result.packable
         all_tokens = sum(f.estimated_tokens for f in plan.scan_result.all_files)
         raw_tokens = sum(f.estimated_tokens for f in packable)
-        packed_tokens = sum(_sf_tokens(sf) for sf in plan.selected)
-        saving_pct = (1 - packed_tokens / all_tokens) * 100 if all_tokens > 0 else 0.0
+        previous_metadata = load_pack_metadata(root)
+        delta_summary = _compute_delta_summary(previous_metadata, plan.selected, plan.all_changed)
+        packed_tokens = (
+            sum(_sf_tokens(sf) for sf in plan.selected)
+            + estimate_tokens(plan.repo_map)
+            + estimate_tokens(delta_summary)
+        )
+        saving_pct = max(0.0, (1 - packed_tokens / all_tokens) * 100) if all_tokens > 0 else 0.0
 
         all_redaction_warnings = [w for sf in plan.selected for w in sf.redaction_warnings]
         freshness = _build_freshness_metadata(
@@ -315,17 +357,22 @@ class PackService:
             plan=plan,
             snapshot_root_hash=plan.current_snap["root_hash"],
         )
+        if delta_summary:
+            freshness["delta_summary"] = delta_summary
         freshness_warnings = _freshness_warnings(root, request, freshness)
 
         pack_obj = ContextPack(
             task=request.task,
             agent=request.agent,
             mode=request.mode,  # type: ignore[arg-type]
+            task_class=plan.task_class,
             budget=plan.budget,
             token_estimate=packed_tokens,
             raw_repo_tokens=all_tokens,
             after_ignore_tokens=raw_tokens,
             estimated_savings_percent=saving_pct,
+            repo_map=plan.repo_map,
+            delta_summary=delta_summary,
             changed_files=sorted(plan.all_changed),
             selected_files=plan.selected,
             receipts=plan.receipts if cfg.context.include_receipts else [],
@@ -374,6 +421,7 @@ class PackService:
             selected_modes={sf.path: sf.include_mode for sf in plan.selected},
             selected_hints=[{"path": sf.path, "why": sf.reasons[0] if sf.reasons else ""} for sf in plan.selected[:8]],
             current_changed=plan.all_changed,
+            task_class=plan.task_class,
             excluded_count=len(excluded_receipts),
             excluded_paths=budget_cut,
         )
@@ -427,6 +475,89 @@ def _sf_tokens(sf: SelectedFile) -> int:
         if sym.signature:
             parts.append(sym.signature)
     return estimate_tokens("\n".join(parts)) if parts else 50
+
+
+def _repo_map_budget_for_mode(mode: str, effective_budget: int) -> int:
+    caps = {"minimal": 300, "balanced": 600, "deep": 900}
+    return min(caps.get(mode, 500), max(0, effective_budget // 20))
+
+
+def _apply_history_penalties(
+    root: Path,
+    scored: list[tuple[Any, float, list[str]]],
+    changed_paths: set[str],
+    *,
+    window: int = 20,
+) -> list[tuple[Any, float, list[str]]]:
+    """Downrank paths that recent packs proved noisy for later edits."""
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if not metrics_path.exists():
+        return scored
+    counts: dict[str, int] = {}
+    try:
+        lines = metrics_path.read_text(encoding="utf-8").splitlines()[-window:]
+    except OSError:
+        return scored
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for path in rec.get("selection_noise_paths", []) or []:
+            if isinstance(path, str):
+                counts[path] = counts.get(path, 0) + 1
+    if not counts:
+        return scored
+
+    adjusted: list[tuple[Any, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        if fi.path in changed_paths:
+            adjusted.append((fi, score, reasons))
+            continue
+        count = counts.get(fi.path, 0)
+        if count <= 0:
+            adjusted.append((fi, score, reasons))
+            continue
+        penalty = min(25.0, count * 4.0)
+        adjusted.append((fi, max(0.0, score - penalty), [*reasons, f"history noise penalty -{penalty:.0f}"]))
+    return adjusted
+
+
+def _compute_delta_summary(
+    previous_metadata: dict[str, Any] | None,
+    selected: list[SelectedFile],
+    changed_paths: set[str],
+) -> str:
+    if not previous_metadata:
+        return ""
+    previous = previous_metadata.get("selected_files_meta") or []
+    if not isinstance(previous, list):
+        return ""
+    prev_modes = {
+        item.get("path"): item.get("mode")
+        for item in previous
+        if isinstance(item, dict) and item.get("path")
+    }
+    current_modes = {sf.path: sf.include_mode for sf in selected}
+    added = sorted(set(current_modes) - set(prev_modes))
+    removed = sorted(set(prev_modes) - set(current_modes))
+    mode_changed = sorted(
+        path for path, mode in current_modes.items()
+        if path in prev_modes and prev_modes[path] != mode
+    )
+    if not (added or removed or mode_changed or changed_paths):
+        return "No selected-file delta since last pack."
+    lines = [
+        f"Selected delta: +{len(added)} new, -{len(removed)} removed, {len(mode_changed)} mode changed; "
+        f"{len(changed_paths)} live changed files."
+    ]
+    if added:
+        lines.append("New: " + ", ".join(added[:6]))
+    if removed:
+        lines.append("Removed: " + ", ".join(removed[:6]))
+    if mode_changed:
+        lines.append("Mode changed: " + ", ".join(mode_changed[:6]))
+    return "\n".join(lines)
 
 
 def _summary_score_floor(cfg: Any, generic_ratio: float) -> float:
@@ -498,6 +629,9 @@ def _build_freshness_metadata(
         "changed_files_source": plan.changed_files_source,
         "snapshot_root_hash": snapshot_root_hash,
         "generic_task_ratio": round(plan.generic_task_ratio, 3),
+        "task_class": plan.task_class,
+        "task_class_confidence": plan.task_class_confidence,
+        "task_class_signals": plan.task_class_signals,
         "dirty_files_count": len(dirty),
     }
     if git.is_git_repo(root):
@@ -552,7 +686,7 @@ def _compute_selection_accuracy(
     metrics_path: Path,
     current_selected: list[str],
     current_changed: set[str],
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Compare previous pack's selected_paths vs files actually changed since then.
 
     recall    = |predicted ∩ actual_changed| / |actual_changed|
@@ -576,6 +710,8 @@ def _compute_selection_accuracy(
         "selection_recall": round(recall, 3),
         "selection_precision": round(precision, 3),
         "selection_f1": round(f1, 3),
+        "selection_hit_paths": sorted(hits),
+        "selection_noise_paths": sorted(prev_selected - hits),
     }
     token_map = prev.get("selected_tokens") or {}
     if isinstance(token_map, dict):
@@ -591,7 +727,7 @@ def _compute_selection_accuracy(
             result["selection_noise_pct"] = round((1 - token_precision) * 100, 1)
         mode_map = prev.get("selected_modes") or {}
         if isinstance(mode_map, dict):
-            for mode in ("full", "symbols", "summary"):
+            for mode in ("full", "diff", "symbols", "skeleton", "summary"):
                 mode_paths = {path for path, value in mode_map.items() if value == mode}
                 mode_total = sum(
                     token_map.get(path, 0)
@@ -624,26 +760,37 @@ def _record_metrics(
     selected_tokens: dict[str, int],
     selected_modes: dict[str, str],
     current_changed: set[str],
+    task_class: str = "general",
     selected_hints: list[dict] | None = None,
     excluded_count: int = 0,
     excluded_paths: list[str] | None = None,
 ) -> None:
     metrics_path = root / ".agentpack" / "metrics.jsonl"
     accuracy = _compute_selection_accuracy(root, metrics_path, selected_paths, current_changed)
+    mode_counts: dict[str, int] = {}
+    mode_tokens: dict[str, int] = {}
+    for path, include_mode in selected_modes.items():
+        mode_counts[include_mode] = mode_counts.get(include_mode, 0) + 1
+        mode_tokens[include_mode] = mode_tokens.get(include_mode, 0) + selected_tokens.get(path, 0)
     record: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "task": task,
+        "task_class": task_class,
         "mode": mode,
         "packed_tokens": packed_tokens,
         "raw_tokens": raw_tokens,
         "saving_pct": round(saving_pct, 1),
+        "compression_ratio": round(packed_tokens / raw_tokens, 4) if raw_tokens > 0 else 0,
         "selected_files": selected_count,
         "changed_files": changed_count,
+        "current_changed_paths": sorted(current_changed),
         "excluded_files": excluded_count,
         "excluded_paths": excluded_paths or [],
         "selected_paths": selected_paths,
         "selected_tokens": selected_tokens,
         "selected_modes": selected_modes,
+        "mode_counts": mode_counts,
+        "mode_tokens": mode_tokens,
         "selected_hints": selected_hints or [],
         "phases": {k: round(v, 3) for k, v in phase_times.items()},
         "total_s": round(sum(phase_times.values()), 3),

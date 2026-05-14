@@ -46,6 +46,7 @@ class CaseResult:
     random_recall: float | None = None
     random_f1: float | None = None
     missed_expected: list[dict[str, Any]] = field(default_factory=list)
+    selected_modes: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -245,6 +246,7 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
     selected_paths = [sf.path for sf in plan.selected]
     selected_set = set(selected_paths)
     selected_tokens = {sf.path: _sf_tokens(sf) for sf in plan.selected}
+    selected_modes = {sf.path: _selected_mode(sf) for sf in plan.selected}
 
     changed_covered = len(plan.all_changed & selected_set)
     changed_total = len(plan.all_changed)
@@ -310,6 +312,7 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         saving_pct_honest=saving_pct_honest,
         selected_paths=selected_paths,
         selected_tokens=selected_tokens,
+        selected_modes=selected_modes,
         changed_covered=changed_covered,
         changed_total=changed_total,
         total_s=total_s,
@@ -373,6 +376,7 @@ def _persist_result(root: Path, result: CaseResult) -> None:
         "saving_pct": round(result.saving_pct, 1),
         "saving_pct_honest": round(result.saving_pct_honest, 1),
         "files_selected": len(result.selected_paths),
+        "mode_counts": _mode_counts(result.selected_modes),
         "changed_covered": result.changed_covered,
         "changed_total": result.changed_total,
         "total_s": round(result.total_s, 3),
@@ -410,6 +414,7 @@ def _print_case_detail(result: CaseResult, show_misses: bool = False) -> None:
     tbl.add_row("saving vs raw", f"[green]{result.saving_pct:.1f}%[/]")
     tbl.add_row("saving vs after-ignore", f"[cyan]{result.saving_pct_honest:.1f}%[/]")
     tbl.add_row("files selected", str(len(result.selected_paths)))
+    tbl.add_row("mode mix", _format_mode_counts(_mode_counts(result.selected_modes)))
     if result.changed_total > 0:
         cov_pct = result.changed_covered / result.changed_total * 100
         tbl.add_row("changed files covered", f"{result.changed_covered}/{result.changed_total}  ({cov_pct:.0f}%)")
@@ -463,6 +468,25 @@ def _print_case_detail(result: CaseResult, show_misses: bool = False) -> None:
                 )
 
     console.print("  [dim]top files:[/] " + ", ".join(result.selected_paths[:5]))
+
+
+def _mode_counts(selected_modes: dict[str, str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for mode in selected_modes.values():
+        counts[mode] = counts.get(mode, 0) + 1
+    return counts
+
+
+def _selected_mode(sf: Any) -> str:
+    mode = getattr(sf, "include_mode", "summary")
+    return mode if isinstance(mode, str) else "summary"
+
+
+def _format_mode_counts(counts: dict[str, int]) -> str:
+    if not counts:
+        return "-"
+    order = ("full", "diff", "symbols", "skeleton", "summary")
+    return ", ".join(f"{mode}:{counts[mode]}" for mode in order if counts.get(mode))
 
 
 def _print_summary_table(results: list[CaseResult]) -> None:

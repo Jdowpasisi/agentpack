@@ -8,6 +8,7 @@ import typer
 from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 from agentpack.commands._shared import console, _root
+from agentpack.integrations.agents import install_agent_integration
 from agentpack.session.state import load_session, create_session, SESSION_FILE, TASK_FILE
 
 _GITIGNORE_START = "# agentpack:start"
@@ -61,42 +62,7 @@ def _patch_repo_gitignore(root, share_cache: bool = False) -> str:
 
 def _install_agent_integration(root, agent: str) -> dict[str, str]:
     """Install repo-local agent integration files after `agentpack init`."""
-    results: dict[str, str] = {}
-
-    if agent == "claude":
-        from agentpack.installers.claude import ClaudeInstaller
-
-        installer = ClaudeInstaller()
-        results["CLAUDE.md"] = installer.patch_claude_md(root)
-        results[".claude/settings.json"] = installer.patch_claude_settings(root, global_install=False)
-        results[".mcp.json"] = installer.patch_mcp_server(root, global_install=False)
-    elif agent == "cursor":
-        from agentpack.installers.cursor import CursorInstaller
-
-        installer = CursorInstaller()
-        results[".cursorrules"] = installer.patch_cursor_rules(root)
-        results[".cursor/rules/agentpack.mdc"] = installer.patch_cursor_mdc(root)
-        results.update(installer.install_auto_repack(root))
-    elif agent == "windsurf":
-        from agentpack.installers.windsurf import WindsurfInstaller
-
-        installer = WindsurfInstaller()
-        results[".windsurfrules"] = installer.patch_windsurfrules(root)
-        results.update(installer.install_auto_repack(root))
-    elif agent == "codex":
-        from agentpack.installers.codex import CodexInstaller
-
-        installer = CodexInstaller()
-        results["AGENTS.md"] = installer.patch_agents_md(root)
-        results.update(installer.install_auto_repack(root))
-    elif agent == "antigravity":
-        from agentpack.installers.antigravity import AntigravityInstaller
-
-        installer = AntigravityInstaller()
-        results["GEMINI.md"] = installer.patch_gemini_md(root)
-        results.update(installer.install_auto_repack(root))
-
-    return results
+    return install_agent_integration(root, agent)
 
 
 def _print_agent_integration_results(results: dict[str, str]) -> None:

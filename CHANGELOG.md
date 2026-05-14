@@ -10,6 +10,30 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.30] — 2026-05-15
+
+### Added
+- Shared agent integration contract for installing and auditing Claude, Cursor, Windsurf, Codex, Antigravity, and Generic.
+- `agentpack repair` for idempotently repairing one integration or all integrations.
+- `agentpack doctor --agent all` for a full agent integration audit.
+- `agentpack status --deep` for CLI, task, active agent, and integration health output.
+- Release wheel verification now runs an all-agent `init`/`install` matrix before PyPI publish.
+- Budget-aware context compression with `diff` and `skeleton` include modes for high-signal context at lower token cost.
+- `agentpack explain --budget-plan` to show selected modes, token costs, and score-per-token value.
+- Semantic repo maps, task classification, and per-pack selected-file delta summaries in rendered context.
+- Hunk-level diff selection that prefers changed hunks matching task keywords.
+- MCP `get_delta_context()` plus hook delta hints for cheap refresh checks.
+- Richer offline summaries with role, side effects, public API, error paths, and test hints.
+- History-based noise learning from selection accuracy metrics.
+- Compression quality metrics with mode counts, mode tokens, and compression ratio.
+
+### Changed
+- `agentpack install` now uses the shared integration contract and is documented as the single-agent refresh command.
+- Changed files are no longer always emitted as full source; large dirty files without task-specific signal are compressed to diffs, skeletons, or summaries.
+- The selector now downgrades high-value files to skeleton or summary before dropping them when the token budget is tight.
+
+---
+
 ## [0.1.29] — 2026-05-15
 
 ### Fixed

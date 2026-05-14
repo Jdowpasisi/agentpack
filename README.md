@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.29).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.30).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -48,9 +48,9 @@ None of these scale. On a 200-file codebase, option 1 wastes 5–10 turns just o
 AgentPack solves this with a one-time offline analysis pass:
 
 1. **Scans your repo once** — builds a summary cache of every file (signatures, imports, responsibilities). No API calls. Takes a few seconds.
-2. **On each task** — uses git diff, import graph traversal, keyword/concept expansion, implementation-role boosts, and cross-layer relatedness to rank every file.
-3. **Packs a tight context document** — changed files get full content, large changed files get relevant symbol bodies, dependencies and likely implementation files get summaries, everything else gets dropped.
-4. **Explains pack quality** — noisy-pack diagnostics, score receipts, token-precision metrics, and benchmark miss reports show when the pack is broad or missing expected files.
+2. **On each task** — classifies the task, builds a compact semantic repo map, then uses git diff, import graph traversal, keyword/concept expansion, implementation-role boosts, and cross-layer relatedness to rank every file.
+3. **Packs a tight context document** — changed files get full content when cheap, relevant diff hunks when large, symbol bodies or interface skeletons when tighter, and summaries only when useful.
+4. **Explains pack quality** — noisy-pack diagnostics, score receipts, token-precision metrics, mode-mix reports, delta summaries, and benchmark miss reports show when the pack is broad or missing expected files.
 5. **Stays current** — auto-repacks silently on commit, so next session starts fresh.
 
 The result: your agent starts with a focused map of the relevant code. It should reduce blind exploration, not replace the agent's own file reads or your judgment.
@@ -96,6 +96,7 @@ Typical results on large repos:
 | Pack time | Seconds on warm cache; first summarize pass is slower |
 | Recall | Should be high for files you later edit; validate with `agentpack benchmark` |
 | Precision | Often modest; summaries are cheap but can still add noise |
+| Delta overhead | Hooks can emit a tiny changed-file delta instead of the full pack |
 
 The compression number is easy to verify, but it is not the same as usefulness. The important question is: **did AgentPack include the files you actually needed?**
 
@@ -118,6 +119,8 @@ This runs FastAPI, Next.js, and mixed Python/TypeScript fixture tasks. It is a s
 ### Current quality bar
 
 AgentPack is best described as a **map, not a compass**. It is already good at token reduction, changed-file inclusion, related tests, imports, configs, and common concepts like auth/cache/rate limiting. Recent ranking work also improves full-stack tasks by pulling service/controller/schema/handler files when UI routes or pages match the same domain.
+
+The pack now includes a semantic repo map, task class, and "delta since last pack" section. Diff mode scores individual hunks against task keywords, so large dirty files spend tokens on the changed areas most likely to matter. Metrics also learn from previous noisy selections and gently downrank paths that repeatedly failed to predict later edits.
 
 Known weak spot: recall can still be low on unfamiliar product domains or cross-language flows. Use `benchmark --misses` and `agentpack explain` when an expected file is absent. Those commands show whether the miss was caused by ignore rules, low score, summary floor, budget cutoff, or missing task signal.
 
@@ -178,9 +181,9 @@ These are repo dumpers. They pack a repo (or subset) into a file and hand it to 
 
 What they don't do: decide what's relevant to *your task*. You specify the scope — files, globs, directories — and they package your decision. If you want "only the files that matter for fixing this auth bug", you have to figure that out yourself. On a 200-file repo, that's 80% of the work.
 
-AgentPack does that selection automatically. You give it a task string; it uses git diff, import graph traversal, and keyword scoring to rank every file, then cuts to fit your token budget. You don't touch globs.
+AgentPack does that selection automatically. You give it a task string; it uses task classification, git diff, import graph traversal, semantic summaries, and keyword scoring to rank every file, then cuts to fit your token budget. You don't touch globs.
 
-The other difference: all three pack uniformly (full content or nothing). AgentPack is selective by inclusion mode — changed files get full content, unchanged deps get summaries, unrelated files get dropped. A repomix dump of a 50k-token repo stays 50k tokens. An agentpack of the same repo for a specific task is typically 8k–20k.
+The other difference: all three pack uniformly (full content or nothing). AgentPack is selective by inclusion mode — changed files can be full source, relevant diff hunks, symbol bodies, interface skeletons, or summaries; unrelated files get dropped. A repomix dump of a 50k-token repo stays 50k tokens. An agentpack of the same repo for a specific task is typically 8k–20k.
 
 **Use repomix/gitingest if:** you want to dump an entire small repo into a chat UI for a one-shot question. Zero setup, great for "explain this codebase."
 
@@ -409,6 +412,7 @@ Builds an offline summary of every file — no API calls, no network. Each summa
 - What the file does and its responsibility
 - Exported classes, functions, signatures with extracted bodies
 - Import dependencies
+- Likely side effects, public API shape, error paths, and test hints
 
 Summaries are stored in `.agentpack/cache/` keyed by file hash. Only changed files are re-summarized on the next pack.
 
@@ -544,6 +548,8 @@ Diagnose your agentpack installation — checks CLI, git template hooks, git con
 
 ```bash
 agentpack doctor
+agentpack doctor --agent codex
+agentpack doctor --agent all
 ```
 
 Example output:
@@ -582,6 +588,7 @@ Some checks failed. Run the suggested commands above to fix.
 ```
 
 The new checks in `doctor`:
+- **Agent matrix audit**: `--agent all` checks Claude, Cursor, Windsurf, Codex, Antigravity, and Generic in one pass, including Codex `.codex/hooks.json` lifecycle hooks.
 - **Local vs global hooks**: warns when Claude hooks are only in the per-project `.claude/settings.json` — context won't auto-inject in other repos
 - **Slash command presence**: checks both local (`.claude/commands/`) and global (`~/.claude/commands/`) installations
 - **Source checkout mismatch**: warns when you're inside an AgentPack source checkout but the `agentpack` executable imports the installed site-packages copy. Use `PYTHONPATH=src python -m agentpack.cli ...` or `pip install -e .` for local development.
@@ -622,7 +629,7 @@ Also installs the detected agent integration:
 
 ### `agentpack install`
 
-Repair or reconfigure agent-specific files without reinitializing project state.
+Install or refresh one agent integration without reinitializing project state.
 
 ```bash
 agentpack install                      # auto-detect IDE
@@ -634,6 +641,18 @@ agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
 All installs are idempotent — safe to re-run, merge with existing config, never duplicate.
+
+---
+
+### `agentpack repair`
+
+Repair missing or drifted integration files. It uses the same installer contract as `init` and `install`, but is named for the "make this repo healthy again" workflow.
+
+```bash
+agentpack repair                 # repair auto-detected agent
+agentpack repair --agent codex   # AGENTS.md + .codex/hooks.json + git hooks
+agentpack repair --agent all     # repair every supported integration
+```
 
 ---
 
@@ -686,6 +705,18 @@ Options:
 | `deep` | Everything in balanced + docs + more full-content files, uncapped summaries |
 
 `pack` also prints diagnostics when the pack looks noisy: very short task text, no changed files, mostly filename matches, mostly summaries, many symbol matches, weak summaries excluded by the score floor, or summaries excluded by the mode cap.
+
+AgentPack uses budget-aware compression when building context:
+
+| Include mode | Used for |
+|--------------|----------|
+| `full` | Small or highly relevant changed files |
+| `diff` | Large changed files where the edit hunk is more useful than the whole file |
+| `symbols` | Focused implementation bodies under budget pressure |
+| `skeleton` | Imports plus public class/function signatures |
+| `summary` | Lower-priority supporting files |
+
+This keeps unrelated dirty files from consuming the whole context budget while preserving changed-file recall.
 
 ---
 
@@ -789,6 +820,7 @@ agentpack explain --task "fix auth session bug"
 agentpack explain --task auto
 agentpack explain --file src/auth/session.py   # per-file score breakdown
 agentpack explain --omitted                    # top-10 excluded files
+agentpack explain --budget-plan                # modes, token costs, value/token
 ```
 
 Per-file breakdown (`--file`):
@@ -810,7 +842,7 @@ src/auth/session.py
   symbols: create_session, revoke_session, validate_session
 ```
 
-Use `--omitted` to see what was left out and why. Use `--file` when a file you expected isn't showing up.
+Use `--omitted` to see what was left out and why. Use `--file` when a file you expected isn't showing up. Use `--budget-plan` to inspect how the compression planner spent the token budget.
 
 ---
 
@@ -930,10 +962,13 @@ Check whether the context pack is stale.
 
 ```bash
 agentpack status
+agentpack status --deep
 # Context pack is up to date.
 #   Task: fix auth session bug
 #   Generated: 2026-04-29T12:00:00Z
 ```
+
+`--deep` also prints the active agent, CLI path, current task, and integration health for the detected agent.
 
 ---
 
@@ -1261,6 +1296,7 @@ src/agentpack/
     antigravity.py             # AntigravityInstaller: GEMINI.md + auto-repack
 
   integrations/                # system/tool integration (not core domain)
+    agents.py                  # shared agent install/check contract
     git_hooks.py               # install/remove .git/hooks post-commit/merge/checkout
     vscode_tasks.py            # install/remove .vscode/tasks.json entries
     global_install.py          # global: git template hooks + shell rc hook
@@ -1277,6 +1313,7 @@ src/agentpack/
   commands/                    # CLI only — parse args, call services/installers
     pack.py                    # agentpack pack → PackService.run()
     install.py                 # agentpack install / global-install → installers/
+    repair.py                  # agentpack repair → shared integration repair
     init.py                    # agentpack init
     quickstart.py              # agentpack quickstart — guided first-run commands
     scan.py                    # agentpack scan
