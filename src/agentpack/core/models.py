@@ -48,13 +48,18 @@ class FileSummary(BaseModel):
     summary: str
     imports: list[str] = []
     symbols: list[Symbol] = []
+    role: str | None = None
+    side_effects: list[str] = []
+    public_api: list[str] = []
+    error_paths: list[str] = []
+    test_hints: list[str] = []
 
 
 class SelectedFile(BaseModel):
     path: str
     language: str | None = None
     score: float
-    include_mode: Literal["full", "symbols", "summary"]
+    include_mode: Literal["full", "diff", "symbols", "skeleton", "summary"]
     reasons: list[str]
     content: str | None = None
     summary: str | None = None
@@ -72,11 +77,14 @@ class ContextPack(BaseModel):
     task: str
     agent: str
     mode: Literal["minimal", "balanced", "deep"]
+    task_class: str = "general"
     budget: int
     token_estimate: int
     raw_repo_tokens: int
     after_ignore_tokens: int
     estimated_savings_percent: float
+    repo_map: str = ""
+    delta_summary: str = ""
     changed_files: list[str]
     selected_files: list[SelectedFile]
     receipts: list[Receipt]

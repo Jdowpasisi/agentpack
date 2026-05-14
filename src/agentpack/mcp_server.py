@@ -19,6 +19,7 @@ Tools exposed:
     refresh             — refresh using the current task.md
     explain_file        — show score breakdown + symbols for a specific file
     get_related_files   — return import-graph neighbours of a file
+    get_delta_context   — return selected-file delta since the previous pack
     get_stats           — token/saving stats for the latest pack
 """
 from __future__ import annotations
@@ -336,6 +337,33 @@ def _get_stats_impl(root: Path) -> str:
     return "\n".join(lines)
 
 
+def _get_delta_context_impl(root: Path, max_files: int = 12) -> str:
+    """Return the latest saved delta summary and selected-file changes."""
+    metadata_path = root / ".agentpack" / "pack_metadata.json"
+    if not metadata_path.exists():
+        return "No pack metadata found. Run pack_context() first."
+    try:
+        meta = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return f"Failed to read pack metadata: {exc}"
+
+    freshness = meta.get("freshness") or {}
+    delta = freshness.get("delta_summary") or "No selected-file delta recorded for the latest pack."
+    selected = meta.get("selected_files_meta") or []
+    lines = ["## AgentPack Delta", "", delta, ""]
+    if selected:
+        lines += ["### Current top selected files", ""]
+        for item in selected[:max(1, max_files)]:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path", "")
+            mode = item.get("mode", "")
+            why = item.get("why", "")
+            suffix = f" — {why}" if why else ""
+            lines.append(f"- `{path}` ({mode}){suffix}")
+    return "\n".join(lines)
+
+
 def serve() -> None:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -435,6 +463,17 @@ def serve() -> None:
         Returns a markdown list of related files with their relationship type.
         """
         return _get_related_files_impl(_repo_root(), path, depth)
+
+    @mcp.tool()
+    def get_delta_context(max_files: int = 12) -> str:
+        """Return selected-file delta and top current files from the latest pack.
+
+        Args:
+            max_files: Number of selected files to include. Default 12.
+
+        Returns a compact markdown delta suitable for hooks and agent refresh checks.
+        """
+        return _get_delta_context_impl(_repo_root(), max_files)
 
     @mcp.tool()
     def get_stats() -> str:

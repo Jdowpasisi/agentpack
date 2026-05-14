@@ -20,16 +20,26 @@ def summarize(path: str, abs_path: Path, language: str | None, file_hash: str) -
 def _python_summary(path: str, abs_path: Path, file_hash: str) -> FileSummary:
     imports = py_imports(abs_path)
     symbols = extract_python_symbols(abs_path)
+    text = _read_sample(abs_path)
 
     top_level_imports = [i for i in imports if not i.startswith(".")][:8]
     exposed = [s.name for s in symbols if s.kind in ("class", "function")][:8]
+    role = _infer_responsibility(path, exposed)
+    side_effects = _infer_side_effects(path, text, imports)
+    public_api = _infer_public_api(path, exposed, text)
+    error_paths = _infer_error_paths(text)
+    test_hints = _infer_test_hints(path, role, exposed)
 
     parts = ["Language: Python"]
+    parts.append(f"Role: {role}")
     if exposed:
         parts.append(f"Exposes: {', '.join(exposed)}")
     if top_level_imports:
         parts.append(f"Imports: {', '.join(top_level_imports)}")
-    parts.append(f"Likely responsibility: {_infer_responsibility(path, exposed)}")
+    if side_effects:
+        parts.append(f"Side effects: {', '.join(side_effects[:4])}")
+    if error_paths:
+        parts.append(f"Error paths: {', '.join(error_paths[:4])}")
 
     return FileSummary(
         path=path,
@@ -40,22 +50,37 @@ def _python_summary(path: str, abs_path: Path, file_hash: str) -> FileSummary:
         summary="\n- ".join([""] + parts).lstrip("\n- ") if parts else "",
         imports=imports[:20],
         symbols=symbols,
+        role=role,
+        side_effects=side_effects,
+        public_api=public_api,
+        error_paths=error_paths,
+        test_hints=test_hints,
     )
 
 
 def _js_summary(path: str, abs_path: Path, language: str, file_hash: str) -> FileSummary:
     imports = js_imports(abs_path)
     symbols = extract_js_symbols(abs_path)
+    text = _read_sample(abs_path)
 
     rel_imports = [i for i in imports if not i.startswith(".")][:8]
     exposed = [s.name for s in symbols][:8]
+    role = _infer_responsibility(path, exposed)
+    side_effects = _infer_side_effects(path, text, imports)
+    public_api = _infer_public_api(path, exposed, text)
+    error_paths = _infer_error_paths(text)
+    test_hints = _infer_test_hints(path, role, exposed)
 
     parts = [f"Language: {language.capitalize()}"]
+    parts.append(f"Role: {role}")
     if exposed:
         parts.append(f"Exposes: {', '.join(exposed)}")
     if rel_imports:
         parts.append(f"Imports: {', '.join(rel_imports)}")
-    parts.append(f"Likely responsibility: {_infer_responsibility(path, exposed)}")
+    if side_effects:
+        parts.append(f"Side effects: {', '.join(side_effects[:4])}")
+    if error_paths:
+        parts.append(f"Error paths: {', '.join(error_paths[:4])}")
 
     return FileSummary(
         path=path,
@@ -66,6 +91,11 @@ def _js_summary(path: str, abs_path: Path, language: str, file_hash: str) -> Fil
         summary="\n- ".join([""] + parts).lstrip("\n- ") if parts else "",
         imports=imports[:20],
         symbols=symbols,
+        role=role,
+        side_effects=side_effects,
+        public_api=public_api,
+        error_paths=error_paths,
+        test_hints=test_hints,
     )
 
 
@@ -85,7 +115,71 @@ def _generic_summary(path: str, abs_path: Path, language: str | None, file_hash:
         summary=f"Language: {language or 'unknown'}\nFirst lines:\n{snippet[:300]}",
         imports=[],
         symbols=[],
+        role=_infer_responsibility(path, []),
+        side_effects=_infer_side_effects(path, snippet, []),
+        public_api=[],
+        error_paths=_infer_error_paths(snippet),
+        test_hints=_infer_test_hints(path, _infer_responsibility(path, []), []),
     )
+
+
+def _read_sample(abs_path: Path, max_chars: int = 16000) -> str:
+    try:
+        return abs_path.read_text(errors="replace")[:max_chars]
+    except OSError:
+        return ""
+
+
+def _infer_side_effects(path: str, text: str, imports: list[str]) -> list[str]:
+    haystack = f"{path}\n{text}\n{' '.join(imports)}".lower()
+    checks = [
+        ("network I/O", ("requests.", "fetch(", "httpx", "aiohttp", "urllib", "axios", "client.")),
+        ("filesystem I/O", ("open(", "read_text(", "write_text(", "unlink(", "mkdir(", "shutil", "pathlib")),
+        ("subprocess", ("subprocess", "popen(", "exec(", "spawn(")),
+        ("database", ("select ", "insert ", "update ", "delete ", "session.", "cursor.", "sqlalchemy")),
+        ("environment", ("os.environ", "process.env", "dotenv", "getenv(")),
+        ("logging", ("logger.", "logging.", "console.", "print(")),
+        ("external process", ("git ", "npm ", "pip ", "docker ")),
+    ]
+    return [label for label, needles in checks if any(needle in haystack for needle in needles)]
+
+
+def _infer_public_api(path: str, symbols: list[str], text: str) -> list[str]:
+    api = [name for name in symbols if not name.startswith("_")][:8]
+    if re.search(r"@\w*app\.(get|post|put|delete|patch)|router\.(get|post|put|delete|patch)", text):
+        api.append("HTTP route")
+    if "typer.Option" in text or "@app.command" in text:
+        api.append("CLI command")
+    if "export " in text:
+        api.append("module exports")
+    return list(dict.fromkeys(api))[:8]
+
+
+def _infer_error_paths(text: str) -> list[str]:
+    checks = [
+        ("raises exceptions", (r"\braise\s+\w+", r"\bthrow\s+new\b")),
+        ("catches exceptions", (r"\bexcept\b", r"\bcatch\s*\(")),
+        ("exits process", (r"typer\.Exit", r"sys\.exit", r"process\.exit")),
+        ("returns error responses", (r"HTTPException", r"status_code\s*=\s*[45]\d\d", r"Response\(")),
+        ("logs errors", (r"\.exception\(", r"\.error\(")),
+    ]
+    found: list[str] = []
+    for label, patterns in checks:
+        if any(re.search(pattern, text) for pattern in patterns):
+            found.append(label)
+    return found
+
+
+def _infer_test_hints(path: str, role: str, symbols: list[str]) -> list[str]:
+    hints: list[str] = []
+    stem = Path(path).stem
+    if "/tests/" not in path and not stem.startswith("test_"):
+        hints.append(f"look for tests around `{stem}`")
+    if role != stem:
+        hints.append(f"exercise {role}")
+    for sym in symbols[:3]:
+        hints.append(f"cover `{sym}`")
+    return hints[:6]
 
 
 _SEMANTIC_PATTERNS = [

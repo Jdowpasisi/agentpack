@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from agentpack.commands.explain import _noise_report, _resolve_signal_weight
+from agentpack.commands.explain import _noise_report, _print_budget_plan, _resolve_signal_weight
+from agentpack.core.models import SelectedFile
 from agentpack.core.config import ScoringWeights
 
 
@@ -106,3 +107,21 @@ def test_noise_report_names_generic_terms() -> None:
     assert "stats" in report
     assert "excluded by summary cap: 1" in report
     assert "Try `--mode minimal`" in report
+
+
+def test_budget_plan_prints_modes_and_value(capsys) -> None:
+    plan = SimpleNamespace(
+        budget=1000,
+        selected=[
+            SelectedFile(path="a.py", score=200, include_mode="diff", reasons=["modified"], content="+x"),
+            SelectedFile(path="b.py", score=100, include_mode="skeleton", reasons=["filename keyword match"], content="def run(): ..."),
+        ],
+    )
+
+    _print_budget_plan(plan)
+
+    out = capsys.readouterr().out
+    assert "Budget plan" in out
+    assert "diff" in out
+    assert "skeleton" in out
+    assert "value/tok" in out

@@ -217,6 +217,19 @@ def _load_pack_task(root: Path) -> str:
         return ""
 
 
+def _load_delta_summary(root: Path) -> str:
+    meta_path = root / ".agentpack" / "pack_metadata.json"
+    if not meta_path.exists():
+        return ""
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    freshness = meta.get("freshness") or {}
+    delta = freshness.get("delta_summary", "")
+    return str(delta).splitlines()[0][:240] if delta else ""
+
+
 def _infer_live_task(root: Path) -> str:
     """Live task: git priority chain (no stale metadata). Falls back to 'unknown'."""
     try:
@@ -314,11 +327,14 @@ def _run_user_prompt_submit(root: Path) -> None:
             )
             status_note = "(repacking — call pack_context for fresh results)" if should_repack else "(index fresh)"
             current_task = _load_task_md(root) or _infer_live_task(root)
+            delta = _load_delta_summary(root)
             msg = (
                 f"AgentPack {status_note}\n"
                 f"task: {current_task}\n"
+                + (f"delta: {delta}\n" if delta else "")
+                +
                 f"top files:\n{files_lines}\n"
-                f"Call agentpack_pack_context(task=\"...\") for full ranked context."
+                f"Call agentpack_get_delta_context() for delta or agentpack_pack_context(task=\"...\") for full ranked context."
             )
         else:
             msg = (
@@ -329,6 +345,7 @@ def _run_user_prompt_submit(root: Path) -> None:
         hints = _load_hints(root, n=8)
         current_task = _load_task_md(root) or _infer_live_task(root)
         if hints:
+            delta = _load_delta_summary(root)
             files_lines = "\n".join(
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
                 for h in hints
@@ -337,6 +354,8 @@ def _run_user_prompt_submit(root: Path) -> None:
             msg = (
                 f"AgentPack context{changed_note}\n"
                 f"task: {current_task}\n"
+                + (f"delta: {delta}\n" if delta else "")
+                +
                 f"top files:\n{files_lines}\n\n"
                 f"For richer context, install MCP: agentpack install --agent claude"
             )

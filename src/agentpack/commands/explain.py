@@ -156,6 +156,35 @@ def _print_noise_report(task: str, plan: object) -> None:
         console.print(line)
 
 
+def _print_budget_plan(plan: object) -> None:
+    from agentpack.application.pack_service import _sf_tokens
+
+    selected = list(plan.selected)  # type: ignore[attr-defined]
+    total_tokens = sum(_sf_tokens(sf) for sf in selected)
+    console.print("[bold]Budget plan[/]")
+    console.print(f"  selected: {len(selected)} files")
+    console.print(f"  tokens:   {total_tokens:,}/{plan.budget:,}")  # type: ignore[attr-defined]
+    console.print("")
+    by_mode: dict[str, int] = {}
+    by_mode_tokens: dict[str, int] = {}
+    for sf in selected:
+        by_mode[sf.include_mode] = by_mode.get(sf.include_mode, 0) + 1
+        by_mode_tokens[sf.include_mode] = by_mode_tokens.get(sf.include_mode, 0) + _sf_tokens(sf)
+    for mode, count in sorted(by_mode.items()):
+        console.print(f"  {mode:<8} {count:>3} files  {by_mode_tokens[mode]:>6,} tokens")
+    console.print("")
+    console.print("[bold]Selected files by token value:[/]")
+    for sf in sorted(selected, key=lambda item: item.score / max(_sf_tokens(item), 1), reverse=True)[:20]:
+        tokens = _sf_tokens(sf)
+        density = sf.score / max(tokens, 1)
+        reason = sf.reasons[0] if sf.reasons else ""
+        console.print(
+            f"  {sf.path:<50} [{sf.include_mode:<8}] "
+            f"score={sf.score:>5.0f} tokens={tokens:>5,} value/tok={density:.2f} "
+            f"[dim]{reason}[/]"
+        )
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def explain(
@@ -166,6 +195,7 @@ def register(app: typer.Typer) -> None:
         file: Optional[str] = typer.Option(None, "--file", help="Show detailed score breakdown for a specific file."),
         omitted: bool = typer.Option(False, "--omitted", is_flag=True, help="Show top-10 excluded files and why."),
         why_noisy: bool = typer.Option(False, "--why-noisy", is_flag=True, help="Explain broad task terms and noisy selection signals."),
+        budget_plan: bool = typer.Option(False, "--budget-plan", is_flag=True, help="Show selected modes, token costs, and value per token."),
     ) -> None:
         """Explain which files would be selected and why, without writing a context file."""
         if mode not in ("minimal", "balanced", "deep"):
@@ -251,13 +281,25 @@ def register(app: typer.Typer) -> None:
             console.print()
             return
 
+        if budget_plan:
+            console.print(f"\n[bold]Task:[/] [cyan]{resolved_task}[/]  [dim]mode={mode}  budget={plan.budget:,}[/]\n")
+            _print_budget_plan(plan)
+            console.print()
+            return
+
         console.print(f"\n[bold]Task:[/] [cyan]{resolved_task}[/]  [dim]mode={mode}  budget={plan.budget:,}[/]\n")
 
         console.print("[bold]Top selected files (ranked):[/]")
         for i, sf in enumerate(selected, 1):
             score_val, reasons = score_map.get(sf.path, (sf.score, sf.reasons))
             reason_str = ", ".join(reasons) if reasons else ""
-            mode_color = "green" if sf.include_mode == "full" else "yellow" if sf.include_mode == "symbols" else "dim"
+            mode_color = {
+                "full": "green",
+                "diff": "cyan",
+                "symbols": "yellow",
+                "skeleton": "blue",
+                "summary": "dim",
+            }.get(sf.include_mode, "dim")
             console.print(
                 f"  [bold]{i}.[/] {sf.path:<50} "
                 f"[dim]score={score_val:.0f}[/]  "

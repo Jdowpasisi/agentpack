@@ -10,6 +10,7 @@ from agentpack.mcp_server import (
     _repo_root,
     _truncate_to_budget,
     _get_context_impl,
+    _get_delta_context_impl,
     _get_stats_impl,
     _explain_file_impl,
     _get_related_files_impl,
@@ -247,6 +248,19 @@ def test_get_stats_corrupt_metadata(tmp_path):
     (tmp_path / ".agentpack" / "pack_metadata.json").write_text("not json")
     result = _get_stats_impl(tmp_path)
     assert "Failed to read pack metadata" in result
+
+
+def test_get_delta_context_returns_latest_delta(tmp_path):
+    _write_metadata_full(
+        tmp_path,
+        freshness={"delta_summary": "Selected delta: +1 new, -0 removed"},
+        selected_files_meta=[
+            {"path": "src/hooks.py", "mode": "diff", "why": "modified"},
+        ],
+    )
+    result = _get_delta_context_impl(tmp_path)
+    assert "Selected delta" in result
+    assert "src/hooks.py" in result
 
 
 # ---------------------------------------------------------------------------

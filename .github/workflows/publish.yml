@@ -101,7 +101,7 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
+    needs: [build, verify-built-wheel]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -114,3 +114,71 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify-built-wheel:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install built wheel
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install dist/*.whl
+          .venv/bin/agentpack --version
+      - name: Verify all agent integrations from wheel
+        run: |
+          .venv/bin/python - <<'PY'
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          base = Path(tempfile.mkdtemp(prefix="agentpack-wheel-matrix-"))
+          bin_path = Path.cwd() / ".venv" / "bin" / "agentpack"
+          expect = {
+              "claude": ["CLAUDE.md", ".claude/settings.json", ".mcp.json"],
+              "cursor": [".cursorrules", ".cursor/rules/agentpack.mdc", ".vscode/tasks.json"],
+              "windsurf": [".windsurfrules", ".vscode/tasks.json"],
+              "codex": ["AGENTS.md", ".codex/hooks.json"],
+              "antigravity": ["GEMINI.md", ".vscode/tasks.json"],
+              "generic": [],
+          }
+          git_agents = {"cursor", "windsurf", "codex", "antigravity"}
+
+          def check(root, agent):
+              missing = [rel for rel in expect[agent] if not (root / rel).exists()]
+              if missing:
+                  raise SystemExit(f"{agent}: missing {missing}")
+              if agent == "claude":
+                  text = json.dumps(json.loads((root / ".claude/settings.json").read_text()))
+                  assert text.count("agentpack hook --event SessionStart") == 1, text
+                  assert text.count("agentpack hook --event UserPromptSubmit") == 1, text
+              if agent == "codex":
+                  text = json.dumps(json.loads((root / ".codex/hooks.json").read_text()))
+                  assert text.count("agentpack hook --event SessionStart") == 1, text
+                  assert text.count("agentpack hook --event UserPromptSubmit") == 1, text
+              for event in ("post-commit", "post-merge", "post-checkout"):
+                  hook = root / ".git" / "hooks" / event
+                  has_marker = hook.exists() and "agentpack:auto-repack" in hook.read_text()
+                  if (agent in git_agents) != has_marker:
+                      raise SystemExit(f"{agent}: git hook {event} marker mismatch")
+
+          for mode in ("init", "install"):
+              for agent in expect:
+                  root = base / f"{mode}-{agent}"
+                  root.mkdir()
+                  subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+                  cmd = [str(bin_path), mode, "--agent", agent]
+                  if mode == "init":
+                      cmd.append("--yes")
+                  subprocess.run(cmd, cwd=root, check=True)
+                  subprocess.run(cmd, cwd=root, check=True)
+                  check(root, agent)
+                  print(f"{mode}:{agent}: ok")
+          PY

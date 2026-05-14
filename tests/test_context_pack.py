@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 from agentpack.application.pack_service import _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import save_pack_metadata, select_files
@@ -41,6 +42,76 @@ def test_selects_changed_file_as_full(tmp_path):
     assert len(selected) == 1
     assert selected[0].include_mode == "full"
     assert selected[0].content is not None
+
+
+def test_large_dirty_file_uses_diff_mode(tmp_path):
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    f = tmp_path / "large.py"
+    f.write_text("def old():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "large.py"], cwd=tmp_path, check=True)
+    f.write_text("def old():\n    return 2\n" + "\n".join(f"# filler {i}" for i in range(2000)), encoding="utf-8")
+    fi = FileInfo(
+        path="large.py",
+        abs_path=f,
+        size_bytes=f.stat().st_size,
+        estimated_tokens=5000,
+        hash="h2",
+        language="python",
+    )
+
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["modified"])],
+        changed_paths={"large.py"},
+        summaries={},
+        mode="balanced",
+        budget=3000,
+        max_file_tokens=4000,
+    )
+
+    assert selected[0].include_mode == "diff"
+    assert "diff --git" in selected[0].content
+    assert "# filler 1999" not in selected[0].content
+
+
+def test_high_score_unchanged_file_uses_skeleton_mode():
+    fi = _fi("src/service.py", tokens=2000)
+    summaries = {
+        "src/service.py": {
+            "summary": "Service orchestration.",
+            "imports": ["src.db", "src.models"],
+            "symbols": [
+                {
+                    "name": "BillingService",
+                    "kind": "class",
+                    "start_line": 1,
+                    "end_line": 20,
+                    "signature": "class BillingService:",
+                },
+                {
+                    "name": "charge",
+                    "kind": "function",
+                    "start_line": 22,
+                    "end_line": 35,
+                    "signature": "def charge(invoice_id: str) -> None:",
+                },
+            ],
+        }
+    }
+
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 180.0, ["filename keyword match"])],
+        changed_paths=set(),
+        summaries=summaries,
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+    )
+
+    assert selected[0].include_mode == "skeleton"
+    assert "class BillingService" in selected[0].content
+    assert "src.db" in selected[0].content
 
 
 def test_budget_respected():

@@ -24,7 +24,7 @@ def render_compact(pack: ContextPack) -> str:
     deps: list[SelectedFile] = []
 
     for sf in pack.selected_files:
-        if sf.include_mode in ("full", "symbols"):
+        if sf.include_mode in ("full", "diff", "symbols", "skeleton"):
             selected.append(sf)
         else:
             deps.append(sf)
@@ -36,9 +36,22 @@ def render_compact(pack: ContextPack) -> str:
     sections.append("")
     sections.append(f"task: {pack.task}")
     sections.append(f"mode: {pack.mode}")
+    sections.append(f"task_class: {pack.task_class}")
     sections.append(f"budget: {pack.token_estimate}/{pack.budget}")
     sections.append(f"generated: {now}")
     sections.append("")
+
+    if pack.delta_summary:
+        sections.append("## delta")
+        sections.append("")
+        sections.append(pack.delta_summary)
+        sections.append("")
+
+    if pack.repo_map:
+        sections.append("## repo_map")
+        sections.append("")
+        sections.append(pack.repo_map)
+        sections.append("")
 
     sections.append("## selected")
     sections.append("")
