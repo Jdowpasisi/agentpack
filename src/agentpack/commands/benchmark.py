@@ -94,6 +94,36 @@ def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
             ["src/py/utils.py"],
             "python",
         ),
+        (
+            "django_rest_app",
+            "fix cursor pagination in user list endpoint",
+            ["api/views/user_list.py", "api/pagination.py", "tests/test_pagination.py"],
+            "backend-api",
+        ),
+        (
+            "django_rest_app",
+            "fix validation error in user serializer",
+            ["api/serializers/user.py"],
+            "backend-api",
+        ),
+        (
+            "go_service",
+            "fix kubernetes readiness probe failing on startup",
+            ["handler/health.go", "k8s/deployment.yaml"],
+            "infrastructure",
+        ),
+        (
+            "go_service",
+            "fix Docker image build for deployment",
+            ["Dockerfile", "cmd/server/main.go"],
+            "infrastructure",
+        ),
+        (
+            "rails_app",
+            "fix welcome email not being sent after registration",
+            ["app/mailers/user_mailer.rb", "app/jobs/email_job.rb", "spec/mailers/user_mailer_spec.rb"],
+            "backend-api",
+        ),
     ]
 
     cases: list[FixtureCase] = []

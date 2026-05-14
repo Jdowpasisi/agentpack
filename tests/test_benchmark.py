@@ -423,10 +423,17 @@ def test_sample_fixture_cases_include_framework_repos() -> None:
     fixture_cases = _sample_fixture_cases(fixtures_root)
 
     fixture_names = {c.fixture for c in fixture_cases}
-    assert {"py_fastapi_app", "nextjs_app", "mixed_repo"} <= fixture_names
+    assert {
+        "py_fastapi_app",
+        "nextjs_app",
+        "mixed_repo",
+        "django_rest_app",
+        "go_service",
+        "rails_app",
+    } <= fixture_names
     assert all(c.root.exists() for c in fixture_cases)
     assert all(c.case.expected_files for c in fixture_cases)
-    assert {c.case.task_type for c in fixture_cases} >= {"backend-api", "frontend-web"}
+    assert {c.case.task_type for c in fixture_cases} >= {"backend-api", "frontend-web", "infrastructure"}
 
 
 def test_benchmark_cli_sample_fixtures_uses_temp_copies(monkeypatch: pytest.MonkeyPatch) -> None:

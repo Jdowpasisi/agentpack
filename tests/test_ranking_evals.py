@@ -284,6 +284,22 @@ class TestChangedFilePriority:
             f"jwt.py (changed + keyword match) should rank #1. Ranking: {results}"
         )
 
+    def test_historically_co_changed_file_gets_recall_boost(self):
+        """Co-change history should surface neighbors of the live changed file."""
+        files = [_fi("src/auth/session.py"), _fi("tests/test_session.py"), _fi("src/ui/button.py")]
+        scored = score_files(
+            files,
+            changed_paths={"src/auth/session.py"},
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph={},
+            keywords=extract_keywords("fix session expiry"),
+            co_changed_paths={"tests/test_session.py": 2},
+        )
+        scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+        assert scores["tests/test_session.py"][0] > scores["src/ui/button.py"][0]
+        assert any("historically co-changed" in reason for reason in scores["tests/test_session.py"][1])
+
 
 # ---------------------------------------------------------------------------
 # Scenario 8: Keyword extraction quality

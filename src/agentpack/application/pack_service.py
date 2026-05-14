@@ -166,8 +166,10 @@ class FileRanker:
             dep_graph.nodes[fi.path].tests = tests
 
         churn_counts: dict[str, int] = {}
+        co_changed_paths: dict[str, int] = {}
         if root is not None and _git.is_git_repo(root):
             churn_counts = _git.file_churn_counts(root)
+            co_changed_paths = _git.co_changed_files(root, changes.all_changed)
 
         scored = score_files(
             packable,
@@ -181,6 +183,7 @@ class FileRanker:
             weights=cfg.scoring,
             summaries=summaries,
             churn_counts=churn_counts,
+            co_changed_paths=co_changed_paths,
         )
         scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)

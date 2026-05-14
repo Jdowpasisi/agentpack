@@ -25,6 +25,12 @@ def test_recently_modified_graceful(tmp_path):
     assert len(result) == 0
 
 
+def test_co_changed_files_graceful(tmp_path):
+    result = git.co_changed_files(tmp_path, {"src/auth/session.py"})
+    assert isinstance(result, dict)
+    assert result == {}
+
+
 def test_untracked_graceful(tmp_path):
     result = git.untracked_files(tmp_path)
     assert isinstance(result, set)
@@ -110,6 +116,25 @@ def test_staged_files_beats_recently_modified(tmp_path):
     task, source = git.infer_task_with_source(repo)
     assert source in ("staged", "branch+staged")
     assert "payment" in task
+
+
+def test_co_changed_files_counts_neighbors(tmp_path):
+    repo = _make_git_repo(tmp_path)
+    (repo / "src").mkdir()
+    (repo / "tests").mkdir()
+    (repo / "src" / "session.py").write_text("v1")
+    (repo / "tests" / "test_session.py").write_text("v1")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial session"], cwd=repo, check=True, capture_output=True)
+
+    (repo / "src" / "session.py").write_text("v2")
+    (repo / "tests" / "test_session.py").write_text("v2")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "fix session"], cwd=repo, check=True, capture_output=True)
+
+    result = git.co_changed_files(repo, {"src/session.py"})
+    assert result["tests/test_session.py"] >= 1
+    assert "src/session.py" not in result
 
 
 def test_source_label_in_valid_set():
