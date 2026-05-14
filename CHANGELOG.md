@@ -10,6 +10,19 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.27] — 2026-05-15
+
+### Changed
+- `agentpack init` now installs the detected agent integration during first-time setup, so one command creates config/session/task files plus the relevant Claude, Cursor, Windsurf, Codex, or Antigravity repo files.
+- README setup docs now describe `agentpack init` as the primary project setup command and `agentpack install` as an idempotent repair/reconfigure command.
+
+### Fixed
+- `agentpack init --agent codex` now creates `AGENTS.md` and git auto-repack hooks instead of only writing `.agentpack/` state.
+- `agentpack init --agent cursor`, `--agent windsurf`, and `--agent antigravity` now install their rules, VS Code task, and git auto-repack hooks.
+- `agentpack init --agent claude` now installs `CLAUDE.md`, local Claude hooks, and the AgentPack MCP config.
+
+---
+
 ## [0.1.26] — 2026-05-13
 
 ### Changed

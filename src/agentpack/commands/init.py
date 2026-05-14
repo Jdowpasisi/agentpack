@@ -59,6 +59,58 @@ def _patch_repo_gitignore(root, share_cache: bool = False) -> str:
     return "updated"
 
 
+def _install_agent_integration(root, agent: str) -> dict[str, str]:
+    """Install repo-local agent integration files after `agentpack init`."""
+    results: dict[str, str] = {}
+
+    if agent == "claude":
+        from agentpack.installers.claude import ClaudeInstaller
+
+        installer = ClaudeInstaller()
+        results["CLAUDE.md"] = installer.patch_claude_md(root)
+        results[".claude/settings.json"] = installer.patch_claude_settings(root, global_install=False)
+        results[".mcp.json"] = installer.patch_mcp_server(root, global_install=False)
+    elif agent == "cursor":
+        from agentpack.installers.cursor import CursorInstaller
+
+        installer = CursorInstaller()
+        results[".cursorrules"] = installer.patch_cursor_rules(root)
+        results[".cursor/rules/agentpack.mdc"] = installer.patch_cursor_mdc(root)
+        results.update(installer.install_auto_repack(root))
+    elif agent == "windsurf":
+        from agentpack.installers.windsurf import WindsurfInstaller
+
+        installer = WindsurfInstaller()
+        results[".windsurfrules"] = installer.patch_windsurfrules(root)
+        results.update(installer.install_auto_repack(root))
+    elif agent == "codex":
+        from agentpack.installers.codex import CodexInstaller
+
+        installer = CodexInstaller()
+        results["AGENTS.md"] = installer.patch_agents_md(root)
+        results.update(installer.install_auto_repack(root))
+    elif agent == "antigravity":
+        from agentpack.installers.antigravity import AntigravityInstaller
+
+        installer = AntigravityInstaller()
+        results["GEMINI.md"] = installer.patch_gemini_md(root)
+        results.update(installer.install_auto_repack(root))
+
+    return results
+
+
+def _print_agent_integration_results(results: dict[str, str]) -> None:
+    for key, action in results.items():
+        if action == "unchanged":
+            continue
+        if key.startswith("git:"):
+            console.print(f"[green].git/hooks/{key[4:]} {action}[/]")
+        elif key == "vscode:tasks":
+            console.print(f"[green].vscode/tasks.json {action}[/]")
+        else:
+            console.print(f"[green]{key} {action}[/]")
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def init(
@@ -150,6 +202,7 @@ def register(app: typer.Typer) -> None:
         from agentpack.core.config import load_config
         resolved_mode = load_config(root).context.default_mode
         existing_session = load_session(root)
+        resolved_agent = agent
         if existing_session is None or force:
             from agentpack.adapters.detect import detect_agent
             resolved_agent = agent if agent != "auto" else detect_agent(root)
@@ -158,6 +211,10 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green]Created[/] {TASK_FILE}  [dim]edit to set your task[/]")
         else:
             console.print(f"[dim]Skipped[/] {SESSION_FILE} (exists)")
+            if agent == "auto":
+                resolved_agent = existing_session.agent
+
+        _print_agent_integration_results(_install_agent_integration(root, resolved_agent))
 
         console.print("\n[bold green]AgentPack initialized.[/]")
         console.print("Run [bold]agentpack watch[/] to start auto-refreshing context.")

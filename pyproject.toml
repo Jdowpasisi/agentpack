@@ -1,6 +1,6 @@
 [project]
 name = "agentpack-cli"
-version = "0.1.26"
+version = "0.1.27"
 description = "Task-aware context packing for AI coding agents — Claude, Cursor, Windsurf, Codex, and Antigravity"
 readme = "README.md"
 requires-python = ">=3.10"
