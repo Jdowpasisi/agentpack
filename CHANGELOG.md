@@ -8,6 +8,14 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Added
+- Public benchmark evidence notes under `benchmarks/`, with source-checkout fixture coverage and quality gates for recall/token precision.
+- More source-checkout benchmark fixtures: Django REST-style pagination/serializer, Go service readiness/deploy, and Rails-style mailer/job flows.
+
+### Changed
+- Ranking now gives a small recall boost to files that historically changed in the same commits as live changed files.
+- README now promotes `benchmark --misses` and `explain --file/--omitted/--budget-plan` as the primary miss-debugging loop.
+
 ---
 
 ## [0.1.30] — 2026-05-15

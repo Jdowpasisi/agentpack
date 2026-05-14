@@ -21,10 +21,12 @@ AgentPack is useful when a repo is too large to paste, but a blank agent session
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [Quality Bar](#quality-bar)
+- [Debugging Selection](#debugging-selection)
 - [Supported Integrations](#supported-integrations)
 - [Commands](#commands)
 - [Architecture](#architecture)
 - [Known Limitations](#known-limitations)
+- [Roadmap](#roadmap)
 - [Development](#development)
 
 ## Features
@@ -111,6 +113,21 @@ agentpack benchmark --init
 # add historical tasks and files actually changed
 agentpack benchmark --compare --misses
 ```
+
+## Debugging Selection
+
+When AgentPack misses a file, the next command should explain the miss:
+
+```bash
+agentpack benchmark --misses
+agentpack explain --task "fix billing webhook" --file lib/billing/webhook.ts
+agentpack explain --task "fix billing webhook" --omitted
+agentpack explain --task "fix billing webhook" --budget-plan
+```
+
+`benchmark --misses` reports each expected file that was not selected, including whether it was ignored, scored too low, excluded by summary floor, cut by budget, or absent from the scan. `explain --file` shows the exact score signals for one file. `explain --budget-plan` shows how the token budget was spent across full, diff, symbols, skeleton, and summary modes.
+
+This is the core reliability loop: pack, measure recall, inspect misses, then tune task wording, `.agentignore`, or scoring weights.
 
 ## When it helps
 
@@ -856,9 +873,11 @@ agentpack benchmark --init
 agentpack benchmark --compare --misses
 ```
 
-`--sample-fixtures` runs bundled FastAPI, Next.js, and mixed Python/TypeScript fixture evals from an AgentPack source checkout. It is a smoke test, not a claim about your repo.
+`--sample-fixtures` runs bundled FastAPI, Next.js, mixed Python/TypeScript, Django REST-style, Go service, and Rails-style fixture evals from an AgentPack source checkout. It is a smoke test, not a claim about your repo.
 
 For an 8+ usefulness signal, use `benchmark.toml` with real third-party or customer-style repos: 5-20 historical tasks, `task_type` labels, the files actually changed for each task, and `--compare` results for recall, F1, rank@K, and token noise. That is better than trusting generic benchmarks because it tells you whether AgentPack selects the files that matter in code the package has never seen.
+
+See [benchmarks/README.md](benchmarks/README.md) for the public smoke-suite fixtures, quality gates, and the recommended miss-debugging workflow.
 
 ---
 
@@ -1254,6 +1273,7 @@ src/agentpack/
 - **Mode selection is value-aware**: changed files can be `full`, `diff`, `symbols`, `skeleton`, or `summary`. Large diffs keep task-relevant hunks first, and tight budgets downgrade files before dropping them.
 - **Repo maps are first-class context**: `analysis/repo_map.py` builds a compact semantic map before file context, and its token cost is reserved before file selection.
 - **Metrics feed history learning**: selection accuracy records hit/noise paths, token precision, mode counts, and mode tokens. Later packs gently penalize repeated noisy paths unless they are currently changed.
+- **Git history feeds recall**: files that historically changed in the same commits as live changed files receive a small boost, helping related tests, schemas, services, and configs surface without forcing full-content inclusion.
 - **`AdapterRegistry` maps agent → adapter**: adding a new agent output format requires one entry in `AdapterRegistry.get()`, not changes to `PackService`.
 - **`detect_agent()` runs at invocation time**: `--agent auto` (the default) calls `detect_agent()` fresh on every `pack` run and git hook execution — so context is always written for the active IDE, even when switching between agents or running in CI.
 - **`DependencyGraph` is typed**: `dependency_graph.build()` returns `DependencyGraph(nodes: dict[str, DependencyNode])` — no more `dict[str, dict]` with stringly-typed keys like `"imported_by"`. Typos are caught at the model layer.
@@ -1284,6 +1304,18 @@ src/agentpack/
 - **Secret redaction**: covers AWS keys, GitHub tokens, OpenAI/Anthropic keys, JWTs, and private key blocks. Not a substitute for a dedicated secrets scanner on sensitive repos.
 - **Token estimates**: uses tiktoken `cl100k_base` — approximate, not exact for Claude's billing.
 - **Large repos (>5k files)**: global auto-bootstrap is skipped for repos over 5,000 files to avoid hangs. Run `agentpack init` explicitly in large codebases.
+
+---
+
+## Roadmap
+
+Next release target: **0.2.0 = benchmark + recall release**.
+
+- Expand public source-checkout fixtures and publish reproducible `benchmark --sample-fixtures --compare --misses` output.
+- Raise recall on real historical tasks while keeping token precision healthy; target 60%+ recall, 50%+ token precision, and balanced packs under 25k tokens.
+- Improve second-pass expansion through imports, reverse imports, related tests, historical co-change, and framework route/service/schema pairs.
+- Make MCP pull flows more prominent so agents can ask for `explain_file`, `get_related_files`, and `get_delta_context` instead of relying only on a static startup pack.
+- Keep integration contracts stable across Claude, Cursor, Windsurf, Codex, Antigravity, and Generic before any 1.0 work.
 
 ---
 

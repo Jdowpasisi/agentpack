@@ -126,6 +126,45 @@ def file_churn_counts(root: Path, max_commits: int = 200) -> dict[str, int]:
     return counts
 
 
+def co_changed_files(root: Path, seed_paths: set[str], max_commits: int = 200) -> dict[str, int]:
+    """Return files that changed in the same recent commits as seed_paths.
+
+    This is a cheap history signal for recall expansion: if a live changed file
+    often lands with a service, schema, test, or config file, give that neighbor
+    a small ranking boost without forcing full-content inclusion.
+    """
+    if not seed_paths:
+        return {}
+    out = _run(
+        ["git", "log", "--name-only", "--pretty=format:--AGENTPACK-COMMIT--", f"-{max_commits}"],
+        root,
+    )
+    if not out:
+        return {}
+
+    counts: dict[str, int] = {}
+    commit_files: list[str] = []
+
+    def flush() -> None:
+        if not commit_files or not (set(commit_files) & seed_paths):
+            return
+        for path in commit_files:
+            if path not in seed_paths:
+                counts[path] = counts.get(path, 0) + 1
+
+    for raw_line in out.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line == "--AGENTPACK-COMMIT--":
+            flush()
+            commit_files = []
+            continue
+        commit_files.append(line)
+    flush()
+    return counts
+
+
 def staged_files(root: Path) -> set[str]:
     """Files staged for commit (git index only)."""
     out = _run(["git", "diff", "--cached", "--name-only"], root)

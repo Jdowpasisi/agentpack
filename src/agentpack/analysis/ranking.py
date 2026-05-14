@@ -201,13 +201,17 @@ _IMPLEMENTATION_ROLE_TOKENS = {
     "controller", "controllers", "service", "services", "handler", "handlers",
     "resolver", "resolvers", "schema", "schemas", "model", "models",
     "repository", "repositories", "repo", "repos", "client", "clients",
-    "adapter", "adapters", "provider", "providers",
+    "adapter", "adapters", "provider", "providers", "serializer",
+    "serializers", "validator", "validators", "worker", "workers", "job",
+    "jobs", "mailer", "mailers", "migration", "migrations", "paginator",
+    "pagination",
 }
 
 _ENTRYPOINT_ROLE_TOKENS = {
     "page", "pages", "screen", "screens", "view", "views", "component",
     "components", "api", "route", "routes", "router", "controller",
-    "controllers", "endpoint", "endpoints",
+    "controllers", "endpoint", "endpoints", "handler", "handlers",
+    "webhook", "webhooks",
 }
 
 _PATH_NOISE_TOKENS = {
@@ -401,6 +405,7 @@ def score_files(
     weights: ScoringWeights | None = None,
     summaries: dict | None = None,
     churn_counts: dict[str, int] | None = None,
+    co_changed_paths: dict[str, int] | None = None,
 ) -> list[tuple[FileInfo, float, list[str]]]:
     from agentpack.core.models import DependencyGraph as _DG
     if not isinstance(dep_graph, _DG):
@@ -515,6 +520,11 @@ def score_files(
             if count >= churn_threshold:
                 score += w.churn_high
                 reasons.append(f"high churn ({count} commits)")
+
+        if co_changed_paths and fi.path in co_changed_paths:
+            count = co_changed_paths[fi.path]
+            score += w.co_changed * min(1.0, 0.5 + (count / 4))
+            reasons.append(f"historically co-changed ({count} commits)")
 
         if fi.too_large and score < 50:
             score += w.large_unrelated_penalty
