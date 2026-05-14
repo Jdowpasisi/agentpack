@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -24,6 +25,18 @@ _BLOCK_RE = re.compile(
     re.DOTALL,
 )
 
+_SESSION_START_HOOK = {
+    "type": "command",
+    "command": "agentpack hook --event SessionStart",
+}
+
+_USER_PROMPT_SUBMIT_HOOK = {
+    "type": "command",
+    "command": "agentpack hook --event UserPromptSubmit",
+    "timeout": 5,
+    "statusMessage": "Checking agentpack index...",
+}
+
 
 class CodexInstaller:
     """Configures Codex/OpenAI-specific repo files and auto-repack hooks."""
@@ -47,9 +60,47 @@ class CodexInstaller:
         agents_md.write_text(content.rstrip() + "\n\n" + _AGENTPACK_BLOCK + "\n")
         return "appended"
 
+    def patch_codex_hooks(self, root: Path) -> str:
+        """Merge AgentPack lifecycle hooks into .codex/hooks.json."""
+        hooks_path = root / ".codex" / "hooks.json"
+        hooks_path.parent.mkdir(parents=True, exist_ok=True)
+        existed = hooks_path.exists()
+
+        existing: dict = {}
+        if existed:
+            try:
+                existing = json.loads(hooks_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                existing = {}
+
+        hooks = existing.setdefault("hooks", {})
+        changed = False
+        changed |= self._ensure_hook(hooks, "SessionStart", _SESSION_START_HOOK)
+        changed |= self._ensure_hook(hooks, "UserPromptSubmit", _USER_PROMPT_SUBMIT_HOOK)
+
+        new_content = json.dumps(existing, indent=2) + "\n"
+        if hooks_path.exists() and hooks_path.read_text(encoding="utf-8") == new_content:
+            return "unchanged"
+        hooks_path.write_text(new_content, encoding="utf-8")
+        return "updated" if existed else "created"
+
+    def _ensure_hook(self, hooks: dict, event: str, hook: dict) -> bool:
+        entries = hooks.setdefault(event, [])
+        for entry in entries:
+            for existing_hook in entry.get("hooks", []):
+                if existing_hook.get("type") == hook["type"] and existing_hook.get("command") == hook["command"]:
+                    if existing_hook == hook:
+                        return False
+                    existing_hook.clear()
+                    existing_hook.update(dict(hook))
+                    return True
+        entries.append({"hooks": [dict(hook)]})
+        return True
+
     def install_auto_repack(self, root: Path) -> dict[str, str]:
         """Install git hooks for auto-repack. Returns results dict."""
         results: dict[str, str] = {}
+        results[".codex/hooks.json"] = self.patch_codex_hooks(root)
         hook_results = install_git_hooks(root, agent="auto")
         results.update({f"git:{k}": v for k, v in hook_results.items()})
         return results

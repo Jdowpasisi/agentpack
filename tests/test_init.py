@@ -73,7 +73,7 @@ def test_init_writes_repo_gitignore_block(tmp_path, monkeypatch) -> None:
         ("claude", ("CLAUDE.md", ".claude/settings.json", ".mcp.json"), False),
         ("cursor", (".cursorrules", ".cursor/rules/agentpack.mdc", ".vscode/tasks.json"), True),
         ("windsurf", (".windsurfrules", ".vscode/tasks.json"), True),
-        ("codex", ("AGENTS.md",), True),
+        ("codex", ("AGENTS.md", ".codex/hooks.json"), True),
         ("antigravity", ("GEMINI.md", ".vscode/tasks.json"), True),
     ],
 )

@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.27).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.28).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -281,7 +281,7 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 | Agent | Automation level | Method |
 |---|---|---|
 | Claude Code (hook) | Highest | `init` writes `CLAUDE.md`, `.claude/settings.json` hooks, and `.mcp.json` |
-| Codex | Medium | `init` writes `AGENTS.md` + git hooks |
+| Codex | Medium | `init` writes `AGENTS.md`, `.codex/hooks.json` + git hooks |
 | Cursor | Medium | `init` writes `.cursorrules`, `.cursor/rules/agentpack.mdc`, VS Code task + git hooks |
 | Windsurf | Medium | `init` writes `.windsurfrules`, VS Code task + git hooks |
 | Antigravity | Medium | `init` writes `GEMINI.md`, VS Code task + git hooks |
@@ -370,6 +370,7 @@ agentpack init --agent codex
 
 Configures:
 - `AGENTS.md` — tells Codex to write current task, repack, and read the context pack before each task
+- `.codex/hooks.json` — Codex app lifecycle hooks for prompt-time AgentPack refresh hints
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 
 ### Antigravity
@@ -389,7 +390,7 @@ Configures:
 
 | Mechanism | Claude Code | Cursor | Windsurf | Codex | Antigravity |
 |---|---|---|---|---|---|
-| Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` | `GEMINI.md` + generated `.agent/skills/agentpack/SKILL.md` after pack |
+| Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` + `.codex/hooks.json` | `GEMINI.md` + generated `.agent/skills/agentpack/SKILL.md` after pack |
 | Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` | ✅ Skill auto-activation |
 | Auto-repack when stale | ✅ hook (content hash via `root_hash`, ~1ms when fresh) | ✅ git hooks | ✅ git hooks | ✅ git hooks | ✅ git hooks |
 | Manual repack shortcut | ✅ `/agentpack` slash cmd | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
@@ -613,7 +614,7 @@ Also installs the detected agent integration:
 - Claude: `CLAUDE.md`, `.claude/settings.json` hooks, `.mcp.json`
 - Cursor: `.cursorrules`, `.cursor/rules/agentpack.mdc`, git hooks, VS Code task
 - Windsurf: `.windsurfrules`, git hooks, VS Code task
-- Codex: `AGENTS.md`, git hooks
+- Codex: `AGENTS.md`, `.codex/hooks.json`, git hooks
 - Antigravity: `GEMINI.md`, git hooks, VS Code task
 - Generic: no agent-specific files
 
@@ -628,7 +629,7 @@ agentpack install                      # auto-detect IDE
 agentpack install --agent claude       # CLAUDE.md + .claude/settings.json hooks
 agentpack install --agent cursor       # .cursorrules + .mdc + git hooks + VS Code tasks
 agentpack install --agent windsurf     # .windsurfrules + git hooks + VS Code tasks
-agentpack install --agent codex        # AGENTS.md + git hooks
+agentpack install --agent codex        # AGENTS.md + .codex/hooks.json + git hooks
 agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
@@ -1256,7 +1257,7 @@ src/agentpack/
     claude.py                  # ClaudeInstaller: CLAUDE.md + .claude/settings.json
     cursor.py                  # CursorInstaller: .cursorrules + .mdc + auto-repack
     windsurf.py                # WindsurfInstaller: .windsurfrules + auto-repack
-    codex.py                   # CodexInstaller: AGENTS.md + git hooks
+    codex.py                   # CodexInstaller: AGENTS.md + .codex/hooks.json + git hooks
     antigravity.py             # AntigravityInstaller: GEMINI.md + auto-repack
 
   integrations/                # system/tool integration (not core domain)
