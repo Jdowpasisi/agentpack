@@ -799,6 +799,10 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 | `pack_context(task, mode, budget, max_tokens)` | Generate a ranked context pack for a task. Returns packed markdown, truncated to `max_tokens` (default 20,000). |
 | `get_context()` | Return the latest pre-built pack instantly (no repack). Prepends a freshness/staleness header so you know if it's stale. |
 | `refresh()` | Refresh using the current `task.md` or git-inferred task. |
+| `explain_file(path, task)` | Show score, inclusion mode, reasons, symbols, imports, and importers for one file. |
+| `get_related_files(path, depth)` | Return import-graph neighbours and related tests for a file. |
+| `get_delta_context(max_files)` | Return the latest selected-file delta plus top current selected files. Useful for cheap prompt-time refresh checks. |
+| `get_stats()` | Return latest pack stats, savings, selection quality, excluded files, and benchmark-style signals. |
 
 **Staleness detection:** `get_context()` compares the snapshot hash from when the pack was built against the current repo snapshot. If files changed since last pack, it prepends:
 ```
@@ -1000,23 +1004,20 @@ agentpack monitor --clear
 ## How it works
 
 ```
-1. Scan repo  →  apply .agentignore  →  hash every file
-2. Build current snapshot  →  diff against previous snapshot
-3. Get git changed/staged files  (+ --since <ref> if specified)
-4. Build import dependency graph (Python/JS/TS: full; Go/Rust/Java: best-effort)
-5. Detect related test files
-6. Extract task keywords + concept synonym expansion
-7. Enrich keywords from changed file content (high-frequency identifiers)
-8. Score every file, rank by score
-9. Select within token budget
-10. For each selected file:
-      changed + small  →  full content
-      changed + large  →  symbol bodies (ast.get_source_segment)
-      unchanged dep    →  summary + signatures
-      low-score file   →  summary only
-11. Generate context receipts (why each file included/excluded)
-12. Render markdown for target agent  →  save context pack
-13. Save snapshot + metadata + metrics
+1. Scan repo  →  apply .agentignore  →  skip generated AgentPack outputs  →  hash files
+2. Build offline summaries  →  role, imports, symbols, side effects, public API, errors, test hints
+3. Build import dependency graph  →  Python/JS/TS full, Go/Rust/Java/Kotlin best-effort
+4. Detect changed files  →  snapshot diff + git working tree + staged + optional --since ref
+5. Classify task  →  bugfix / feature / docs / release / infra / audit / test / ui / refactor
+6. Extract weighted task terms  →  literals, variants, concept synonyms, changed-file identifiers
+7. Score every file  →  changes, task terms, symbols, content, deps, tests, configs, churn
+8. Apply history learning  →  gently downrank files that were repeatedly selected as noise
+9. Build semantic repo map  →  compact module/group map reserved inside the token budget
+10. Select by value per token  →  full / diff / symbols / skeleton / summary / omit
+11. For large diffs  →  score hunks against task keywords and keep the most relevant hunks
+12. Redact secrets at materialization  →  before content reaches any renderer or adapter
+13. Render context  →  freshness, task class, repo map, delta since last pack, receipts, files
+14. Persist state  →  adapter output, canonical .agentpack/context.md, snapshot, metadata, metrics
 ```
 
 ---
@@ -1149,7 +1150,11 @@ Works like `.gitignore`. Default rules exclude:
           └────────────────────┬────────────────────┘
                                │
           ┌────────────────────▼────────────────────┐
-          │            ANALYSIS LAYER                │
+          │       SUMMARY + ANALYSIS LAYER           │
+          │                                         │
+          │  Summary cache  ── role, imports,       │
+          │  (offline)        symbols, side effects, │
+          │                   public API, errors     │
           │                                         │
           │  Import graph  ──  Python AST           │
           │  (6 languages)  ─  JS/TS regex          │
@@ -1166,16 +1171,7 @@ Works like `.gitignore`. Default rules exclude:
           │  Task keywords   ── stopwords + variants│
           │                  ── concept synonyms    │
           │                  ── content enrichment  │
-          └────────────────────┬────────────────────┘
-                               │
-          ┌────────────────────▼────────────────────┐
-          │     SUMMARY CACHE  (offline, local)      │
-          │                                         │
-          │  key: path + hash + provider + schema   │
-          │  hit  → instant, zero I/O               │
-          │  miss → build from AST/regex, cache it  │
-          │                                         │
-          │  offline  ──  AST / regex extract       │
+          │  Task class      ── bugfix/docs/release │
           └────────────────────┬────────────────────┘
                                │
           ┌────────────────────▼────────────────────┐
@@ -1197,17 +1193,27 @@ Works like `.gitignore`. Default rules exclude:
           │   +50 dep       +40 rev-dep             │
           │   +35 test      +25 config  +20 recent  │
           │   -50 large unrelated                   │
+          │  History noise penalty from metrics     │
+          └────────────────────┬────────────────────┘
+                               │
+          ┌────────────────────▼────────────────────┐
+          │             REPO MAP                     │
+          │                                         │
+          │  Compact semantic map grouped by module │
+          │  Reserved inside the context budget     │
           └────────────────────┬────────────────────┘
                                │
           ┌────────────────────▼────────────────────┐
           │         BUDGET SELECTION                 │
           │                                         │
-          │  Sort by score, consume until budget    │
+          │  Sort by changed/task/value-per-token   │
           │                                         │
           │  changed + small  ──▶  full content     │
-          │  changed + large  ──▶  symbol bodies    │
-          │  unchanged dep    ──▶  summary + sigs   │
-          │  low score        ──▶  summary only     │
+          │  changed + large  ──▶  task-scored diff │
+          │  task symbols     ──▶  symbol bodies    │
+          │  interface view   ──▶  skeleton         │
+          │  low context      ──▶  summary/omit     │
+          │  budget fallback  ──▶  downgrade first  │
           └────────────────────┬────────────────────┘
                                │
           ┌────────────────────▼────────────────────┐
@@ -1220,6 +1226,8 @@ Works like `.gitignore`. Default rules exclude:
           │  Antigravity adapter ──▶  .agent/skills/agentpack/SKILL.md │
           │  Generic adapter     ──▶  context.md        │
           │                                         │
+          │  Freshness + task class + repo map      │
+          │  Delta since last pack                  │
           │  Context receipts (why each file in/out)│
           │  Secret redaction (AWS/GH/OpenAI tokens)│
           └─────────────────────────────────────────┘
@@ -1235,16 +1243,16 @@ src/agentpack/
     agentpack.md               # bundled /agentpack slash command for Claude CLI
 
   application/
-    pack_service.py            # PackPlanner: shared scan→rank→select pipeline
+    pack_service.py            # PackPlanner: shared scan→summarize→graph→rank→repo_map→select pipeline
                                # PackService: materializes plan → writes context file
                                # AdapterRegistry: maps agent names to adapter instances
                                # PackRequest / PackResult / PackPlan DTOs
 
   domain/  (via core/models.py)
     FileInfo, ScanResult       # scan output (packable / ignored / binary)
-    Symbol, FileSummary        # summary cache objects
+    Symbol, FileSummary        # summary cache objects (role, side_effects, public_api, errors, tests)
     SelectedFile, Receipt      # selection output with redaction_warnings
-    ContextPack                # final artifact with redaction_warnings
+    ContextPack                # final artifact with freshness, repo_map, delta_summary, redaction_warnings
     DependencyNode             # typed graph node (path, imports, imported_by, tests)
     DependencyGraph            # typed graph container (nodes dict + dict-like accessors)
 
@@ -1258,7 +1266,7 @@ src/agentpack/
     git.py                     # subprocess git + task inference from branch/commits
     merkle.py                  # root hash: sort(path:hash) → sha256
     cache.py                   # summary cache keyed path+hash+provider+version
-    context_pack.py            # select_files: budget selection + secret redaction
+    context_pack.py            # select_files: full/diff/symbols/skeleton/summary + hunk scoring + redaction
     token_estimator.py         # tiktoken cl100k_base (approximate)
     redactor.py                # redact_secrets: fires at content materialization
     bootstrap.py               # is_initialized, bootstrap_if_needed
@@ -1273,9 +1281,11 @@ src/agentpack/
     symbols.py                 # AST symbols + body via ast.get_source_segment
     tests.py                   # source → test file mapping heuristics
     ranking.py                 # keyword extraction, concept synonyms, scoring
+    repo_map.py                # compact semantic repo map reserved inside token budget
+    task_classifier.py         # coarse task class for freshness/rendering/scoring context
 
   summaries/
-    offline.py                 # zero-API: AST/regex → imports, symbols, summary
+    offline.py                 # zero-API: AST/regex → imports, symbols, role, side effects, API, errors
     base.py                    # cache-or-build orchestration (parallel, ThreadPool+ProcessPool)
 
   adapters/                    # context rendering only — no installation logic
@@ -1296,15 +1306,17 @@ src/agentpack/
     antigravity.py             # AntigravityInstaller: GEMINI.md + auto-repack
 
   integrations/                # system/tool integration (not core domain)
-    agents.py                  # shared agent install/check contract
+    agents.py                  # shared agent install/check/repair contract for all supported agents
     git_hooks.py               # install/remove .git/hooks post-commit/merge/checkout
     vscode_tasks.py            # install/remove .vscode/tasks.json entries
     global_install.py          # global: git template hooks + shell rc hook
 
   renderers/
-    markdown.py                # renders pre-redacted ContextPack to markdown
+    markdown.py                # renders pre-redacted ContextPack to markdown, including freshness/map/delta
     compact.py                 # compact protocol format for session context files
     receipts.py                # context receipt formatter
+
+  mcp_server.py                # MCP tools: pack_context, get_context, explain, related, stats, delta
 
   session/
     state.py                   # SessionState dataclass + load/save/create/stop helpers
@@ -1335,13 +1347,18 @@ src/agentpack/
 
 - **Redaction at materialization**: secrets are stripped inside `select_files()` before content reaches any renderer or adapter. Every output format gets redacted content automatically — no per-renderer redaction needed.
 - **`ScanResult` splits cleanly**: `scan()` returns `ScanResult(packable, ignored, binary)` — downstream code only processes `packable` files, eliminating `if f.ignored or f.binary` guards throughout.
-- **`PackPlanner` owns shared planning**: `PackPlanner.plan()` runs scan → summarize → graph → rank → select and returns a `PackPlan`. Both `pack` and `explain` use the same planner — no duplicated pipeline logic, no drift.
-- **`PackService` materializes a plan**: takes a `PackPlan`, builds the `ContextPack` artifact, delegates rendering to `AdapterRegistry`, persists snapshot + metadata + metrics.
+- **`PackPlanner` owns shared planning**: `PackPlanner.plan()` runs scan → summarize → graph → changes → rank → repo map → select and returns a `PackPlan`. Both `pack` and `explain` use the same planner — no duplicated pipeline logic, no drift.
+- **`PackService` materializes a plan**: takes a `PackPlan`, computes delta since the previous pack, builds the `ContextPack` artifact, delegates rendering to `AdapterRegistry`, persists snapshot + metadata + metrics.
+- **Mode selection is value-aware**: changed files can be `full`, `diff`, `symbols`, `skeleton`, or `summary`. Large diffs keep task-relevant hunks first, and tight budgets downgrade files before dropping them.
+- **Repo maps are first-class context**: `analysis/repo_map.py` builds a compact semantic map before file context, and its token cost is reserved before file selection.
+- **Metrics feed history learning**: selection accuracy records hit/noise paths, token precision, mode counts, and mode tokens. Later packs gently penalize repeated noisy paths unless they are currently changed.
 - **`AdapterRegistry` maps agent → adapter**: adding a new agent output format requires one entry in `AdapterRegistry.get()`, not changes to `PackService`.
 - **`detect_agent()` runs at invocation time**: `--agent auto` (the default) calls `detect_agent()` fresh on every `pack` run and git hook execution — so context is always written for the active IDE, even when switching between agents or running in CI.
 - **`DependencyGraph` is typed**: `dependency_graph.build()` returns `DependencyGraph(nodes: dict[str, DependencyNode])` — no more `dict[str, dict]` with stringly-typed keys like `"imported_by"`. Typos are caught at the model layer.
 - **`integrations/` vs `core/`**: git hooks, shell rc patching, and VS Code tasks are infrastructure concerns — they live in `integrations/`, not `core/`. `core/` is pure domain logic.
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
+- **Agent integration contract is shared**: `integrations/agents.py` defines install, audit, and repair behavior for Claude, Cursor, Windsurf, Codex, Antigravity, and Generic. `install`, `repair`, `doctor --agent all`, and release verification use the same contract.
+- **MCP and hooks use deltas when possible**: MCP exposes `get_delta_context()`, and prompt hooks can emit task/top-file/delta hints instead of injecting the full context every time.
 
 ---
 
