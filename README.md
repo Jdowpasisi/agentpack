@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.25).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.1.27).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -63,8 +63,7 @@ agentpack quickstart --task "fix auth token expiry"
 
 # One-time setup per project
 cd your-project
-agentpack init             # creates config, session, task.md — nothing else needed
-agentpack install          # auto-detects your IDE (optional but recommended)
+agentpack init             # creates config/session/task.md + detected agent integration
 
 # Every terminal session
 agentpack watch            # keeps context fresh automatically — that's it
@@ -201,7 +200,7 @@ AgentPack is not a coding assistant. It's a context preparation tool. The output
 
 These tools have native file access via tool calls. Claude reads exactly the files it needs, on demand, per turn. Pre-packing context adds overhead without much benefit on small-to-medium repos.
 
-AgentPack's value here is different: `agentpack install --agent <x>` configures your agent to auto-inject a ranked context pack on session start and auto-repack whenever you commit. On large repos where tool-call exploration piles up across turns, this front-loads the cost once instead of paying per-turn.
+AgentPack's value here is different: `agentpack init --agent <x>` configures your agent to read or inject a ranked context pack and auto-repack when the repo changes. On large repos where tool-call exploration piles up across turns, this front-loads the cost once instead of paying per-turn.
 
 ### Where agentpack genuinely wins
 
@@ -266,8 +265,7 @@ The full workflow:
 
 ```bash
 # One-time project setup
-agentpack init             # creates config, session, task.md
-agentpack install          # configure your agent (optional but recommended)
+agentpack init             # creates config/session/task.md + detected agent integration
 
 # Every terminal session — just one command
 agentpack watch            # auto-resumes session, refreshes context on file/task changes
@@ -282,11 +280,11 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 
 | Agent | Automation level | Method |
 |---|---|---|
-| Claude Code (hook) | Highest | `UserPromptSubmit` hook auto-injects context |
-| Codex | Medium | `AGENTS.md` + `init` + `watch` |
-| Cursor | Medium | `.cursor/rules/agentpack.mdc` + `init` + `watch` |
-| Windsurf | Medium | `.windsurfrules` + `init` + `watch` |
-| Antigravity | Medium | `.agent/skills/agentpack/SKILL.md` + `GEMINI.md` + `init` + `watch` |
+| Claude Code (hook) | Highest | `init` writes `CLAUDE.md`, `.claude/settings.json` hooks, and `.mcp.json` |
+| Codex | Medium | `init` writes `AGENTS.md` + git hooks |
+| Cursor | Medium | `init` writes `.cursorrules`, `.cursor/rules/agentpack.mdc`, VS Code task + git hooks |
+| Windsurf | Medium | `init` writes `.windsurfrules`, VS Code task + git hooks |
+| Antigravity | Medium | `init` writes `GEMINI.md`, VS Code task + git hooks |
 | Generic | Basic | `watch` mode + read `context.md` |
 
 ### Honest limitations
@@ -303,8 +301,7 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 ```bash
 pip install agentpack-cli
 cd your-project
-agentpack init             # one-time setup: config + session + task.md
-agentpack install          # auto-detects your IDE (Claude Code, Cursor, Windsurf, Codex, Antigravity)
+agentpack init             # one-time setup: config/session/task.md + detected agent integration
 agentpack watch            # in another terminal — keeps context fresh automatically
 ```
 
@@ -318,20 +315,20 @@ agentpack global-install             # apply
 source ~/.zshrc
 ```
 
-Then opt each project in: `cd your-project && agentpack init`. After that git hooks repack on commit and the Claude Code hook injects context on every session start — no manual steps.
+Then opt each project in: `cd your-project && agentpack init`. After that repo hooks or shell hooks keep context fresh, and Claude Code gets prompt-time context hints — no manual steps.
 
 ---
 
 ## Agent setup
 
-Run once per project. Each command is idempotent — safe to re-run, never clobbers unrelated config.
+`agentpack init` is the normal one-command project setup. It creates `.agentpack/` state and installs the detected agent integration. Re-run it any time; integration writes are idempotent and never clobber unrelated config.
 
-`agentpack install` without `--agent` auto-detects the active IDE from environment variables and project files. Pass `--agent` explicitly to override.
+Use `--agent` explicitly to override detection. `agentpack install` remains available when you only want to repair or reconfigure agent files without reinitializing project state.
 
 ### Claude Code
 
 ```bash
-agentpack install --agent claude
+agentpack init --agent claude
 ```
 
 Configures:
@@ -345,7 +342,7 @@ After this, context is injected automatically into every Claude Code session. No
 ### Cursor
 
 ```bash
-agentpack install --agent cursor
+agentpack init --agent cursor
 ```
 
 Configures:
@@ -357,7 +354,7 @@ Configures:
 ### Windsurf
 
 ```bash
-agentpack install --agent windsurf
+agentpack init --agent windsurf
 ```
 
 Configures:
@@ -368,7 +365,7 @@ Configures:
 ### Codex
 
 ```bash
-agentpack install --agent codex
+agentpack init --agent codex
 ```
 
 Configures:
@@ -378,22 +375,21 @@ Configures:
 ### Antigravity
 
 ```bash
-agentpack install --agent antigravity
+agentpack init --agent antigravity
 ```
 
 Configures:
-- `.agent/skills/agentpack/SKILL.md` — AgentPack context as a Skill; Antigravity activates it automatically for coding tasks
 - `GEMINI.md` — registers the agentpack skill reference and task-switch protocol
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 - `.vscode/tasks.json` — "AgentPack: Repack context" in Command Palette + `runOn: folderOpen`
 
-The Skill descriptor activates AgentPack automatically — no `--task` flag required when working in Antigravity.
+`agentpack pack` writes `.agent/skills/agentpack/SKILL.md`, which Antigravity can activate automatically for coding tasks.
 
 ### Auto-repack comparison
 
 | Mechanism | Claude Code | Cursor | Windsurf | Codex | Antigravity |
 |---|---|---|---|---|---|
-| Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` | `.agent/skills/agentpack/SKILL.md` + `GEMINI.md` |
+| Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` | `GEMINI.md` + generated `.agent/skills/agentpack/SKILL.md` after pack |
 | Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` | ✅ Skill auto-activation |
 | Auto-repack when stale | ✅ hook (content hash via `root_hash`, ~1ms when fresh) | ✅ git hooks | ✅ git hooks | ✅ git hooks | ✅ git hooks |
 | Manual repack shortcut | ✅ `/agentpack` slash cmd | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
@@ -507,7 +503,7 @@ agentpack global-install --agent antigravity   # Antigravity
 What it does:
 - **Git template hooks** (`~/.git-templates/hooks/`) — git copies these into every repo on `git init` / `git clone`. On `post-commit`, `post-merge`, `post-checkout`: silently repacks **only if `.agentpack/config.toml` exists** — no-op in repos that haven't opted in.
 - **Shell cd hook** (`~/.zshrc` or `~/.bashrc`) — on `cd`, repacks if stale **only in opted-in repos**. Never touches repos without `.agentpack/config.toml`. Never auto-inits.
-- **Agent config** — same as `agentpack install --agent <x>` for the current project.
+- **Agent config** — same agent-specific files that `agentpack init --agent <x>` or `agentpack install --agent <x>` writes for the current project.
 
 All changes are idempotent, reversible, and non-destructive. Existing hooks and rc files are appended to, never overwritten. Repos you haven't explicitly run `agentpack init` in are never touched.
 
@@ -598,6 +594,7 @@ Initialize AgentPack in the current directory.
 ```bash
 agentpack init                  # interactive mode picker
 agentpack init --yes            # non-interactive, use defaults (good for CI)
+agentpack init --agent codex    # force an agent integration
 agentpack init --share-cache    # commit cache/ to git for team sharing
 ```
 
@@ -612,11 +609,19 @@ Creates:
   snapshots/              # file hash snapshots
 ```
 
+Also installs the detected agent integration:
+- Claude: `CLAUDE.md`, `.claude/settings.json` hooks, `.mcp.json`
+- Cursor: `.cursorrules`, `.cursor/rules/agentpack.mdc`, git hooks, VS Code task
+- Windsurf: `.windsurfrules`, git hooks, VS Code task
+- Codex: `AGENTS.md`, git hooks
+- Antigravity: `GEMINI.md`, git hooks, VS Code task
+- Generic: no agent-specific files
+
 ---
 
 ### `agentpack install`
 
-Configure agentpack for your AI coding agent.
+Repair or reconfigure agent-specific files without reinitializing project state.
 
 ```bash
 agentpack install                      # auto-detect IDE
@@ -624,7 +629,7 @@ agentpack install --agent claude       # CLAUDE.md + .claude/settings.json hooks
 agentpack install --agent cursor       # .cursorrules + .mdc + git hooks + VS Code tasks
 agentpack install --agent windsurf     # .windsurfrules + git hooks + VS Code tasks
 agentpack install --agent codex        # AGENTS.md + git hooks
-agentpack install --agent antigravity  # .agent/skills/agentpack/SKILL.md + GEMINI.md + git hooks + VS Code tasks
+agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
 All installs are idempotent — safe to re-run, merge with existing config, never duplicate.
@@ -1252,7 +1257,7 @@ src/agentpack/
     cursor.py                  # CursorInstaller: .cursorrules + .mdc + auto-repack
     windsurf.py                # WindsurfInstaller: .windsurfrules + auto-repack
     codex.py                   # CodexInstaller: AGENTS.md + git hooks
-    antigravity.py             # AntigravityInstaller: GEMINI.md + .agent/skills/ + auto-repack
+    antigravity.py             # AntigravityInstaller: GEMINI.md + auto-repack
 
   integrations/                # system/tool integration (not core domain)
     git_hooks.py               # install/remove .git/hooks post-commit/merge/checkout
@@ -1357,7 +1362,7 @@ Add to `.github/workflows/agentpack-context.yml` — see the full example in [CI
 
 ```bash
 # One-time project setup
-agentpack init                     # creates config, session, task.md
+agentpack init                     # creates config/session/task.md + detected agent integration
 # Edit .agentpack/task.md to set your task
 
 # Every terminal session — just one command
@@ -1460,7 +1465,7 @@ agentpack pack --task "fix bug" --budget 40000   # explicit token cap
 ### Watch mode for active sessions
 
 ```bash
-agentpack init                  # one-time setup (creates session + task.md)
+agentpack init                  # one-time setup (creates session/task.md + detected agent integration)
 agentpack watch                 # in another terminal — auto-resumes each time
 ```
 
