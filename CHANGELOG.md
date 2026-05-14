@@ -10,6 +10,13 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.28] — 2026-05-15
+
+### Fixed
+- Codex setup now writes `.codex/hooks.json` with AgentPack `SessionStart` and `UserPromptSubmit` lifecycle hooks, so Codex Settings > Hooks shows installed AgentPack hooks after refresh.
+
+---
+
 ## [0.1.27] — 2026-05-15
 
 ### Changed
