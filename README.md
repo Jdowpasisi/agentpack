@@ -9,155 +9,108 @@
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
-**Task-aware context packing for AI coding agents.**
+**Local context engine for AI coding agents.**
 
-AgentPack scans a repository, ranks files for the task you are working on, and writes a compact markdown context pack for Claude Code, Cursor, Windsurf, Codex, Antigravity, CI jobs, or any LLM workflow.
+AgentPack builds task-focused context packs for Claude Code, Cursor, Windsurf, Codex, Antigravity, CI jobs, and any LLM workflow that can read markdown. It scans your repo locally, ranks files for the task, compresses the result into a token budget, and keeps the pack fresh through CLI commands, MCP tools, hooks, and agent integrations.
 
-It is useful when the repo is too large to paste, but you still want the agent to start with more than a blank slate.
+AgentPack is useful when a repo is too large to paste, but a blank agent session wastes time rediscovering the same code structure. It is a context preparation tool, not a coding agent.
 
-**What it is**
-- A local CLI for building task-focused context packs
-- A summary cache, import graph, ranking engine, and token-budget selector
-- Optional integrations for popular coding agents
-- An eval harness for measuring whether selected files match files you actually changed
+## Contents
 
-**What it is not**
-- Not a coding agent
-- Not a semantic code search engine
-- Not a replacement for manual inspection on high-stakes changes
-- Not yet proven across a large public benchmark suite
+- [Features](#features)
+- [Install](#install)
+- [Quickstart](#quickstart)
+- [Quality Bar](#quality-bar)
+- [Supported Integrations](#supported-integrations)
+- [Commands](#commands)
+- [Architecture](#architecture)
+- [Known Limitations](#known-limitations)
+- [Development](#development)
 
----
+## Features
 
-## The problem
+- **Task-focused packing**: ranks files from git changes, task terms, symbols, imports, related tests, configs, churn, and repo history.
+- **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
+- **Semantic repo map**: adds a compact module-level map before file context so agents orient faster.
+- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, and stale-context warnings.
+- **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
+- **Local and measurable**: no API calls for scan, summarize, rank, pack, stats, or benchmark; quality is measured with expected-file evals.
 
-Every time you start a task with an AI coding agent, it has no idea what's in your repo. It either:
-
-1. **Reads files on demand** (Claude Code, Cursor, Windsurf) — dozens of tool calls, paying exploration cost every session, every turn, forever.
-2. **Gets the whole repo dumped in** (repomix, gitingest) — 50k–500k tokens of noise, most of it irrelevant to the task at hand.
-3. **Gets nothing** — you hand-copy the 5 files you think matter and hope you got it right.
-
-None of these scale. On a 200-file codebase, option 1 wastes 5–10 turns just orienting. Option 2 degrades output quality (LLMs perform worse on long noisy context). Option 3 misses critical dependencies and configs constantly.
-
-**The root cause:** agents don't know *what's relevant to your current task* without doing the work to figure that out — which costs tokens, time, and money on every session.
-
----
-
-## The solution
-
-AgentPack solves this with a one-time offline analysis pass:
-
-1. **Scans your repo once** — builds a summary cache of every file (signatures, imports, responsibilities). No API calls. Takes a few seconds.
-2. **On each task** — classifies the task, builds a compact semantic repo map, then uses git diff, import graph traversal, keyword/concept expansion, implementation-role boosts, and cross-layer relatedness to rank every file.
-3. **Packs a tight context document** — changed files get full content when cheap, relevant diff hunks when large, symbol bodies or interface skeletons when tighter, and summaries only when useful.
-4. **Explains pack quality** — noisy-pack diagnostics, score receipts, token-precision metrics, mode-mix reports, delta summaries, and benchmark miss reports show when the pack is broad or missing expected files.
-5. **Stays current** — auto-repacks silently on commit, so next session starts fresh.
-
-The result: your agent starts with a focused map of the relevant code. It should reduce blind exploration, not replace the agent's own file reads or your judgment.
+## Install
 
 ```bash
 pip install agentpack-cli
-
-# Show the fastest path for your repo
-agentpack quickstart --task "fix auth token expiry"
-
-# One-time setup per project
-cd your-project
-agentpack init             # creates config/session/task.md + detected agent integration
-
-# Every terminal session
-agentpack watch            # keeps context fresh automatically — that's it
+agentpack --version
 ```
 
-Then open Claude Code / Cursor / Windsurf / Codex / Antigravity and write your task normally. AgentPack keeps `.agentpack/context.md` current.
+Requires Python 3.10+. The PyPI package is `agentpack-cli`; the command is `agentpack`.
 
-For power users who want background repacking on every commit and cd:
+JavaScript-heavy teams can install the npm wrapper:
 
 ```bash
-# Advanced: global automation (opt-in repos only — never touches repos without .agentpack/)
-agentpack global-install --dry-run   # preview first
-agentpack global-install
+npm install -g @vishal2612200/agentpack
+agentpack --version
 ```
 
-Supported agents: **Claude Code**, **Cursor**, **Windsurf**, **Codex**, **Antigravity** (Google), or any LLM that can read markdown.
+The npm package is a Node launcher around the Python implementation. It installs the matching `agentpack-cli` package into a per-version virtual environment on first run.
 
----
+## Quickstart
 
-## What to expect
+```bash
+cd your-project
+agentpack init --agent codex       # or claude, cursor, windsurf, antigravity
+agentpack pack --task "fix auth token expiry"
+```
 
-AgentPack's strongest value is repeatable orientation: it gives the agent a compact first-pass map before tool calls begin.
+This creates `.agentpack/` state, installs the requested agent integration, generates a ranked context pack, and writes the adapter output for that agent. For active local work, keep context fresh with:
 
-Typical results on large repos:
+```bash
+agentpack watch
+```
+
+For a guided setup that explains each next step:
+
+```bash
+agentpack quickstart --task "fix auth token expiry"
+```
+
+## Project Scope
+
+**AgentPack is:**
+
+- A local context engine for building task-focused packs for AI coding agents.
+- A CLI, MCP server, hook runner, and integration layer.
+- A summary cache, import graph, ranking engine, semantic repo map, and token-budget selector.
+- An eval harness for measuring whether selected files match files you actually changed.
+
+**AgentPack is not:**
+
+- A coding agent.
+- A hosted service.
+- A semantic code search engine.
+- A replacement for normal source inspection on critical changes.
+- Proven across a large public benchmark suite yet.
+
+## Quality Bar
+
+AgentPack is best treated as a **ranked starting map**. It should reduce repeated orientation work, but the agent and reviewer still own correctness.
 
 | Signal | What good looks like |
 |---|---|
-| Token reduction | 90-99% smaller than raw repo text |
+| Token reduction | 90-99% smaller than raw repo text on large repos |
 | Pack size | Usually 8k-25k tokens for a specific task |
-| Pack time | Seconds on warm cache; first summarize pass is slower |
-| Recall | Should be high for files you later edit; validate with `agentpack benchmark` |
-| Precision | Often modest; summaries are cheap but can still add noise |
-| Delta overhead | Hooks can emit a tiny changed-file delta instead of the full pack |
+| Pack time | Seconds on a warm cache; first summarize pass is slower |
+| Recall | Expected files appear near the top; validate with `agentpack benchmark --misses` |
+| Precision | Good enough to reduce exploration; summaries and repo maps may still include noise |
+| Freshness | Stale packs are clearly marked by task, git, and snapshot checks |
 
-The compression number is easy to verify, but it is not the same as usefulness. The important question is: **did AgentPack include the files you actually needed?**
-
-Use the built-in eval flow:
+Use real repo evals instead of trusting compression numbers:
 
 ```bash
 agentpack benchmark --init
-# add real historical tasks and files you actually changed
+# add historical tasks and files actually changed
 agentpack benchmark --compare --misses
 ```
-
-For source checkouts, there is also a small smoke suite:
-
-```bash
-agentpack benchmark --sample-fixtures --misses
-```
-
-This runs FastAPI, Next.js, and mixed Python/TypeScript fixture tasks. It is a sanity check, not a substitute for real repo evals.
-
-### Current quality bar
-
-AgentPack is best described as a **map, not a compass**. It is already good at token reduction, changed-file inclusion, related tests, imports, configs, and common concepts like auth/cache/rate limiting. Recent ranking work also improves full-stack tasks by pulling service/controller/schema/handler files when UI routes or pages match the same domain.
-
-The pack now includes a semantic repo map, task class, and "delta since last pack" section. Diff mode scores individual hunks against task keywords, so large dirty files spend tokens on the changed areas most likely to matter. Metrics also learn from previous noisy selections and gently downrank paths that repeatedly failed to predict later edits.
-
-Known weak spot: recall can still be low on unfamiliar product domains or cross-language flows. Use `benchmark --misses` and `agentpack explain` when an expected file is absent. Those commands show whether the miss was caused by ignore rules, low score, summary floor, budget cutoff, or missing task signal.
-
-### Observed author-run numbers
-
-These are local author-session numbers, included as anecdotal context rather than a benchmark claim.
-
-#### Token Compression
-
-| Metric | Value |
-|--------|-------|
-| Sessions | 21 |
-| Avg compression | 99.3% |
-| Min / Max | 98.7% → 99.9% |
-| Total raw (theoretical) | 116.9M tokens |
-| Total packed (actual) | 683K tokens |
-
-Per session: ~4.1M raw repo → ~35K packed context.
-
-#### Cost (Sonnet 4.6, input tokens only)
-
-| Scenario | Cost |
-|----------|------|
-| Full repo dumped each run | ~$350 |
-| With AgentPack | ~$2.05 |
-| **Realistic** (10% manual cherry-pick baseline) | **~$33 saved** |
-
-> Honest note: raw_tokens = full repo estimate. Real savings depend on how much context you'd pass manually. Compression ratio (99%+) is verifiable; dollar figure is scenario-dependent.
-
-#### Quality Signal
-
-- 42 commits in 7 days (~6/day) vs 4.9/day before
-- Shift from single-file fixes → multi-system coordinated fixes
-- AgentPack provides dependent files + callers in context → fixes root cause, not symptom
-- Correlation observed, causation not isolated
-
----
 
 ## When it helps
 
@@ -205,7 +158,7 @@ These tools have native file access via tool calls. Claude reads exactly the fil
 
 AgentPack's value here is different: `agentpack init --agent <x>` configures your agent to read or inject a ranked context pack and auto-repack when the repo changes. On large repos where tool-call exploration piles up across turns, this front-loads the cost once instead of paying per-turn.
 
-### Where agentpack genuinely wins
+### Where AgentPack Wins
 
 | Scenario | repomix | gitingest | code2prompt | aider | agentpack |
 |---|---|---|---|---|---|
@@ -222,7 +175,7 @@ AgentPack's value here is different: `agentpack init --agent <x>` configures you
 
 _*`--agent generic` outputs standard markdown. Claude adapter has richer instructions._
 
-### What agentpack does NOT do well
+### What AgentPack Does Not Do Well
 
 - **Interactive sessions on small repos**: if your whole repo is <20k tokens, a simple repo dump may be enough
 - **One-shot public repo questions**: gitingest's "replace hub with ingest" is faster for quick read-only exploration
@@ -231,55 +184,7 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 
 ---
 
-## Install
-
-```bash
-pip install agentpack-cli
-```
-
-Requires Python 3.10+.
-
-> **PyPI note:** The package is `agentpack-cli` (the name `agentpack` was already taken). The CLI command is still `agentpack`.
-
-### npm wrapper
-
-AgentPack can also be installed from npm:
-
-```bash
-npm install -g @vishal2612200/agentpack
-agentpack --version
-```
-
-The npm package is a thin Node.js wrapper around the Python CLI. It requires Node.js 18+ and Python 3.10+, then installs the matching `agentpack-cli` PyPI package into a per-version virtual environment on first run. This keeps the implementation single-source while giving JavaScript-heavy teams a familiar install path.
-
----
-
-## Start Once, Then Work Normally
-
-For a guided two-minute path in any repo:
-
-```bash
-agentpack quickstart --task "fix auth token expiry"
-```
-
-It shows the exact commands to initialize, set task text, generate a first pack, inspect stats, start watch mode, and scaffold a small benchmark file for your own tasks.
-
-The full workflow:
-
-```bash
-# One-time project setup
-agentpack init             # creates config/session/task.md + detected agent integration
-
-# Every terminal session — just one command
-agentpack watch            # auto-resumes session, refreshes context on file/task changes
-```
-
-Then open Claude Code / Cursor / Codex and write your coding task normally.
-
-- AgentPack keeps `.agentpack/context.md` and `.agentpack/context.claude.md` fresh while `watch` is running.
-- To change the task: edit `.agentpack/task.md` directly, or tell Claude — it updates the file itself. `watch` picks up the change automatically.
-
-### Agent integration matrix
+## Supported Integrations
 
 | Agent | Automation level | Method |
 |---|---|---|
@@ -290,35 +195,12 @@ Then open Claude Code / Cursor / Codex and write your coding task normally.
 | Antigravity | Medium | `init` writes `GEMINI.md`, VS Code task + git hooks |
 | Generic | Basic | `watch` mode + read `context.md` |
 
-### Honest limitations
+### Integration limitations
 
 - AgentPack cannot intercept prompts inside IDEs — Cursor/Windsurf rely on rules being followed.
 - Claude wrapper (`agentpack claude`) is the most deterministic integration.
 - If the task changes drastically mid-session, context needs one refresh cycle.
 - AgentPack-selected files are ranked starting points, not absolute truth.
-
----
-
-## Quickstart
-
-```bash
-pip install agentpack-cli
-cd your-project
-agentpack init             # one-time setup: config/session/task.md + detected agent integration
-agentpack watch            # in another terminal — keeps context fresh automatically
-```
-
-Then open your agent and write your task normally.
-
-**Power users (global automation):**
-
-```bash
-agentpack global-install --dry-run   # preview
-agentpack global-install             # apply
-source ~/.zshrc
-```
-
-Then opt each project in: `cd your-project && agentpack init`. After that repo hooks or shell hooks keep context fresh, and Claude Code gets prompt-time context hints — no manual steps.
 
 ---
 
@@ -438,7 +320,7 @@ Token counts use tiktoken `cl100k_base` — a close approximation to Claude's ac
 
 ## CI/CD: pack per PR
 
-### agentpack's own CI
+### AgentPack's Own CI
 
 agentpack uses two workflows:
 
@@ -491,6 +373,32 @@ Reviewers download the artifact and open it in their agent of choice. No repo cl
 ---
 
 ## Commands
+
+Most users only need four commands:
+
+```bash
+agentpack init --agent codex
+agentpack pack --task "describe the change"
+agentpack watch
+agentpack doctor --agent all
+```
+
+Command map:
+
+| Command | Use when |
+|---|---|
+| `agentpack init` | Set up `.agentpack/` and install one agent integration for a repo |
+| `agentpack install` | Refresh or add an agent integration without changing project state |
+| `agentpack repair` | Restore missing or drifted integration files |
+| `agentpack pack` | Generate a ranked context pack for one task |
+| `agentpack watch` | Keep the context pack fresh while you work |
+| `agentpack doctor` | Audit hooks, agent files, CLI path, and repo health |
+| `agentpack explain` | Understand why a file was selected or omitted |
+| `agentpack benchmark` | Measure recall, precision, and misses against real tasks |
+| `agentpack status` | Inspect current pack freshness and metadata |
+| `agentpack diff` | Show what changed between context snapshots |
+| `agentpack monitor` | Review recent pack runs and quality signals |
+| `agentpack global-install` | Install opt-in global hooks for initialized repos |
 
 ### `agentpack global-install`
 
@@ -556,7 +464,7 @@ Example output:
 
 ```
 CLI
-  ✓ agentpack found at /usr/local/bin/agentpack (0.1.0)
+  ✓ agentpack found at /usr/local/bin/agentpack (0.1.x)
 
 Git template hooks (~/.git-templates/hooks/)
   ✓ post-commit
@@ -734,18 +642,12 @@ agentpack quickstart --task "fix auth token expiry" --write
 
 ---
 
-### `agentpack session` _(removed)_
-
-Session management was removed in v0.1.12. `agentpack init` bootstraps the session automatically. Use `agentpack watch` to keep context current. To change the task, edit `.agentpack/task.md`.
-
----
-
 ### `agentpack watch`
 
 Watch for file and task changes, refresh context automatically.
 
 ```bash
-agentpack watch                        # uses session agent/mode if session active
+agentpack watch                        # refresh context on source/task changes
 agentpack watch --debounce 3.0         # wait 3s after last change before refresh
 ```
 
@@ -1359,205 +1261,6 @@ src/agentpack/
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
 - **Agent integration contract is shared**: `integrations/agents.py` defines install, audit, and repair behavior for Claude, Cursor, Windsurf, Codex, Antigravity, and Generic. `install`, `repair`, `doctor --agent all`, and release verification use the same contract.
 - **MCP and hooks use deltas when possible**: MCP exposes `get_delta_context()`, and prompt hooks can emit task/top-file/delta hints instead of injecting the full context every time.
-
----
-
-## Practical examples
-
-### Bug fix: "I have a failing test, help me fix it"
-
-```bash
-# You're debugging a test failure in the auth module
-agentpack pack --task "fix failing test in auth token validation"
-```
-
-AgentPack selects: the failing test file (modified), `auth/token.py` (dep), `auth/session.py` (dep), `config/settings.py` (config), skips 180 unrelated files. Your agent gets 12k tokens of precisely relevant context and starts debugging immediately.
-
----
-
-### Feature: "Add rate limiting to the API"
-
-```bash
-# On a feature branch, nothing modified yet
-agentpack pack --task "add rate limiting to REST API endpoints"
-```
-
-Keyword expansion activates: "rate limiting" → `throttle`, `leaky`, `bucket`, `quota`. AgentPack scores: `middleware/` directory (path keyword `api`), existing `throttle.py` or `leaky_bucket.py` (content keyword), `routes/*.py` (deps). Your agent gets the full middleware stack and starts implementing, not exploring.
-
----
-
-### Code review: "Review my PR before I push"
-
-```bash
-# Review only what changed vs main
-agentpack pack --task "code review auth refactor" --since main
-```
-
-Only files touched in this branch are included (full content). Everything else is summaries or omitted. Your agent reviews exactly the diff-visible code, not the whole codebase.
-
----
-
-### Refactor: "Help me refactor the database layer"
-
-```bash
-agentpack pack --task "refactor database connection pooling" --mode deep
-```
-
-`--mode deep` adds: related docs, more full-content files, broader dep tree. Use when the task touches many files and you want your agent to see more context upfront.
-
----
-
-### CI: automated context on every PR
-
-Add to `.github/workflows/agentpack-context.yml` — see the full example in [CI/CD: pack per PR](#cicd-pack-per-pr). Reviewers and CI bots get focused context without cloning the repo.
-
----
-
-### Session mode: keep context fresh while you work
-
-```bash
-# One-time project setup
-agentpack init                     # creates config/session/task.md + detected agent integration
-# Edit .agentpack/task.md to set your task
-
-# Every terminal session — just one command
-agentpack watch                    # keeps context fresh automatically
-
-# Change task mid-session: edit .agentpack/task.md directly
-# watch detects the change and refreshes automatically
-```
-
----
-
-### Debug why a file isn't showing up
-
-```bash
-agentpack explain --task "fix rate limiting in auth middleware"
-# Top selected files:
-#   1. src/auth/middleware.py  score=180  [full]     modified, filename keyword match
-#   2. src/auth/limiter.py     score=130  [symbols]  dep + content keyword "throttle"
-#   ...
-# Excluded:
-#   - src/payments/billing.py  score=8    score too low
-```
-
----
-
-## Tips & tricks
-
-### Let `--task auto` do the work
-
-Skip writing a task description — agentpack infers it from your branch name, changed files, and recent commits:
-
-```bash
-agentpack pack --task auto
-```
-
-Priority order (strongest → weakest):
-
-| Source | Example output |
-|--------|---------------|
-| `task.md` (explicit) | `"migrate DB schema to multi-tenant"` |
-| branch + staged files | `"feat add-rate-limiting: payments, throttle"` |
-| staged files only | `"payments, throttle"` |
-| branch + unstaged | `"feat add-rate-limiting: session, token"` |
-| branch + latest commit | `"feat add-rate-limiting: fix token expiry check"` |
-| branch name alone | `"feat add-rate-limiting"` |
-| unstaged files | `"session, token"` |
-| recent commit messages | `"fix token expiry check; add pagination"` |
-| recently modified files | `"session, payments"` (noisy — last resort) |
-
-The heuristic that fired is logged: `Auto task (branch+staged): feat add-rate-limiting: payments`.
-
-The more descriptive your branch names (`feat/add-rate-limiting` beats `dev`) and the more you stage before running, the more accurate the inference.
-
-### Concept synonym expansion
-
-AgentPack expands task keywords automatically — "rate limiting" expands to `throttle`, `leaky`, `bucket`, `quota`, `debounce`; "auth" expands to `jwt`, `bearer`, `token`, `oauth`; "cache" expands to `lru`, `memoize`, `redis`, `ttl`; domain terms such as `kundali` expand toward astrology/chart/compatibility terms. Files that implement a concept but don't use its exact name can still rank.
-
-### Full-stack role boosts
-
-When a task points at a page, route, or API surface, AgentPack also gives a controlled boost to related implementation roles such as `service`, `controller`, `schema`, `handler`, `repository`, and `client`. This helps full-stack tasks pull backend implementation files instead of only frontend entrypoints.
-
-This is still heuristic. If a service should have appeared and did not, add it as an `expected_files` entry in `benchmark.toml` and run:
-
-```bash
-agentpack benchmark --compare --misses
-```
-
-### Content-based keyword enrichment
-
-When you run `agentpack pack`, changed file content is scanned for high-frequency identifiers. If you're editing `session_manager.py` that mentions `validate_token` 30 times, `validate` and `token` are added as keywords — related files that use the same terms get a score boost even if your task string didn't mention them.
-
-### Commit the summary cache for instant team packs
-
-```bash
-agentpack init --share-cache
-git add .agentpack/cache/
-git commit -m "chore: add agentpack summary cache"
-```
-
-Every teammate and CI job skips the summarize step. `agentpack pack` is significantly faster from a warm cache.
-
-### Use `--since` for PR reviews
-
-```bash
-agentpack pack --task "review auth changes" --since main
-```
-
-Only includes files changed since `main`. Cuts out noise from unrelated work in long-running branches.
-
-### Tune the budget for your use case
-
-```bash
-agentpack pack --task "fix bug" --mode minimal   # changed files only, fewest tokens
-agentpack pack --task "refactor" --mode deep     # everything including docs
-agentpack pack --task "fix bug" --budget 40000   # explicit token cap
-```
-
-`balanced` (default) is right for most tasks. Use `minimal` for quick fixes, `deep` when architectural context matters.
-
-### Watch mode for active sessions
-
-```bash
-agentpack init                  # one-time setup (creates session/task.md + detected agent integration)
-agentpack watch                 # in another terminal — auto-resumes each time
-```
-
-Refreshes `.agentpack/context.md` every time you save a file. Change the task by editing `.agentpack/task.md` directly — or tell Claude and it writes the file itself. `watch` picks up the change automatically.
-
-### Debug file selection with `explain`
-
-```bash
-agentpack explain --task "fix auth session bug"
-```
-
-Shows ranked scores and reasons before committing to a pack. Use when a file you expect isn't appearing.
-
-For repeatable evals, prefer `benchmark --misses` because it compares selected files against the files you actually changed for historical tasks.
-
-### Check what got included and why
-
-Every pack includes a context receipt explaining each file's inclusion or exclusion:
-
-```
-- `src/auth.py` included because modified, filename keyword match
-- `tests/test_auth.py` summarized because test for src/auth.py
-- `src/unrelated_big.py` excluded because score too low
-```
-
-Use this to tune your `.agentignore` or scoring weights when irrelevant files keep appearing.
-
-### Tune scoring weights per project
-
-If tests are always irrelevant to your tasks, drop their weight. If config files are critical, raise them:
-
-```toml
-# .agentpack/config.toml
-[scoring]
-related_test    = 5    # was 35 — tests rarely relevant
-config_file     = 60   # was 25 — configs always matter here
-```
 
 ---
 
