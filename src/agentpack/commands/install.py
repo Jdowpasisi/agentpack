@@ -19,7 +19,7 @@ from agentpack.integrations.global_install import (
 )
 from agentpack.commands._shared import console, _root
 
-_SUPPORTED_AGENTS = ("auto", "claude", "cursor", "windsurf", "codex", "antigravity")
+_SUPPORTED_AGENTS = ("auto", "claude", "cursor", "windsurf", "codex", "antigravity", "generic")
 
 
 def _resolve_install_agent(agent: str, root: "Path") -> str:
@@ -88,6 +88,10 @@ def register(app: typer.Typer) -> None:
             console.print(f"[green]GEMINI.md {gemini_action}.[/]")
             _print_auto_repack_results(installer.install_auto_repack(root))
             console.print("  AgentPack Skill will activate automatically in Antigravity for coding tasks.")
+
+        elif agent == "generic":
+            console.print("[green]Generic agent selected.[/] No agent-specific hooks are required.")
+            console.print("  Run [bold]agentpack pack --agent generic --task \"<task>\"[/] to generate context.")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")
@@ -209,6 +213,9 @@ def register(app: typer.Typer) -> None:
                 console.print(f"\n[green]GEMINI.md {gemini_action}.[/]")
             else:
                 console.print("\n[dim]Would patch: GEMINI.md, .agent/skills/agentpack/SKILL.md[/]")
+
+        elif agent == "generic":
+            console.print("\n[green]Generic agent selected.[/] No agent-specific global config is required.")
 
         else:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_SUPPORTED_AGENTS)}[/]")

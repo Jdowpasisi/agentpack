@@ -10,6 +10,13 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.1.29] — 2026-05-15
+
+### Fixed
+- `agentpack install --agent generic` and dry-run `global-install --agent generic` now succeed as explicit no-ops, matching `agentpack init --agent generic` and the documented agent list.
+
+---
+
 ## [0.1.28] — 2026-05-15
 
 ### Fixed
