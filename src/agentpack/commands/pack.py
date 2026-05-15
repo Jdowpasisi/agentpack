@@ -21,7 +21,11 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def pack(
         agent: str = typer.Option("auto", "--agent", help="Target agent (auto|claude|cursor|windsurf|codex|antigravity|generic). 'auto' detects from environment."),
-        task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
+        task: str = typer.Option(
+            "auto",
+            "--task",
+            help="Task source. Only 'auto' is supported; write the task to .agentpack/task.md.",
+        ),
         mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         workspace: str = typer.Option("", "--workspace", help="Restrict pack to a monorepo workspace, e.g. apps/web."),
@@ -74,7 +78,12 @@ def _resolve_task(task: str) -> str:
 
 def _resolve_task_with_source(task: str) -> tuple[str, str]:
     if task != "auto":
-        return task, "explicit"
+        console.print(
+            "[red]`agentpack pack --task \"...\"` is no longer supported.[/]\n"
+            "Write the task to [bold].agentpack/task.md[/], then run "
+            "[bold]agentpack pack --task auto[/] or [bold]agentpack pack[/]."
+        )
+        raise typer.Exit(2)
     root = _root()
     # task.md takes priority over all git heuristics
     task_md_path = root / ".agentpack" / "task.md"

@@ -25,7 +25,8 @@ Other tools:
 If MCP is not available, fall back to the CLI:
 
 ```bash
-agentpack pack --agent claude --task "<task>"
+printf '%s\n' "<task>" > .agentpack/task.md
+agentpack pack --agent claude --task auto
 ```
 
 Then read `.agentpack/context.claude.md`.

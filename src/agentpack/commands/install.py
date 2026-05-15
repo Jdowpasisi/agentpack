@@ -37,7 +37,7 @@ def _validate_install_agent(agent: str) -> None:
 def _print_install_results(agent: str, results: dict[str, str]) -> None:
     if not results:
         console.print("[green]Generic agent selected.[/] No agent-specific hooks are required.")
-        console.print('  Run [bold]agentpack pack --agent generic --task "<task>"[/] to generate context.')
+        console.print("  Write [bold].agentpack/task.md[/], then run [bold]agentpack pack --agent generic --task auto[/] to generate context.")
         return
 
     for key, action in results.items():
@@ -53,7 +53,7 @@ def _print_install_results(agent: str, results: dict[str, str]) -> None:
             console.print(f"[green]{key} {action}.[/]")
 
     if agent in {"cursor", "windsurf", "codex", "generic"}:
-        console.print(f'  Run [bold]agentpack pack --agent {agent} --task "<task>"[/] to generate context.')
+        console.print(f"  Write [bold].agentpack/task.md[/], then run [bold]agentpack pack --agent {agent} --task auto[/] to generate context.")
     elif agent == "antigravity":
         console.print("  AgentPack Skill will activate automatically in Antigravity for coding tasks.")
 

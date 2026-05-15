@@ -12,6 +12,15 @@ _No changes yet._
 
 ---
 
+## [0.2.1] — 2026-05-15
+
+### Changed
+- `agentpack pack --task "<task>"` is no longer supported. Task text now belongs in `.agentpack/task.md`; run `agentpack pack` or `agentpack pack --task auto` to build context from that file.
+- Claude hook repacks now write the prompt-derived task into `.agentpack/task.md` and call `agentpack pack --task auto`, keeping hook behavior aligned with the task-file workflow.
+- README, slash-command guidance, installer messages, doctor output, and generated agent rules now point users to `.agentpack/task.md` instead of inline `pack --task` strings.
+
+---
+
 ## [0.2.0] — 2026-05-15
 
 ### Added

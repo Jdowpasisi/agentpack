@@ -127,7 +127,7 @@ def register(app: typer.Typer) -> None:
                 age_str = f"{int(age // 3600)}h {int((age % 3600) // 60)}m" if age > 3600 else f"{int(age // 60)}m"
                 console.print(f"  [green]✓[/] context pack present (age: {age_str})")
             else:
-                console.print("  [yellow]![/] No context pack yet — run: agentpack pack --task \"<task>\"")
+                console.print("  [yellow]![/] No context pack yet — write .agentpack/task.md, then run: agentpack pack --task auto")
 
         # --- Agent-specific config ---
         console.print("\n[bold]Agent config[/]")
