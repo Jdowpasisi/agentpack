@@ -14,7 +14,7 @@ At the start of every coding task:
 3. Read `.agentpack/context.md`.
 4. Use files listed in context as starting points, but verify with actual code before editing.
 When the user switches to a different coding task, repeat steps 1-3 before editing.
-If context is missing: `agentpack pack --agent cursor --task "<task>"`
+If context is missing: write `.agentpack/task.md`, then run `agentpack pack --agent cursor --task auto`.
 <!-- agentpack:rule:end -->"""
 
 _RULE_RE = re.compile(
@@ -66,7 +66,7 @@ At the start of every coding task:
 
 When the user switches to a different coding task, repeat steps 1-3 before editing.
 
-If context is missing: `agentpack pack --agent cursor --task "<task>"`
+If context is missing: write `.agentpack/task.md`, then run `agentpack pack --agent cursor --task auto`.
 """
         already = mdc_path.exists()
         if already and mdc_path.read_text() == content:

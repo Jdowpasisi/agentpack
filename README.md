@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.2.0).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.2.1).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -61,7 +61,8 @@ The npm package is a Node launcher around the Python implementation. It installs
 ```bash
 cd your-project
 agentpack init --agent codex       # or claude, cursor, windsurf, antigravity
-agentpack pack --task "fix auth token expiry"
+printf '%s\n' "fix auth token expiry" > .agentpack/task.md
+agentpack pack
 ```
 
 This creates `.agentpack/` state, installs the requested agent integration, generates a ranked context pack, and writes the adapter output for that agent. For active local work, keep context fresh with:
@@ -398,7 +399,8 @@ Most users only need four commands:
 
 ```bash
 agentpack init --agent codex
-agentpack pack --task "describe the change"
+printf '%s\n' "describe the change" > .agentpack/task.md
+agentpack pack
 agentpack watch
 agentpack doctor --agent all
 ```
@@ -601,18 +603,21 @@ Summaries are built with parallel AST/regex analysis — no network, no tokens s
 
 ### `agentpack pack`
 
-Generate a context pack.
+Generate a context pack. Task text lives in `.agentpack/task.md`; inline task strings are no longer supported on `pack`. `--task auto` remains for old hooks and scripts, and is the default when the flag is omitted.
 
 ```bash
-agentpack pack --task "fix auth session bug"        # auto-detects your IDE
-agentpack pack --agent claude --task "fix auth bug" # explicit agent
-agentpack pack --workspace apps/web --task "fix web auth"
+printf '%s\n' "fix auth session bug" > .agentpack/task.md
+agentpack pack                                # auto-detects your IDE
+agentpack pack --agent claude                 # explicit agent
+agentpack pack --workspace apps/web
 
 # Only include changes since a git ref
-agentpack pack --task "review these changes" --since main
+printf '%s\n' "review these changes" > .agentpack/task.md
+agentpack pack --since main
 
 # Watch mode — re-packs on every file change
-agentpack pack --task "refactor auth" --session
+printf '%s\n' "refactor auth" > .agentpack/task.md
+agentpack pack --session
 ```
 
 Options:
@@ -620,7 +625,7 @@ Options:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--agent` | `auto` | Target agent (`auto` \| `claude` \| `cursor` \| `windsurf` \| `codex` \| `antigravity` \| `generic`). `auto` detects the active IDE from env and project files. |
-| `--task` | `auto` | Task description, or `auto` to infer from git |
+| `--task` | `auto` | Backward-compatible task source. Only `auto` is supported; write task text to `.agentpack/task.md`. |
 | `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
 | `--budget` | 0 (uses config default 25000) | Token budget |
 | `--workspace` | — | Restrict packing to a monorepo workspace and write `.agentpack/workspaces/<workspace>/context.md` |
@@ -1350,7 +1355,7 @@ src/agentpack/
 
 ## Roadmap
 
-Next release target: **0.2.0 = benchmark + recall release**.
+Next release target: **0.3.0 = public benchmark expansion + npm publish hardening**.
 
 - Expand public source-checkout fixtures and publish reproducible `benchmark --sample-fixtures --compare --misses` output.
 - Raise recall on real historical tasks while keeping token precision healthy; target 60%+ recall, 50%+ token precision, and balanced packs under 25k tokens.

@@ -306,8 +306,13 @@ def _run_user_prompt_submit(root: Path) -> None:
     should_repack = repo_changed or task_switched or pack_task_changed
 
     if should_repack:
+        if task != "auto":
+            try:
+                _write_task_md(root, task)
+            except Exception:
+                pass
         subprocess.Popen(
-            ["agentpack", "pack", "--task", task, "--mode", "balanced", "--since", "HEAD~1"],
+            ["agentpack", "pack", "--task", "auto", "--mode", "balanced", "--since", "HEAD~1"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -361,7 +366,7 @@ def _run_user_prompt_submit(root: Path) -> None:
             )
         else:
             msg = (
-                "AgentPack active. Run `agentpack pack --task \"<task>\"` to build context.\n"
+                "AgentPack active. Write `.agentpack/task.md`, then run `agentpack pack --task auto` to build context.\n"
                 "For auto context, install MCP: agentpack install --agent claude"
             )
 

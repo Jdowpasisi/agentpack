@@ -9,9 +9,8 @@ Pack repo context and immediately start working on the task.
 ## Usage
 
 ```
-/agentpack --task "fix Redis SSE cancellation issue"
-/agentpack --task "add rate limiting to auth endpoints" --mode deep
-/agentpack --task auto      # infer task from branch + changed files + git log
+/agentpack
+/agentpack --mode deep
 /agentpack init             # interactive: prompts for default mode
 /agentpack status
 /agentpack stats
@@ -43,7 +42,6 @@ To start a session:
 ```bash
 agentpack session start                     # creates session + generates initial context
 agentpack session start --agent claude      # specify agent
-agentpack session start --task "fix bug"    # set initial task
 
 agentpack watch                             # in another terminal — auto-refreshes on changes
 ```
@@ -73,7 +71,8 @@ Then use normal prompts — context stays current while `watch` is running.
 ## Manual Pack Mode (no session)
 
 ```bash
-agentpack pack --agent claude --task "<task>" --mode balanced
+printf '%s\n' "<task>" > .agentpack/task.md
+agentpack pack --agent claude --task auto --mode balanced
 ```
 
 Then read `.agentpack/context.claude.md` in full.
@@ -136,7 +135,6 @@ agentpack explain --omitted                            # see what was excluded a
 
 | User types | Action |
 |---|---|
-| `/agentpack --task "..."` | check session or pack + read + work |
 | `/agentpack` | check session or pack with `--task auto` + read + work |
 | `/agentpack session start` | `agentpack session start` |
 | `/agentpack session status` | `agentpack session status` |
@@ -155,7 +153,8 @@ agentpack explain --omitted                            # see what was excluded a
 ## Notes
 
 - All commands are local — no API calls
-- `--task auto` infers from branch name → changed file paths → recent commit
+- Task text belongs in `.agentpack/task.md`; inline task strings are not supported on `agentpack pack`.
+- `--task auto` reads `.agentpack/task.md`, then falls back to branch name → changed file paths → recent commit
 - Changed files are highest priority in context
 - Session context files: `.agentpack/context.md` (readable), `.agentpack/context.compact.md` (compact)
 - Never overwrite `.agentignore` or `config.toml` without `--force`

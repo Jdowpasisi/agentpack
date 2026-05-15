@@ -149,7 +149,8 @@ class TestRunUserPromptSubmit:
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
         assert "pack" in args
-        assert "fix login bug" in " ".join(args)
+        assert args[:4] == ["agentpack", "pack", "--task", "auto"]
+        assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix login bug\n"
 
     def test_repo_unchanged_no_repack(self, repo: Path, monkeypatch) -> None:
         _write_snapshot(repo, "samehash")
@@ -189,7 +190,7 @@ class TestRunUserPromptSubmit:
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
         assert args[:3] == ["agentpack", "pack", "--task"]
-        assert args[3] == prompt
+        assert args[3] == "auto"
         assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == prompt + "\n"
         ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
         assert "repacking" in ctx
