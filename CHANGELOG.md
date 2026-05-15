@@ -18,6 +18,8 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 - Packs now tighten summary inclusion when recent summary token precision is near zero.
 - Weak filename-only matches are downranked unless backed by symbols, content, git history, dependencies, tests, configs, or live changes.
 - `agentpack stats` now warns on session/pack agent mismatch, recommends minimal mode when token precision is low, and lists repeated noisy paths.
+- No-live-change packs now suppress summaries entirely when recent summary token precision is near zero, and damp uncorroborated filename-only matches more aggressively.
+- `agentpack stats` now treats `auto`/`generic` agent sessions as resolver modes instead of false mismatches, clarifies ignored/binary vs packable file counts, and suggests `explain --file` for noisy paths.
 
 ---
 

@@ -44,17 +44,18 @@ def register(app: typer.Typer) -> None:
         ignored_count = len(scan_result.ignored) + len(scan_result.binary)
         included_count = 0
         summarized_count = 0
-        top_files: list[tuple[str, str]] = []
+        top_files: list[tuple[str, str, str]] = []
 
         if meta:
-            context_path = root / meta.get("context_path", "")
-            if context_path.exists():
-                content = context_path.read_text()
-                included_count = content.count("Included as: **full**")
-                summarized_count = (
-                    content.count("Included as: **summary**")
-                    + content.count("Included as: **symbols**")
-                )
+            selected_meta = meta.get("selected_files_meta") or []
+            if isinstance(selected_meta, list):
+                mode_counts: dict[str, int] = {}
+                for item in selected_meta:
+                    if isinstance(item, dict) and isinstance(item.get("mode"), str):
+                        mode = item["mode"]
+                        mode_counts[mode] = mode_counts.get(mode, 0) + 1
+                included_count = mode_counts.get("full", 0)
+                summarized_count = mode_counts.get("summary", 0)
 
         # --- Session info ---
         from agentpack.session.state import load_session
@@ -124,9 +125,10 @@ def register(app: typer.Typer) -> None:
         token_tbl.add_row("packed tokens", f"{packed:,}")
         token_tbl.add_row("vs raw repo", f"[green]{saving:.1f}% smaller[/]")
         token_tbl.add_row("vs top-20 full files", f"[green]{vs_top_files:.1f}% smaller[/]")
-        token_tbl.add_row("files ignored", f"{ignored_count:,}")
+        token_tbl.add_row("files ignored/binary", f"{ignored_count:,}")
+        token_tbl.add_row("files packable", f"{len(scan_result.packable):,}")
         token_tbl.add_row("files full", f"{included_count:,}")
-        token_tbl.add_row("files summarized", f"{summarized_count:,}")
+        token_tbl.add_row("files summary", f"{summarized_count:,}")
         console.print(token_tbl)
 
         if top_files:
@@ -265,7 +267,10 @@ def _freshness_diagnostics(
     if session and session.active:
         meta_agent = meta.get("agent")
         resolved_agent = session.last_resolved_agent or meta_agent
-        if session.agent and resolved_agent and session.agent != resolved_agent:
+        configured_agent = session.agent
+        if configured_agent in {"auto", "generic"}:
+            configured_agent = ""
+        if configured_agent and resolved_agent and configured_agent != resolved_agent:
             diagnostics.append(
                 f"Session agent is {session.agent}, but latest pack resolved {resolved_agent}; "
                 "run `agentpack pack --agent auto --task auto` or restart the session."
@@ -286,11 +291,16 @@ def _noise_diagnostics(
 ) -> list[str]:
     diagnostics: list[str] = []
     if top_files:
-        summary_count = sum(1 for _path, mode, _why in top_files if mode == "summary")
-        filename_matches = sum(1 for _path, _mode, why in top_files if "filename keyword match" in why)
-        if summary_count / len(top_files) >= 0.7:
+        visible_top = top_files[:10]
+        summary_count = sum(1 for _path, mode, _why in visible_top if mode == "summary")
+        filename_matches = sum(
+            1
+            for _path, _mode, why in visible_top
+            if "filename keyword match" in why and "modified" not in why and "staged" not in why
+        )
+        if summary_count / len(visible_top) >= 0.7:
             diagnostics.append("Latest pack is mostly summaries; use minimal mode or a narrower task for edit work.")
-        if filename_matches / len(top_files) >= 0.6:
+        if filename_matches / len(visible_top) >= 0.6:
             diagnostics.append("Top files mostly matched by filename; task terms may be broad.")
 
     if accuracy_rows:
@@ -311,7 +321,7 @@ def _noise_diagnostics(
             diagnostics.append("Token precision is low; most packed tokens became noise in recent runs.")
             diagnostics.append("Try `agentpack pack --mode minimal --task auto` until task wording or scoring improves.")
         if avg_summary_precision == 0:
-            diagnostics.append("Summary token precision is 0%; summary context has not matched later edits.")
+            diagnostics.append("Summary token precision is 0%; summaries will be suppressed in no-live-change packs.")
         noisy_counts: dict[str, int] = {}
         for row in accuracy_rows:
             for path in row.get("selection_noise_paths", []) or []:
@@ -323,7 +333,12 @@ def _noise_diagnostics(
                 "Repeated noisy paths: "
                 + ", ".join(f"{path} ({count}x)" for path, count in noisy)
             )
-    return diagnostics[:7]
+            first_path = noisy[0][0]
+            diagnostics.append(
+                f"Inspect top noisy path: `agentpack explain --file {first_path} --task auto`; "
+                "add generated/vendor paths to `.agentignore` or tighten task wording if it is not useful."
+            )
+    return diagnostics[:8]
 
 
 def _top_files_from_metadata(meta: dict) -> list[tuple[str, str, str]]:

@@ -178,6 +178,22 @@ def test_summary_cap_limits_unchanged_summaries():
     assert any(r.reason == "summary cap reached" for r in receipts)
 
 
+def test_negative_summary_cap_disables_summaries():
+    fi = _fi("file.py")
+    selected, receipts = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["content keyword match (1)"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Noisy summary.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=-1,
+    )
+    assert selected == []
+    assert any(r.reason == "summaries disabled by precision guard" for r in receipts)
+
+
 def test_excluded_ignored_files():
     fi = FileInfo(
         path="node_modules/x.js",

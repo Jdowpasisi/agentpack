@@ -43,7 +43,7 @@ def test_freshness_diagnostics_report_task_and_snapshot_mismatch(tmp_path: Path)
 def test_freshness_diagnostics_reports_agent_mismatch(tmp_path: Path) -> None:
     session = SessionState(
         active=True,
-        agent="generic",
+        agent="claude",
         last_resolved_agent="antigravity",
         started_at="2026-05-13T00:00:00+00:00",
         last_refresh_at="2026-05-13T02:00:00+00:00",
@@ -62,7 +62,32 @@ def test_freshness_diagnostics_reports_agent_mismatch(tmp_path: Path) -> None:
         context_path=None,
     )
 
-    assert any("Session agent is generic" in item and "antigravity" in item for item in diagnostics)
+    assert any("Session agent is claude" in item and "antigravity" in item for item in diagnostics)
+
+
+def test_freshness_diagnostics_ignores_auto_agent_mismatch(tmp_path: Path) -> None:
+    session = SessionState(
+        active=True,
+        agent="auto",
+        last_resolved_agent="antigravity",
+        started_at="2026-05-13T00:00:00+00:00",
+        last_refresh_at="2026-05-13T02:00:00+00:00",
+    )
+
+    diagnostics = _freshness_diagnostics(
+        root=tmp_path,
+        meta={
+            "task": "fix",
+            "agent": "antigravity",
+            "generated_at": "2026-05-13T01:00:00+00:00",
+            "snapshot_root_hash": "same",
+        },
+        session=session,
+        current_root_hash="same",
+        context_path=None,
+    )
+
+    assert not any("Session agent is auto" in item for item in diagnostics)
 
 
 def test_noise_diagnostics_report_summary_and_precision_noise() -> None:
@@ -88,8 +113,9 @@ def test_noise_diagnostics_report_summary_and_precision_noise() -> None:
     assert "Selection file precision is very low; many selected files were not later changed." in diagnostics
     assert "Token precision is low; most packed tokens became noise in recent runs." in diagnostics
     assert "Try `agentpack pack --mode minimal --task auto` until task wording or scoring improves." in diagnostics
-    assert "Summary token precision is 0%; summary context has not matched later edits." in diagnostics
+    assert "Summary token precision is 0%; summaries will be suppressed in no-live-change packs." in diagnostics
     assert any("Repeated noisy paths: src/noisy.py (2x), src/other.py (1x)" == item for item in diagnostics)
+    assert any("agentpack explain --file src/noisy.py --task auto" in item for item in diagnostics)
 
 
 def test_top_files_from_metadata_avoids_markdown_parse() -> None:
