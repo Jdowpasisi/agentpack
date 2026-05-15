@@ -12,6 +12,22 @@ _No changes yet._
 
 ---
 
+## [0.2.2] — 2026-05-15
+
+### Added
+- `agentpack benchmark --public-table` writes a publishable Markdown benchmark table under `benchmarks/results/`, with per-repo/task recall, token precision, rank@K, pack size, runtime, and miss counts.
+- `agentpack benchmark --public-repos` runs the committed public real-repo smoke suite from `benchmarks/public-repos.toml`; the current proof artifact covers eight Pallets commits at 91.7% recall and 55.2% token precision.
+- MCP `start_task(task, ...)` tool for the recommended MCP-first workflow: write `.agentpack/task.md`, pack context, and return ranked markdown in one call.
+- Before/after agent behavior examples showing cold repo exploration versus MCP-first AgentPack context pulls.
+- MCP-first end-to-end test fixture covering `start_task`-style packing, cached context freshness, related files, and file explanations.
+
+### Changed
+- Ranking now applies a guarded second-pass recall expansion around strong seeds, boosting two-hop import/reverse-import/test neighbours only when they share task/domain, config, or test-pair signal.
+- Dependency graph construction now resolves cached relative imports before rendering related-file output.
+- README and benchmark docs now point public benchmark claims to generated real-task tables instead of anecdotal compression stats.
+
+---
+
 ## [0.2.1] — 2026-05-15
 
 ### Changed

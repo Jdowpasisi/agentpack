@@ -3,6 +3,8 @@
 from agentpack.analysis.go_imports import extract_imports as go_extract
 from agentpack.analysis.rust_imports import extract_imports as rust_extract
 from agentpack.analysis.java_imports import extract_imports as java_extract
+from agentpack.analysis.dependency_graph import build
+from agentpack.core.models import FileInfo
 
 
 def test_go_single_import(tmp_path):
@@ -69,3 +71,22 @@ def test_go_missing_file(tmp_path):
 
 def test_rust_missing_file(tmp_path):
     assert rust_extract(tmp_path / "nonexistent.rs") == []
+
+
+def test_dependency_graph_resolves_cached_relative_python_imports(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    auth = src / "auth.py"
+    session = src / "session.py"
+    auth.write_text("from .session import session_age\n", encoding="utf-8")
+    session.write_text("def session_age():\n    return 0\n", encoding="utf-8")
+    files = [
+        FileInfo(path="src/auth.py", abs_path=auth, language="python", size_bytes=20, estimated_tokens=10),
+        FileInfo(path="src/session.py", abs_path=session, language="python", size_bytes=30, estimated_tokens=10),
+    ]
+    summaries = {"src/auth.py": {"imports": [".session"]}}
+
+    graph = build(files, tmp_path, summaries=summaries)
+
+    assert graph.get("src/auth.py").imports == ["src/session.py"]
+    assert graph.get("src/session.py").imported_by == ["src/auth.py"]

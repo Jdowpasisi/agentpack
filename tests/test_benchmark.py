@@ -19,7 +19,11 @@ from agentpack.commands.benchmark import (
     _load_history_cases,
     _random_baseline,
     _write_results_template,
+    _public_benchmark_markdown,
+    _write_public_benchmark_table,
     _quality_status,
+    _load_public_repo_specs,
+    _run_public_repo_suite,
 )
 
 
@@ -141,6 +145,35 @@ def test_write_results_template_creates_publishable_markdown(tmp_path: Path) -> 
     assert "agentpack benchmark --compare --misses" in content
 
 
+def test_public_benchmark_markdown_renders_table() -> None:
+    result = _make_result(
+        ["src/auth.py", "tests/test_auth.py"],
+        ["src/auth.py"],
+        noise_pct=40.0,
+        rank_at_k=1,
+    )
+    result.case.task = "real-api: fix auth token expiry"
+    result.case.task_type = "backend-api"
+
+    content = _public_benchmark_markdown([result], suite="real repos", version="0.3.0")
+
+    assert "AgentPack Public Benchmark Table" in content
+    assert "real-api" in content
+    assert "fix auth token expiry" in content
+    assert "avg recall" in content
+    assert "| Repo / suite | Task | Type | Mode | Budget | Packed tokens |" in content
+    assert "60.0%" in content
+
+
+def test_write_public_benchmark_table(tmp_path: Path) -> None:
+    result = _make_result(["a.py"], ["a.py"], noise_pct=0.0)
+
+    out = _write_public_benchmark_table(tmp_path, [result], suite="real repos", date="2026-05-15")
+
+    assert out == tmp_path / "benchmarks" / "results" / "2026-05-15-public.md"
+    assert "real repos" in out.read_text(encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # _load_cases
 # ---------------------------------------------------------------------------
@@ -190,6 +223,65 @@ def test_load_cases_empty_returns_empty(tmp_path: Path) -> None:
     f = tmp_path / "bench.toml"
     f.write_text("", encoding="utf-8")
     assert _load_cases(f) == []
+
+
+def test_load_public_repo_specs_parses_manifest(tmp_path: Path) -> None:
+    f = tmp_path / "public.toml"
+    f.write_text(
+        '[[repos]]\n'
+        'name = "click"\n'
+        'url = "https://github.com/pallets/click.git"\n'
+        'ref = "main"\n\n'
+        '[[repos.cases]]\n'
+        'commit = "abc123"\n'
+        'task = "fix hidden prompt input"\n'
+        'task_type = "python-cli"\n'
+        'expected_files = ["src/click/termui.py", "tests/test_termui.py"]\n',
+        encoding="utf-8",
+    )
+
+    specs = _load_public_repo_specs(f)
+
+    assert len(specs) == 1
+    assert specs[0].name == "click"
+    assert specs[0].url.endswith("/click.git")
+    assert specs[0].cases[0].commit == "abc123"
+    assert specs[0].cases[0].expected_files == ["src/click/termui.py", "tests/test_termui.py"]
+
+
+def test_run_public_repo_suite_uses_parent_checkout(tmp_path: Path) -> None:
+    from agentpack.commands import benchmark as benchmark_mod
+
+    spec = benchmark_mod.PublicRepoSpec(
+        name="click",
+        url="https://example.test/click.git",
+        cases=[
+            benchmark_mod.PublicRepoCase(
+                commit="abc123",
+                task="fix prompt",
+                expected_files=["src/click/termui.py"],
+                task_type="python-cli",
+                budget=1200,
+            ),
+        ],
+    )
+
+    with patch("agentpack.commands.benchmark._ensure_public_repo_clone", return_value=tmp_path / "cache"), \
+         patch("agentpack.commands.benchmark._git_stdout", return_value="parent123") as git_stdout, \
+         patch("agentpack.commands.benchmark._run_git") as run_git, \
+         patch("agentpack.commands.benchmark.shutil.copytree") as copytree, \
+         patch("agentpack.commands.benchmark._run_case") as run_case:
+        run_case.side_effect = lambda _root, case: _make_result(["src/click/termui.py"], case.expected_files)
+        results = _run_public_repo_suite(tmp_path, [spec], cache_dir=tmp_path / "cache")
+
+    assert len(results) == 1
+    case_arg = run_case.call_args.args[1]
+    assert case_arg.task == "click: fix prompt"
+    assert case_arg.task_type == "python-cli"
+    assert case_arg.budget == 1200
+    git_stdout.assert_called_once_with(tmp_path / "cache", ["rev-parse", "abc123^"])
+    copytree.assert_called_once()
+    assert any(call.args[1] == ["checkout", "--quiet", "parent123"] for call in run_git.call_args_list)
 
 
 # ---------------------------------------------------------------------------

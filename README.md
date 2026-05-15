@@ -112,9 +112,18 @@ Use real repo evals instead of trusting compression numbers:
 ```bash
 agentpack benchmark --init
 # add historical tasks and files actually changed
-agentpack benchmark --compare --misses
+agentpack benchmark --compare --misses --public-table
+agentpack benchmark --public-repos --prove-targets --misses --public-table
 agentpack benchmark --results-template
 ```
+
+For public proof, use several real repositories or anonymized historical task
+sets and publish the generated table from `benchmarks/results/*-public.md`.
+This repo includes a curated public smoke suite in
+`benchmarks/public-repos.toml`; it evaluates real commits from Pallets Click,
+ItsDangerous, and MarkupSafe by checking out each commit's parent and scoring
+against files actually changed by the commit. Synthetic fixtures are useful
+regression tests, but should not be presented as market proof.
 
 ## Debugging Selection
 
@@ -130,6 +139,41 @@ agentpack explain --task "fix billing webhook" --budget-plan
 `benchmark --misses` reports each expected file that was not selected, including whether it was ignored, scored too low, excluded by summary floor, cut by budget, or absent from the scan. `explain --file` shows the exact score signals for one file. `explain --budget-plan` shows how the token budget was spent across full, diff, symbols, skeleton, and summary modes.
 
 This is the core reliability loop: pack, measure recall, inspect misses, then tune task wording, `.agentignore`, or scoring weights.
+
+## MCP-First Workflow
+
+For MCP-capable agents, the preferred workflow is pull-based:
+
+1. Call `start_task(task)` when a new task begins. AgentPack writes `.agentpack/task.md`, packs context, and returns ranked markdown.
+2. Call `get_context()` when you need the latest cached pack; it tells you if the pack is stale.
+3. Call `get_delta_context()` after edits or hook hints to see what changed without loading the full pack.
+4. Call `explain_file(path)` or `get_related_files(path)` when a file looks relevant or suspicious.
+
+The CLI remains the setup/debug/release path. MCP is the best interactive path because the agent can ask for only the context it needs instead of relying on one static startup blob.
+
+## Before / After Agent Behavior
+
+Without AgentPack:
+
+```text
+User: fix auth token expiry
+Agent: rg "auth"; opens router; opens middleware; opens tests; opens config;
+       asks for more files; eventually finds token/session code.
+Cost: repeated repo exploration and many unrelated file reads.
+```
+
+With AgentPack:
+
+```text
+User: fix auth token expiry
+Agent: calls start_task("fix auth token expiry")
+AgentPack: returns ranked files with reasons:
+  1. src/auth/token.py — filename/content match, changed dependency
+  2. src/auth/session.py — related implementation
+  3. tests/test_auth.py — paired test
+Agent: verifies those files, edits, runs tests, checks misses if needed.
+Cost: starts from a measured map, then still verifies source normally.
+```
 
 ## When it helps
 
@@ -727,7 +771,8 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 
 | Tool | Description |
 |---|---|
-| `pack_context(task, mode, budget, max_tokens)` | Generate a ranked context pack for a task. Returns packed markdown, truncated to `max_tokens` (default 20,000). |
+| `start_task(task, mode, budget, max_tokens)` | Recommended MCP-first entry point. Writes `.agentpack/task.md`, generates a ranked pack, and returns packed markdown. |
+| `pack_context(task, mode, budget, max_tokens)` | Generate a ranked context pack. If `task` is provided, writes it to `.agentpack/task.md`; if omitted, reads `task.md` or infers from git. |
 | `get_context()` | Return the latest pre-built pack instantly (no repack). Prepends a freshness/staleness header so you know if it's stale. |
 | `refresh()` | Refresh using the current `task.md` or git-inferred task. |
 | `explain_file(path, task)` | Show score, inclusion mode, reasons, symbols, imports, and importers for one file. |
@@ -740,7 +785,7 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 > **Stale context** — repo changed since last pack (generated: ...). Run pack_context() to refresh.
 ```
 
-**Smart truncation:** `pack_context()` keeps headers intact and trims file content blocks to fit the token budget, appending a note about how many files were omitted.
+**Smart truncation:** `start_task()` and `pack_context()` keep headers intact and trim file content blocks to fit the token budget, appending a note about how many files were omitted.
 
 Zero API calls — all analysis is offline. Summary cache keyed by file hash: cold run parallelises AST parsing across CPU cores; warm cache hits are instant.
 
@@ -792,8 +837,10 @@ agentpack benchmark --init                                 # scaffold .agentpack
 agentpack benchmark --results-template                     # scaffold publishable results note
 agentpack benchmark                                        # run all cases in benchmark.toml
 agentpack benchmark --sample-fixtures                      # source checkout demo evals
+agentpack benchmark --public-repos                         # real public commit evals
 agentpack benchmark --misses                               # explain expected-file misses
 agentpack benchmark --prove-targets                        # fail if recall/token precision targets miss
+agentpack benchmark --public-table                         # write benchmarks/results/*-public.md
 ```
 
 Output per case:
@@ -849,6 +896,15 @@ expected_files = [
 Use `--misses` when recall is low. It prints each expected file that was not selected with status, rank, score, and scoring reasons, which helps separate ignored files, budget cuts, low scores, and missing dependency signals.
 
 Use `--prove-targets` in CI or release prep when benchmark cases have `expected_files`. By default it requires average recall >=60% and token precision >=50%; tune with `--min-recall` and `--min-token-precision`.
+
+Use `--public-repos` from an AgentPack source checkout to run the committed
+real-repo smoke suite:
+
+```bash
+agentpack benchmark --public-repos --prove-targets --misses --public-table
+```
+
+Use `--public-table` after adding real historical tasks to write a publishable Markdown table with per-repo/task recall, token precision, rank@K, pack size, and miss count. This is the recommended artifact for README claims, release notes, and external benchmarks.
 
 Add `task_type` to group results by workflow area. Benchmark summaries report average precision, recall, F1, and token noise by type, so a repo can show "backend-api is good, frontend-web is noisy" instead of hiding that under one aggregate.
 
@@ -1279,7 +1335,7 @@ src/agentpack/
     compact.py                 # compact protocol format for session context files
     receipts.py                # context receipt formatter
 
-  mcp_server.py                # MCP tools: pack_context, get_context, explain, related, stats, delta
+  mcp_server.py                # MCP tools: start_task, pack_context, get_context, explain, related, stats, delta
 
   session/
     state.py                   # SessionState dataclass + load/save/create/stop helpers
@@ -1317,6 +1373,7 @@ src/agentpack/
 - **Repo maps are first-class context**: `analysis/repo_map.py` builds a compact semantic map before file context, and its token cost is reserved before file selection.
 - **Metrics feed history learning**: selection accuracy records hit/noise paths, token precision, mode counts, and mode tokens. Later packs gently penalize repeated noisy paths unless they are currently changed.
 - **Git history feeds recall**: files that historically changed in the same commits as live changed files receive a small boost, helping related tests, schemas, services, and configs surface without forcing full-content inclusion.
+- **Second-pass expansion is guarded**: after first scoring, strong seeds can lift two-hop import, reverse-import, config, and related-test neighbours only when they share task or domain signal.
 - **Co-change is guarded by precision history**: one-off co-change neighbors are ignored, and paths repeatedly measured as noise do not get revived by history boosts.
 - **Precision guardrails adapt to bad history**: when summary token precision stays near zero, later packs raise the summary score floor, cap summaries more aggressively, and suppress summaries entirely for no-live-change packs. Weak filename-only matches are also damped unless other signals confirm them.
 - **`AdapterRegistry` maps agent → adapter**: adding a new agent output format requires one entry in `AdapterRegistry.get()`, not changes to `PackService`.
@@ -1325,7 +1382,7 @@ src/agentpack/
 - **`integrations/` vs `core/`**: git hooks, shell rc patching, and VS Code tasks are infrastructure concerns — they live in `integrations/`, not `core/`. `core/` is pure domain logic.
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
 - **Agent integration contract is shared**: `integrations/agents.py` defines install, audit, and repair behavior for Claude, Cursor, Windsurf, Codex, Antigravity, and Generic. `install`, `repair`, `doctor --agent all`, and release verification use the same contract.
-- **MCP and hooks use deltas when possible**: MCP exposes `get_delta_context()`, and prompt hooks can emit task/top-file/delta hints instead of injecting the full context every time.
+- **MCP is the interactive path**: `start_task()` writes task state and returns a fresh pack, while `get_context()`, `get_delta_context()`, `explain_file()`, and `get_related_files()` let agents pull follow-up context on demand.
 
 ---
 
@@ -1344,7 +1401,7 @@ src/agentpack/
 
 - **Windows**: not supported. Git hooks use POSIX shell (`#!/bin/sh`, `>/dev/null 2>&1 &`). The Claude Code session hooks use `python3` and `rm -f`. Contributions welcome.
 - **Monorepos**: workspace-aware ranking supports npm/pnpm, Cargo, and `go.work` layouts. `--workspace` creates filtered per-workspace outputs. Package dependency hints currently come from npm/pnpm `package.json`; Cargo/Go workspace membership is detected, but package-manager dependency edges for Cargo/Go are not yet modeled.
-- **Public benchmark proof**: source-checkout fixture results are useful regressions, not market proof. Use `agentpack benchmark --results-template` to publish real historical task results.
+- **Public benchmark proof**: `benchmarks/public-repos.toml` is a curated smoke suite over real public commits, and `benchmarks/results/2026-05-15-public.md` records the current proof run. Treat it as a floor, not a leaderboard; expand cases before broad external claims.
 - **Symbol extraction**: Python (AST, full) and JavaScript/TypeScript (regex, arrow functions + classes) are well-supported. Go, Rust, Java, Kotlin have import graph traversal but no symbol extraction — they fall back to file-level summaries.
 - **Selection recall**: ranking is heuristic. It can miss files when task language differs from code language, when repos have unusual architecture, or when important files are only connected at runtime.
 - **Secret redaction**: covers AWS keys, GitHub tokens, OpenAI/Anthropic keys, JWTs, and private key blocks. Not a substitute for a dedicated secrets scanner on sensitive repos.
@@ -1355,12 +1412,12 @@ src/agentpack/
 
 ## Roadmap
 
-Next release target: **0.3.0 = public benchmark expansion + npm publish hardening**.
+Next release target: **0.3.0 = public proof + npm publish hardening**.
 
-- Expand public source-checkout fixtures and publish reproducible `benchmark --sample-fixtures --compare --misses` output.
-- Raise recall on real historical tasks while keeping token precision healthy; target 60%+ recall, 50%+ token precision, and balanced packs under 25k tokens.
-- Improve second-pass expansion beyond current imports, reverse imports, related tests, historical co-change, and workspace hints with framework route/service/schema pairs.
-- Make MCP pull flows more prominent so agents can ask for `explain_file`, `get_related_files`, and `get_delta_context` instead of relying only on a static startup pack.
+- Expand the public real-repo suite beyond the current curated Pallets smoke set.
+- Keep recall gains measured with `--prove-targets`; target 60%+ recall, 50%+ token precision, and task packs under 25k tokens.
+- Extend second-pass expansion with framework route/service/schema pairs once benchmark misses prove the pattern.
+- Make npm publishing reliable by adding `NPM_TOKEN` and rerunning the npm release workflow.
 - Keep integration contracts stable across Claude, Cursor, Windsurf, Codex, Antigravity, and Generic before any 1.0 work.
 
 ---

@@ -1,0 +1,113 @@
+# Public real-repo benchmark suite.
+#
+# Each case points to a real public commit. AgentPack checks out the commit's
+# parent, uses the commit subject as the task, and scores whether it selected
+# the files actually changed by that commit.
+#
+# Run:
+#   agentpack benchmark --public-repos --prove-targets --misses --public-table
+
+[[repos]]
+name = "pallets-click"
+url = "https://github.com/pallets/click.git"
+ref = "main"
+
+[[repos.cases]]
+commit = "61bdc2ae81f6d0dc19bd247504544659245df056"
+task = "Implement a regex-based solution to hide hidden input"
+task_type = "python-cli"
+mode = "minimal"
+budget = 2000
+expected_files = [
+  "src/click/termui.py",
+  "tests/test_termui.py",
+]
+
+[[repos.cases]]
+commit = "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1"
+task = "FuncParamType should use ValueError message in self.fail"
+task_type = "python-cli"
+mode = "minimal"
+budget = 6000
+expected_files = [
+  "src/click/types.py",
+  "tests/test_types.py",
+]
+
+[[repos.cases]]
+commit = "831c8f0948af519e45b90801d7430ff25451f972"
+task = "Add NoSuchCommand exception with suggestions for misspelled commands"
+task_type = "python-cli"
+mode = "minimal"
+budget = 4000
+expected_files = [
+  "src/click/__init__.py",
+  "src/click/core.py",
+  "src/click/exceptions.py",
+  "src/click/parser.py",
+  "tests/test_commands.py",
+  "tests/test_options.py",
+]
+
+[[repos.cases]]
+commit = "19fd4d6e18bc9fce451f92f422696b11169faa57"
+task = "Ensure fish completion handles multiline help strings correctly"
+task_type = "python-cli"
+mode = "minimal"
+budget = 2000
+expected_files = [
+  "src/click/shell_completion.py",
+  "tests/test_shell_completion.py",
+]
+
+[[repos.cases]]
+commit = "d2e4a42ff410d92e88293f3552422a4a284c749b"
+task = "Extract _guess_type from convert_type and add overloads"
+task_type = "python-cli"
+mode = "minimal"
+budget = 1200
+expected_files = [
+  "src/click/types.py",
+]
+
+[[repos]]
+name = "pallets-itsdangerous"
+url = "https://github.com/pallets/itsdangerous.git"
+ref = "main"
+
+[[repos.cases]]
+commit = "7edfa12ed562c5d5e9d6faa06812e42f02efb0e0"
+task = "Drop end of life python versions"
+task_type = "python-library"
+mode = "minimal"
+budget = 2000
+expected_files = [
+  "pyproject.toml",
+  "src/itsdangerous/serializer.py",
+  "tests/test_itsdangerous/test_serializer.py",
+]
+
+[[repos]]
+name = "pallets-markupsafe"
+url = "https://github.com/pallets/markupsafe.git"
+ref = "main"
+
+[[repos.cases]]
+commit = "82cabf9c5a2f8f1b27854afcc3e0d9bf5a32f0c2"
+task = "Remove previously deprecated code"
+task_type = "python-library"
+mode = "minimal"
+budget = 1000
+expected_files = [
+  "src/markupsafe/__init__.py",
+]
+
+[[repos.cases]]
+commit = "1b54b64cab03d8af99229252e68ff02a72519f6b"
+task = "Change to DeprecationWarning"
+task_type = "python-library"
+mode = "minimal"
+budget = 1000
+expected_files = [
+  "src/markupsafe/__init__.py",
+]

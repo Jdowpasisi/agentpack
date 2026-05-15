@@ -14,6 +14,8 @@ from agentpack.mcp_server import (
     _get_stats_impl,
     _explain_file_impl,
     _get_related_files_impl,
+    _resolve_mcp_task,
+    _pack_context_impl,
 )
 
 
@@ -172,6 +174,75 @@ def test_get_context_stale_when_no_snapshot(tmp_path):
 
     result = _get_context_impl(tmp_path)
     assert "Stale context" in result
+
+
+def test_resolve_mcp_task_writes_task_md(tmp_path):
+    result = _resolve_mcp_task(tmp_path, "  fix auth   token  ")
+
+    assert result == "fix auth token"
+    assert (tmp_path / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix auth token\n"
+
+
+def test_resolve_mcp_task_reads_existing_task_md(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "task.md").write_text("fix cached context\n", encoding="utf-8")
+
+    assert _resolve_mcp_task(tmp_path) == "fix cached context"
+
+
+def test_pack_context_impl_uses_mcp_task_and_returns_context(tmp_path):
+    mock_result = MagicMock()
+    mock_result.pack = MagicMock()
+    mock_result.pack.task = "fix auth"
+    with patch("agentpack.application.pack_service.PackService") as MockService, \
+         patch("agentpack.adapters.detect.detect_agent", return_value="generic"), \
+         patch("agentpack.renderers.markdown.render_claude", return_value="# context"):
+        MockService.return_value.run.return_value = mock_result
+        result = _pack_context_impl(tmp_path, task="fix auth", max_tokens=1000)
+
+    assert result == "# context"
+    assert (tmp_path / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix auth\n"
+    request = MockService.return_value.run.call_args[0][0]
+    assert request.task == "fix auth"
+    assert request.task_source == "mcp"
+
+
+def test_mcp_first_end_to_end_fixture(tmp_path):
+    src = tmp_path / "src"
+    tests = tmp_path / "tests"
+    src.mkdir()
+    tests.mkdir()
+    (src / "__init__.py").write_text("", encoding="utf-8")
+    (src / "auth.py").write_text(
+        "from .session import session_age\n\n"
+        "def validate_token(token: str) -> bool:\n"
+        "    return token == 'ok' and session_age() >= 0\n",
+        encoding="utf-8",
+    )
+    (src / "session.py").write_text(
+        "def session_age() -> int:\n"
+        "    return 0\n",
+        encoding="utf-8",
+    )
+    (tests / "test_auth.py").write_text(
+        "from src.auth import validate_token\n\n"
+        "def test_validate_token():\n"
+        "    assert validate_token('ok')\n",
+        encoding="utf-8",
+    )
+
+    context = _pack_context_impl(tmp_path, task="fix auth token validation", max_tokens=8000)
+    cached = _get_context_impl(tmp_path)
+    related = _get_related_files_impl(tmp_path, "src/auth.py", depth=1)
+    explained = _explain_file_impl(tmp_path, "src/auth.py")
+
+    assert (tmp_path / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix auth token validation\n"
+    assert "fix auth token validation" in context
+    assert "src/auth.py" in context
+    assert "Context is fresh" in cached
+    assert "src/session.py" in related
+    assert "tests/test_auth.py" in related
+    assert "## src/auth.py" in explained
 
 
 # ---------------------------------------------------------------------------

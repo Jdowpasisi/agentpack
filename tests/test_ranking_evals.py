@@ -19,6 +19,7 @@ from agentpack.analysis.ranking import (
     boost_cross_layer_related,
     boost_monorepo_workspaces,
     boost_recall_neighbors,
+    boost_second_pass_expansion,
     extract_keywords,
     score_files,
 )
@@ -325,6 +326,42 @@ class TestChangedFilePriority:
         scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
         assert scores["src/auth/token_store.py"][0] > scores["src/ui/button.py"][0]
         assert any("recall neighbor" in reason for reason in scores["src/auth/token_store.py"][1])
+
+    def test_second_pass_expansion_boosts_guarded_two_hop_neighbor(self):
+        files = [
+            _fi("src/auth/session.py"),
+            _fi("src/auth/token_store.py"),
+            _fi("src/auth/token_repository.py"),
+            _fi("src/ui/button.py"),
+        ]
+        graph = DependencyGraph(nodes={
+            "src/auth/session.py": DependencyNode(path="src/auth/session.py", imports=["src/auth/token_store.py"]),
+            "src/auth/token_store.py": DependencyNode(
+                path="src/auth/token_store.py",
+                imports=["src/auth/token_repository.py"],
+                imported_by=["src/auth/session.py"],
+            ),
+            "src/auth/token_repository.py": DependencyNode(
+                path="src/auth/token_repository.py",
+                imported_by=["src/auth/token_store.py"],
+            ),
+            "src/ui/button.py": DependencyNode(path="src/ui/button.py"),
+        })
+        keywords = extract_keywords("fix auth token expiry")
+        scored = score_files(
+            files,
+            changed_paths={"src/auth/session.py"},
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph=graph,
+            keywords=keywords,
+        )
+        scored = boost_recall_neighbors(scored, graph, {"src/auth/session.py"})
+        scored = boost_second_pass_expansion(scored, graph, keywords)
+        scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+
+        assert scores["src/auth/token_repository.py"][0] > scores["src/ui/button.py"][0]
+        assert any("second-pass recall neighbor" in reason for reason in scores["src/auth/token_repository.py"][1])
 
     def test_monorepo_workspace_boost_prefers_changed_workspace(self):
         files = [
