@@ -263,6 +263,13 @@ def _freshness_diagnostics(
         diagnostics.append(f"Recorded context path is missing: {context_path.relative_to(root)}.")
 
     if session and session.active:
+        meta_agent = meta.get("agent")
+        resolved_agent = session.last_resolved_agent or meta_agent
+        if session.agent and resolved_agent and session.agent != resolved_agent:
+            diagnostics.append(
+                f"Session agent is {session.agent}, but latest pack resolved {resolved_agent}; "
+                "run `agentpack pack --agent auto --task auto` or restart the session."
+            )
         packed_at = _parse_iso(meta.get("generated_at"))
         refreshed_at = _parse_iso(session.last_refresh_at)
         if not session.last_refresh_at:
@@ -302,9 +309,21 @@ def _noise_diagnostics(
             diagnostics.append("Selection file precision is very low; many selected files were not later changed.")
         if avg_token_precision is not None and avg_token_precision < 0.2:
             diagnostics.append("Token precision is low; most packed tokens became noise in recent runs.")
+            diagnostics.append("Try `agentpack pack --mode minimal --task auto` until task wording or scoring improves.")
         if avg_summary_precision == 0:
             diagnostics.append("Summary token precision is 0%; summary context has not matched later edits.")
-    return diagnostics[:5]
+        noisy_counts: dict[str, int] = {}
+        for row in accuracy_rows:
+            for path in row.get("selection_noise_paths", []) or []:
+                if isinstance(path, str):
+                    noisy_counts[path] = noisy_counts.get(path, 0) + 1
+        if noisy_counts:
+            noisy = sorted(noisy_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+            diagnostics.append(
+                "Repeated noisy paths: "
+                + ", ".join(f"{path} ({count}x)" for path, count in noisy)
+            )
+    return diagnostics[:7]
 
 
 def _top_files_from_metadata(meta: dict) -> list[tuple[str, str, str]]:

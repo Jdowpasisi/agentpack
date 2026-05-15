@@ -341,6 +341,20 @@ class TestKeywordExtraction:
         # Just verify we don't get absurdly large keyword sets
         assert len(kw) < 50, f"Keyword set too large ({len(kw)}): {kw}"
 
+    def test_weak_filename_only_match_is_penalized(self):
+        files = [_fi("src/release_notes.py"), _fi("src/auth/session.py")]
+        results = score_files(
+            files,
+            changed_paths=set(),
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph={},
+            keywords=extract_keywords("release"),
+        )
+        scores = {fi.path: (score, reasons) for fi, score, reasons in results}
+        assert scores["src/release_notes.py"][0] < 80
+        assert any("weak filename-only match" in reason for reason in scores["src/release_notes.py"][1])
+
 
 # ---------------------------------------------------------------------------
 # Cross-repo scenario 9: FastAPI-style — SSE / streaming endpoint

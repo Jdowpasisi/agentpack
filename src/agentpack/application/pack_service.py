@@ -262,8 +262,8 @@ class PackPlanner:
             budget=selection_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=rank_result.keywords,
-            min_summary_score=_summary_score_floor(cfg, rank_result.generic_ratio),
-            max_summary_files=_summary_cap_for_mode(cfg, request.mode, rank_result.generic_ratio),
+            min_summary_score=_guarded_summary_score_floor(root, cfg, request.mode, rank_result.generic_ratio),
+            max_summary_files=_guarded_summary_cap(root, cfg, request.mode, rank_result.generic_ratio),
         )
         phase_times["select"] = time.perf_counter() - t0
 
@@ -586,6 +586,58 @@ def _summary_cap_for_mode(cfg: Any, mode: str, generic_ratio: float = 0.0) -> in
     if cap > 0 and generic_ratio >= 0.35:
         return max(12, int(cap * 0.75))
     return cap
+
+
+def _guarded_summary_score_floor(root: Path, cfg: Any, mode: str, generic_ratio: float) -> float:
+    floor = _summary_score_floor(cfg, generic_ratio)
+    avg_summary_precision, rows = _recent_summary_token_precision(root)
+    if rows < 3:
+        return floor
+    if avg_summary_precision <= 0.05:
+        return floor + 80
+    if avg_summary_precision <= 0.15:
+        return floor + 40
+    return floor
+
+
+def _guarded_summary_cap(root: Path, cfg: Any, mode: str, generic_ratio: float = 0.0) -> int:
+    cap = _summary_cap_for_mode(cfg, mode, generic_ratio)
+    avg_summary_precision, rows = _recent_summary_token_precision(root)
+    if rows < 3:
+        return cap
+    if avg_summary_precision <= 0.05:
+        strict_cap = 3 if mode == "minimal" else 5 if mode == "balanced" else 10
+    elif avg_summary_precision <= 0.15:
+        strict_cap = 6 if mode == "minimal" else 12 if mode == "balanced" else 20
+    else:
+        return cap
+    if cap <= 0:
+        return strict_cap
+    return min(cap, strict_cap)
+
+
+def _recent_summary_token_precision(root: Path, window: int = 10) -> tuple[float, int]:
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if not metrics_path.exists():
+        return 1.0, 0
+    values: list[float] = []
+    try:
+        lines = metrics_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 1.0, 0
+    for line in reversed(lines):
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        value = rec.get("selection_token_precision_summary")
+        if isinstance(value, int | float):
+            values.append(float(value))
+            if len(values) >= window:
+                break
+    if not values:
+        return 1.0, 0
+    return sum(values) / len(values), len(values)
 
 
 def _change_source(root: Path, since: str | None, snapshot_changed: set[str], git_changed: set[str]) -> str:

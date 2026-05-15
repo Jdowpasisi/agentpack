@@ -4,7 +4,13 @@ from pathlib import Path
 
 from agentpack.analysis.repo_map import build_repo_map
 from agentpack.analysis.task_classifier import classify_task
-from agentpack.application.pack_service import _apply_history_penalties, _compute_delta_summary
+from agentpack.application.pack_service import (
+    _apply_history_penalties,
+    _compute_delta_summary,
+    _guarded_summary_cap,
+    _guarded_summary_score_floor,
+)
+from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import _select_diff_hunks, select_files
 from agentpack.core.models import DependencyGraph, FileInfo, SelectedFile
 from agentpack.renderers.markdown import render_claude
@@ -146,6 +152,23 @@ def test_history_penalties_downrank_previous_noise(tmp_path):
 
     assert adjusted[0][1] < 100.0
     assert "history noise penalty" in adjusted[0][2][-1]
+
+
+def test_summary_precision_guard_tightens_noisy_summaries(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        '{"selection_token_precision_summary":0.0}\n'
+        '{"selection_token_precision_summary":0.0}\n'
+        '{"selection_token_precision_summary":0.0}\n',
+        encoding="utf-8",
+    )
+
+    floor = _guarded_summary_score_floor(tmp_path, DEFAULT_CONFIG, "balanced", 0.0)
+    cap = _guarded_summary_cap(tmp_path, DEFAULT_CONFIG, "balanced", 0.0)
+
+    assert floor == DEFAULT_CONFIG.context.min_summary_score + 80
+    assert cap == 5
 
 
 def test_offline_summary_includes_richer_fields(tmp_path):
