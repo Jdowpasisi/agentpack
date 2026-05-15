@@ -89,6 +89,44 @@ class TestPyFastapiApp:
         result = _pack(root)
         assert result.packed_tokens <= 50000
 
+    def test_workspace_pack_writes_workspace_output(self, tmp_path: Path) -> None:
+        root = tmp_path / "mono"
+        app_dir = root / "apps" / "web"
+        other_dir = root / "apps" / "admin"
+        app_dir.mkdir(parents=True)
+        other_dir.mkdir(parents=True)
+        (root / "package.json").write_text('{"workspaces":["apps/*"]}', encoding="utf-8")
+        (app_dir / "package.json").write_text('{"name":"@acme/web"}', encoding="utf-8")
+        (other_dir / "package.json").write_text('{"name":"@acme/admin"}', encoding="utf-8")
+        (app_dir / "auth.ts").write_text("export function authSession() { return true }\n", encoding="utf-8")
+        (other_dir / "auth.ts").write_text("export function adminAuth() { return true }\n", encoding="utf-8")
+        (root / ".agentpack").mkdir()
+        (root / ".agentpack" / "config.toml").write_text(
+            "[context]\ndefault_budget = 10000\nmax_file_tokens = 4000\n\n"
+            "[agents.generic]\noutput = \".agentpack/context.md\"\n",
+            encoding="utf-8",
+        )
+
+        result = PackService().run(PackRequest(
+            root=root,
+            agent="generic",
+            task="fix web auth",
+            mode="balanced",
+            budget=10000,
+            since=None,
+            refresh=False,
+            workspace="apps/web",
+        ))
+
+        assert result.out_path == root / ".agentpack" / "workspaces" / "apps__web" / "context.md"
+        assert result.out_path.exists()
+        scanned_paths = {fi.path for fi in result.scan_result.packable}
+        assert "apps/web/auth.ts" in scanned_paths
+        assert "apps/admin/auth.ts" not in scanned_paths
+        meta = load_pack_metadata(root)
+        assert meta is not None
+        assert meta["freshness"]["workspace"] == "apps/web"
+
     def test_saving_pct_positive(self, tmp_path: Path) -> None:
         root = _setup_repo(tmp_path, "py_fastapi_app")
         result = _pack(root)

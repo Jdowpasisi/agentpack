@@ -23,9 +23,16 @@ from agentpack.analysis.ranking import (
     enrich_keyword_weights_from_files,
     boost_paired_tests,
     boost_cross_layer_related,
+    boost_monorepo_workspaces,
+    boost_recall_neighbors,
     generic_task_term_ratio,
 )
 from agentpack.analysis.repo_map import build_repo_map
+from agentpack.analysis.monorepo import (
+    detect_workspace_dependency_edges,
+    detect_workspace_roots,
+    normalize_workspace,
+)
 from agentpack.analysis.task_classifier import classify_task
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
@@ -42,6 +49,7 @@ class PackRequest:
     since: str | None
     refresh: bool
     task_source: str = "explicit"
+    workspace: str | None = None
 
 
 @dataclass
@@ -96,6 +104,9 @@ class PackPlan:
     task_class_signals: list[str]
     changed_files_source: str
     repo_map: str
+    workspace_roots: list[str]
+    workspace_dependency_edges: dict[str, set[str]]
+    workspace: str | None
     scored: list[tuple[Any, float, list[str]]]
     selected: list[SelectedFile]
     receipts: list[Receipt]
@@ -116,8 +127,11 @@ class ChangeDetector:
         current_snap = build_snapshot(packable)
         if previous_snap is None:
             previous_snap = load_snapshot(root)
-        snap_diff = diff_snapshots(previous_snap, current_snap)
-        changed_from_snap: set[str] = set(snap_diff.added + snap_diff.modified)
+        if previous_snap is None:
+            changed_from_snap: set[str] = set()
+        else:
+            snap_diff = diff_snapshots(previous_snap, current_snap)
+            changed_from_snap = set(snap_diff.added + snap_diff.modified)
 
         git_changed: set[str] = set()
         git_staged: set[str] = set()
@@ -130,12 +144,16 @@ class ChangeDetector:
                 git_changed = git.changed_files(root)
             git_staged = git_changed
             recently_modified = git.recently_modified_files(root)
+        packable_paths = {fi.path for fi in packable}
+        all_changed = (changed_from_snap | git_changed) & packable_paths
+        git_staged = git_staged & packable_paths
+        recently_modified = [path for path in recently_modified if path in packable_paths]
 
         return ChangeSet(
-            all_changed=changed_from_snap | git_changed,
+            all_changed=all_changed,
             git_staged=git_staged,
             recently_modified=recently_modified,
-            source=_change_source(root, since, changed_from_snap, git_changed),
+            source=_change_source(root, since, changed_from_snap & packable_paths, git_changed & packable_paths),
             current_snap=current_snap,
         )
 
@@ -152,6 +170,8 @@ class FileRanker:
         cfg: Any,
         summaries: dict | None = None,
         root: Path | None = None,
+        workspace_roots: list[str] | None = None,
+        workspace_dependency_edges: dict[str, set[str]] | None = None,
     ) -> RankResult:
         from agentpack.core import git as _git
         keyword_weights = extract_keyword_weights(task)
@@ -188,6 +208,15 @@ class FileRanker:
             churn_counts=churn_counts,
             co_changed_paths=co_changed_paths,
         )
+        scored = boost_monorepo_workspaces(
+            scored,
+            workspace_roots=workspace_roots or [],
+            workspace_dependency_edges=workspace_dependency_edges or {},
+            changed_paths=changes.all_changed,
+            task=task,
+            weights=cfg.scoring,
+        )
+        scored = boost_recall_neighbors(scored, dep_graph, changes.all_changed, weights=cfg.scoring)
         scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
         if root is not None:
@@ -214,10 +243,14 @@ class PackPlanner:
 
         t0 = time.perf_counter()
         previous_snap = load_snapshot(root)
+        workspace_roots = detect_workspace_roots(root)
+        workspace = _resolve_workspace(root, request.workspace, workspace_roots)
+        workspace_dependency_edges = detect_workspace_dependency_edges(root, workspace_roots)
+        include_globs = _workspace_include_globs(workspace, cfg.project.include_globs or [])
         scan_result = scan(
             root, ignore_spec, cfg.context.max_file_tokens,
             previous_snapshot=previous_snap,
-            include_globs=cfg.project.include_globs or None,
+            include_globs=include_globs or None,
             exclude_globs=cfg.project.exclude_globs or None,
             always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
         )
@@ -239,7 +272,17 @@ class PackPlanner:
         phase_times["changes"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        rank_result = FileRanker().rank(packable, changes, dep_graph, request.task, cfg, summaries=summaries, root=root)
+        rank_result = FileRanker().rank(
+            packable,
+            changes,
+            dep_graph,
+            request.task,
+            cfg,
+            summaries=summaries,
+            root=root,
+            workspace_roots=workspace_roots,
+            workspace_dependency_edges=workspace_dependency_edges,
+        )
         if not changes.all_changed:
             rank_result.scored = _apply_no_live_precision_guard(rank_result.scored, rank_result.generic_ratio)
         phase_times["rank"] = time.perf_counter() - t0
@@ -293,6 +336,9 @@ class PackPlanner:
             task_class_signals=rank_result.task_class_signals,
             changed_files_source=changes.source,
             repo_map=repo_map,
+            workspace_roots=workspace_roots,
+            workspace_dependency_edges=workspace_dependency_edges,
+            workspace=workspace,
             scored=rank_result.scored,
             selected=selected,
             receipts=receipts,
@@ -399,6 +445,8 @@ class PackService:
         t0 = time.perf_counter()
         out_path = adapter.write(pack_obj, root)
         _write_canonical_context(pack_obj, root, out_path)
+        if plan.workspace:
+            out_path = _write_workspace_context(pack_obj, root, plan.workspace)
         plan.phase_times["render"] = time.perf_counter() - t0
 
         save_snapshot(plan.current_snap, root)
@@ -434,6 +482,8 @@ class PackService:
             selected_hints=[{"path": sf.path, "why": sf.reasons[0] if sf.reasons else ""} for sf in plan.selected[:8]],
             current_changed=plan.all_changed,
             task_class=plan.task_class,
+            workspace=plan.workspace,
+            workspace_roots=plan.workspace_roots,
             excluded_count=len(excluded_receipts),
             excluded_paths=budget_cut,
         )
@@ -461,6 +511,30 @@ def _write_canonical_context(pack: ContextPack, root: Path, out_path: Path) -> N
             return
     canonical_path.parent.mkdir(parents=True, exist_ok=True)
     canonical_path.write_text(render_generic(pack), encoding="utf-8")
+
+
+def _write_workspace_context(pack: ContextPack, root: Path, workspace: str) -> Path:
+    safe = workspace.replace("/", "__").replace("\\", "__")
+    workspace_path = root / ".agentpack" / "workspaces" / safe / "context.md"
+    workspace_path.parent.mkdir(parents=True, exist_ok=True)
+    workspace_path.write_text(render_generic(pack), encoding="utf-8")
+    return workspace_path
+
+
+def _resolve_workspace(root: Path, workspace: str | None, workspace_roots: list[str]) -> str | None:
+    value = normalize_workspace(workspace)
+    if value is None:
+        return None
+    if value in workspace_roots or (root / value).is_dir():
+        return value
+    known = ", ".join(workspace_roots[:8]) if workspace_roots else "none detected"
+    raise ValueError(f"Unknown workspace '{value}'. Known workspaces: {known}")
+
+
+def _workspace_include_globs(workspace: str | None, configured: list[str]) -> list[str]:
+    if workspace is None:
+        return configured
+    return [f"{workspace}/**"]
 
 
 def _selected_file_metadata(selected: list[SelectedFile]) -> list[dict[str, Any]]:
@@ -677,7 +751,7 @@ def _guarded_summary_score_floor(
     floor = _summary_score_floor(cfg, generic_ratio)
     avg_summary_precision, rows = _recent_summary_token_precision(root)
     if rows < 3:
-        return floor + (35 if no_live_changes else 0)
+        return floor + (15 if no_live_changes else 0)
     if avg_summary_precision <= 0.05:
         return floor + (140 if no_live_changes else 80)
     if avg_summary_precision <= 0.15:
@@ -789,6 +863,14 @@ def _build_freshness_metadata(
         "task_class_signals": plan.task_class_signals,
         "dirty_files_count": len(dirty),
     }
+    if plan.workspace:
+        metadata["workspace"] = plan.workspace
+    if plan.workspace_roots:
+        metadata["workspace_roots"] = plan.workspace_roots
+    if plan.workspace_dependency_edges:
+        metadata["workspace_dependency_edges"] = {
+            key: sorted(value) for key, value in plan.workspace_dependency_edges.items() if value
+        }
     if git.is_git_repo(root):
         metadata["git_sha"] = git.current_sha(root)
         metadata["git_branch"] = git.current_branch(root)
@@ -957,6 +1039,8 @@ def _record_metrics(
     selected_modes: dict[str, str],
     current_changed: set[str],
     task_class: str = "general",
+    workspace: str | None = None,
+    workspace_roots: list[str] | None = None,
     selected_hints: list[dict] | None = None,
     excluded_count: int = 0,
     excluded_paths: list[str] | None = None,
@@ -972,6 +1056,8 @@ def _record_metrics(
         "ts": datetime.now(timezone.utc).isoformat(),
         "task": task,
         "task_class": task_class,
+        "workspace": workspace,
+        "workspace_roots": workspace_roots or [],
         "mode": mode,
         "packed_tokens": packed_tokens,
         "raw_tokens": raw_tokens,

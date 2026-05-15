@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agentpack.core.models import DependencyGraph, FileInfo
 from agentpack.core.config import ScoringWeights
+from agentpack.analysis.monorepo import workspace_for_path, workspace_tokens
 
 _STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
@@ -234,6 +235,8 @@ _FILENAME_CORROBORATION_PREFIXES = (
     "implementation role match",
     "recently modified",
     "historically co-changed",
+    "recall neighbor",
+    "workspace match",
 )
 
 
@@ -523,6 +526,10 @@ def score_files(
             score += w.config_file
             reasons.append("config file")
 
+        if _has_secret_content(fi):
+            score += w.modified
+            reasons.append("secret redaction candidate")
+
         if _is_knowledge_file(fi.path):
             score += w.knowledge_file
             reasons.append("knowledge/architecture doc")
@@ -634,6 +641,112 @@ def boost_paired_tests(
     return result
 
 
+def boost_recall_neighbors(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    dep_graph: DependencyGraph,
+    changed_paths: set[str],
+    weights: ScoringWeights | None = None,
+    *,
+    seed_limit: int = 8,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Boost import/reverse-import/test neighbors of strong seed files.
+
+    This raises recall for files that do not match task words directly but sit
+    next to a changed or high-scoring file in the dependency graph.
+    """
+    if not scored:
+        return scored
+    w = weights or _DEFAULT_WEIGHTS
+    path_set = {fi.path for fi, _score, _reasons in scored}
+    seed_candidates = [
+        (fi.path, score)
+        for fi, score, _reasons in scored
+        if fi.path in changed_paths or score >= 120
+    ]
+    seed_paths = [
+        path for path, _score in sorted(
+            seed_candidates,
+            key=lambda item: (item[0] not in changed_paths, -item[1], item[0]),
+        )[:seed_limit]
+    ]
+    if not seed_paths:
+        return scored
+
+    boosts: dict[str, tuple[float, str]] = {}
+    for seed in seed_paths:
+        node = dep_graph.get(seed)
+        neighbors = [*node.imports, *node.imported_by, *node.tests]
+        for neighbor in neighbors:
+            if neighbor == seed or neighbor not in path_set:
+                continue
+            amount = w.recall_neighbor + (8 if seed in changed_paths else 0)
+            current = boosts.get(neighbor)
+            if current is None or amount > current[0]:
+                boosts[neighbor] = (amount, seed)
+
+    result: list[tuple[FileInfo, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        boost = boosts.get(fi.path)
+        if boost and not fi.ignored and not fi.binary:
+            amount, seed = boost
+            score += amount
+            reasons = reasons + [f"recall neighbor of {seed}"]
+        result.append((fi, score, reasons))
+    return result
+
+
+def boost_monorepo_workspaces(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    *,
+    workspace_roots: list[str],
+    workspace_dependency_edges: dict[str, set[str]] | None = None,
+    changed_paths: set[str],
+    task: str,
+    weights: ScoringWeights | None = None,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Boost files in the changed/task-named workspace and workspace deps."""
+    if not workspace_roots:
+        return scored
+    w = weights or _DEFAULT_WEIGHTS
+    workspace_dependency_edges = workspace_dependency_edges or {}
+    active_workspaces = {
+        workspace
+        for path in changed_paths
+        if (workspace := workspace_for_path(path, workspace_roots))
+    }
+    task_tokens = _tokens_for_match(task)
+    for workspace in workspace_roots:
+        if workspace_tokens(workspace) & task_tokens:
+            active_workspaces.add(workspace)
+    if not active_workspaces:
+        return scored
+    dependency_workspaces = {
+        dep
+        for workspace in active_workspaces
+        for dep in workspace_dependency_edges.get(workspace, set())
+    }
+    dependent_workspaces = {
+        workspace
+        for workspace, deps in workspace_dependency_edges.items()
+        if active_workspaces & deps
+    }
+
+    result: list[tuple[FileInfo, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        workspace = workspace_for_path(fi.path, workspace_roots)
+        if workspace in active_workspaces and not fi.ignored and not fi.binary:
+            score += w.workspace_match
+            reasons = reasons + [f"workspace match {workspace}"]
+        elif workspace in dependency_workspaces and not fi.ignored and not fi.binary:
+            score += w.recall_neighbor
+            reasons = reasons + [f"workspace dependency {workspace}"]
+        elif workspace in dependent_workspaces and not fi.ignored and not fi.binary:
+            score += w.recall_neighbor * 0.5
+            reasons = reasons + [f"workspace dependent {workspace}"]
+        result.append((fi, score, reasons))
+    return result
+
+
 def _is_test_file(path: str) -> bool:
     p = Path(path)
     return (
@@ -658,6 +771,21 @@ def _is_config_file(path: str) -> bool:
         p.suffix.lower() in CONFIG_EXTENSIONS
         or p.stem.lower() in CONFIG_NAMES
     )
+
+
+def _has_secret_content(fi: FileInfo) -> bool:
+    from agentpack.core.redactor import redact_secrets
+
+    text = fi.content
+    if text is None and fi.abs_path.exists():
+        try:
+            text = fi.abs_path.read_text(errors="replace")
+        except OSError:
+            return False
+    if not text:
+        return False
+    _redacted, warnings = redact_secrets(text, fi.path)
+    return bool(warnings)
 
 
 _KNOWLEDGE_NAMES = {

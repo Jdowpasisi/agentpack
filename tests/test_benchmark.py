@@ -19,6 +19,7 @@ from agentpack.commands.benchmark import (
     _load_history_cases,
     _random_baseline,
     _write_results_template,
+    _quality_status,
 )
 
 
@@ -168,6 +169,16 @@ def test_load_cases_parses_task_type(tmp_path: Path) -> None:
     assert cases[0].task_type == "backend-api"
 
 
+def test_load_cases_parses_workspace(tmp_path: Path) -> None:
+    f = tmp_path / "bench.toml"
+    f.write_text(
+        '[[cases]]\ntask = "fix bug"\nworkspace = "apps/web"\nexpected_files = ["apps/web/a.ts"]\n',
+        encoding="utf-8",
+    )
+    cases = _load_cases(f)
+    assert cases[0].workspace == "apps/web"
+
+
 def test_load_cases_defaults_mode(tmp_path: Path) -> None:
     f = tmp_path / "bench.toml"
     f.write_text('[[cases]]\ntask = "add feature"\n', encoding="utf-8")
@@ -199,7 +210,28 @@ def test_persist_result_writes_jsonl(tmp_path: Path) -> None:
     assert "saving_pct_honest" in record
     assert record["rank_at_k"] == 3
     assert record["noise_pct"] == pytest.approx(30.0)
+    assert record["token_precision"] == pytest.approx(0.7)
     assert record["random_f1"] == pytest.approx(0.2)
+
+
+def test_quality_status_passes_on_recall_and_token_precision() -> None:
+    result = _make_result(
+        ["a.py", "b.py"],
+        ["a.py"],
+        noise_pct=40.0,
+    )
+    passed, metrics = _quality_status([result])
+
+    assert passed is True
+    assert metrics["avg_recall"] == 1.0
+    assert metrics["avg_token_precision"] == pytest.approx(0.6)
+
+
+def test_quality_status_fails_without_expected_files() -> None:
+    passed, metrics = _quality_status([_make_result(["a.py"], [])])
+
+    assert passed is False
+    assert metrics["cases"] == 0
 
 
 def test_persist_result_appends(tmp_path: Path) -> None:

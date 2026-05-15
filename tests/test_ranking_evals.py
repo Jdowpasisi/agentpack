@@ -15,8 +15,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentpack.analysis.ranking import boost_cross_layer_related, extract_keywords, score_files
-from agentpack.core.models import FileInfo
+from agentpack.analysis.ranking import (
+    boost_cross_layer_related,
+    boost_monorepo_workspaces,
+    boost_recall_neighbors,
+    extract_keywords,
+    score_files,
+)
+from agentpack.core.models import DependencyGraph, DependencyNode, FileInfo
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +305,75 @@ class TestChangedFilePriority:
         scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
         assert scores["tests/test_session.py"][0] > scores["src/ui/button.py"][0]
         assert any("historically co-changed" in reason for reason in scores["tests/test_session.py"][1])
+
+    def test_dependency_neighbor_gets_recall_boost(self):
+        files = [_fi("src/auth/session.py"), _fi("src/auth/token_store.py"), _fi("src/ui/button.py")]
+        graph = DependencyGraph(nodes={
+            "src/auth/session.py": DependencyNode(path="src/auth/session.py", imports=["src/auth/token_store.py"]),
+            "src/auth/token_store.py": DependencyNode(path="src/auth/token_store.py", imported_by=["src/auth/session.py"]),
+            "src/ui/button.py": DependencyNode(path="src/ui/button.py"),
+        })
+        scored = score_files(
+            files,
+            changed_paths={"src/auth/session.py"},
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph=graph,
+            keywords=extract_keywords("fix session expiry"),
+        )
+        scored = boost_recall_neighbors(scored, graph, {"src/auth/session.py"})
+        scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+        assert scores["src/auth/token_store.py"][0] > scores["src/ui/button.py"][0]
+        assert any("recall neighbor" in reason for reason in scores["src/auth/token_store.py"][1])
+
+    def test_monorepo_workspace_boost_prefers_changed_workspace(self):
+        files = [
+            _fi("apps/dashboard/src/auth/session.ts"),
+            _fi("apps/admin/src/auth/session.ts"),
+            _fi("packages/shared/src/auth.ts"),
+        ]
+        scored = score_files(
+            files,
+            changed_paths={"apps/dashboard/src/auth/session.ts"},
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph={},
+            keywords=extract_keywords("fix auth session"),
+        )
+        scored = boost_monorepo_workspaces(
+            scored,
+            workspace_roots=["apps/dashboard", "apps/admin", "packages/shared"],
+            changed_paths={"apps/dashboard/src/auth/session.ts"},
+            task="fix auth session",
+        )
+        scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+        assert scores["apps/dashboard/src/auth/session.ts"][0] > scores["apps/admin/src/auth/session.ts"][0]
+        assert any("workspace match apps/dashboard" in reason for reason in scores["apps/dashboard/src/auth/session.ts"][1])
+
+    def test_monorepo_dependency_workspace_gets_recall_boost(self):
+        files = [
+            _fi("apps/dashboard/src/page.tsx"),
+            _fi("packages/shared/src/auth.ts"),
+            _fi("apps/admin/src/page.tsx"),
+        ]
+        scored = score_files(
+            files,
+            changed_paths={"apps/dashboard/src/page.tsx"},
+            staged_paths=set(),
+            recently_modified=[],
+            dep_graph={},
+            keywords=extract_keywords("fix dashboard auth"),
+        )
+        scored = boost_monorepo_workspaces(
+            scored,
+            workspace_roots=["apps/dashboard", "apps/admin", "packages/shared"],
+            workspace_dependency_edges={"apps/dashboard": {"packages/shared"}},
+            changed_paths={"apps/dashboard/src/page.tsx"},
+            task="fix dashboard auth",
+        )
+        scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+        assert scores["packages/shared/src/auth.ts"][0] > scores["apps/admin/src/page.tsx"][0]
+        assert any("workspace dependency packages/shared" in reason for reason in scores["packages/shared/src/auth.ts"][1])
 
 
 # ---------------------------------------------------------------------------

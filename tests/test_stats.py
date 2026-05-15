@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentpack.commands.stats import _freshness_diagnostics, _noise_diagnostics, _top_files_from_metadata
+import json
+
+from agentpack.commands.stats import (
+    _benchmark_proof_status,
+    _freshness_diagnostics,
+    _noise_diagnostics,
+    _top_files_from_metadata,
+    _workspace_rows,
+)
 from agentpack.session.state import SessionState
 
 
@@ -130,3 +138,38 @@ def test_top_files_from_metadata_avoids_markdown_parse() -> None:
         ("src/a.py", "full", "modified"),
         ("src/b.py", "summary", "filename keyword match"),
     ]
+
+
+def test_workspace_rows_groups_selected_files() -> None:
+    rows = _workspace_rows(
+        {
+            "freshness": {"workspace_roots": ["apps/web", "packages/shared"]},
+            "selected_files_meta": [
+                {"path": "apps/web/src/page.tsx", "tokens": 120},
+                {"path": "apps/web/src/api.ts", "tokens": 80},
+                {"path": "packages/shared/src/auth.ts", "tokens": 50},
+            ],
+        },
+        [],
+    )
+
+    assert rows[0] == ("apps/web", 2, 200)
+    assert ("packages/shared", 1, 50) in rows
+
+
+def test_benchmark_proof_status_reads_recent_results(tmp_path: Path) -> None:
+    out = tmp_path / ".agentpack" / "benchmark_results.jsonl"
+    out.parent.mkdir()
+    out.write_text(
+        json.dumps({"recall": 0.8, "token_precision": 0.7}) + "\n"
+        + json.dumps({"recall": 0.6, "token_precision": 0.5}) + "\n",
+        encoding="utf-8",
+    )
+
+    proof = _benchmark_proof_status(tmp_path)
+
+    assert proof is not None
+    assert proof["cases"] == 2
+    assert proof["avg_recall"] == 0.7
+    assert proof["avg_token_precision"] == 0.6
+    assert proof["passed"] is True

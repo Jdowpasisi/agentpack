@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.1.30).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.2.0).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -185,6 +185,7 @@ AgentPack's value here is different: `agentpack init --agent <x>` configures you
 | Auto task inference from git | ✗ | ✗ | ✗ | partial | ✓ |
 | Relevance ranking by task | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Import graph traversal | ✗ | ✗ | ✗ | ✓ | ✓ |
+| Monorepo workspace hints | ✗ | ✗ | ✗ | manual | ✓ |
 | Token budget enforcement | manual | manual | manual | ✓ | ✓ |
 | Cursor / Windsurf / Codex / Antigravity install | ✗ | ✗ | ✗ | ✗ | ✓ |
 | Zero API calls | ✓ | ✓ | ✓ | ✗ | ✓ |
@@ -605,6 +606,7 @@ Generate a context pack.
 ```bash
 agentpack pack --task "fix auth session bug"        # auto-detects your IDE
 agentpack pack --agent claude --task "fix auth bug" # explicit agent
+agentpack pack --workspace apps/web --task "fix web auth"
 
 # Only include changes since a git ref
 agentpack pack --task "review these changes" --since main
@@ -621,6 +623,7 @@ Options:
 | `--task` | `auto` | Task description, or `auto` to infer from git |
 | `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
 | `--budget` | 0 (uses config default 25000) | Token budget |
+| `--workspace` | — | Restrict packing to a monorepo workspace and write `.agentpack/workspaces/<workspace>/context.md` |
 | `--since` | — | Only include files changed since this git ref |
 | `--session` | off | Re-pack on every file change (watch mode) |
 | `--refresh` | off | Force rebuild summaries before packing |
@@ -785,6 +788,7 @@ agentpack benchmark --results-template                     # scaffold publishabl
 agentpack benchmark                                        # run all cases in benchmark.toml
 agentpack benchmark --sample-fixtures                      # source checkout demo evals
 agentpack benchmark --misses                               # explain expected-file misses
+agentpack benchmark --prove-targets                        # fail if recall/token precision targets miss
 ```
 
 Output per case:
@@ -825,6 +829,7 @@ Mode comparison: fix auth token expiry
 task = "fix auth token expiry"
 mode = "balanced"
 task_type = "backend-api"
+workspace = "apps/api" # optional, for monorepos
 expected_files = [
   "src/auth/token.py",
   "src/auth/session.py",
@@ -837,6 +842,8 @@ expected_files = [
 ```
 
 Use `--misses` when recall is low. It prints each expected file that was not selected with status, rank, score, and scoring reasons, which helps separate ignored files, budget cuts, low scores, and missing dependency signals.
+
+Use `--prove-targets` in CI or release prep when benchmark cases have `expected_files`. By default it requires average recall >=60% and token precision >=50%; tune with `--min-recall` and `--min-token-precision`.
 
 Add `task_type` to group results by workflow area. Benchmark summaries report average precision, recall, F1, and token noise by type, so a repo can show "backend-api is good, frontend-web is noisy" instead of hiding that under one aggregate.
 
@@ -874,7 +881,7 @@ agentpack stats
 
 When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files from the latest pack and avg recall/precision/F1 over the last 10 runs.
 
-Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." Context precision also credits obvious read-only support context, such as paired tests beside changed source files. `stats` breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible.
+Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." Context precision also credits obvious read-only support context, such as paired tests beside changed source files. `stats` breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible. In monorepos, it also reports selected-file distribution by workspace when workspace metadata exists.
 
 To build a real usefulness signal for your repo:
 
@@ -883,7 +890,7 @@ agentpack benchmark --sample-fixtures
 
 agentpack benchmark --init
 # edit .agentpack/benchmark.toml with real tasks + files you actually changed
-agentpack benchmark --compare --misses
+agentpack benchmark --compare --misses --prove-targets
 ```
 
 `--sample-fixtures` runs bundled FastAPI, Next.js, mixed Python/TypeScript, Django REST-style, Go service, and Rails-style fixture evals from an AgentPack source checkout. It is a smoke test, not a claim about your repo.
@@ -1231,6 +1238,7 @@ src/agentpack/
     symbols.py                 # AST symbols + body via ast.get_source_segment
     tests.py                   # source → test file mapping heuristics
     ranking.py                 # keyword extraction, concept synonyms, scoring
+    monorepo.py                # workspace detection + workspace ownership helpers
     repo_map.py                # compact semantic repo map reserved inside token budget
     task_classifier.py         # coarse task class for freshness/rendering/scoring context
 
@@ -1330,7 +1338,7 @@ src/agentpack/
 ## Known limitations
 
 - **Windows**: not supported. Git hooks use POSIX shell (`#!/bin/sh`, `>/dev/null 2>&1 &`). The Claude Code session hooks use `python3` and `rm -f`. Contributions welcome.
-- **Monorepos**: single-root repos only. If you `agentpack pack` from a monorepo root, all packages are scanned together with no workspace awareness. Workaround: `cd packages/my-pkg && agentpack init && agentpack pack`.
+- **Monorepos**: workspace-aware ranking supports npm/pnpm, Cargo, and `go.work` layouts. `--workspace` creates filtered per-workspace outputs. Package dependency hints currently come from npm/pnpm `package.json`; Cargo/Go workspace membership is detected, but package-manager dependency edges for Cargo/Go are not yet modeled.
 - **Public benchmark proof**: source-checkout fixture results are useful regressions, not market proof. Use `agentpack benchmark --results-template` to publish real historical task results.
 - **Symbol extraction**: Python (AST, full) and JavaScript/TypeScript (regex, arrow functions + classes) are well-supported. Go, Rust, Java, Kotlin have import graph traversal but no symbol extraction — they fall back to file-level summaries.
 - **Selection recall**: ranking is heuristic. It can miss files when task language differs from code language, when repos have unusual architecture, or when important files are only connected at runtime.
@@ -1346,7 +1354,7 @@ Next release target: **0.2.0 = benchmark + recall release**.
 
 - Expand public source-checkout fixtures and publish reproducible `benchmark --sample-fixtures --compare --misses` output.
 - Raise recall on real historical tasks while keeping token precision healthy; target 60%+ recall, 50%+ token precision, and balanced packs under 25k tokens.
-- Improve second-pass expansion through imports, reverse imports, related tests, historical co-change, and framework route/service/schema pairs.
+- Improve second-pass expansion beyond current imports, reverse imports, related tests, historical co-change, and workspace hints with framework route/service/schema pairs.
 - Make MCP pull flows more prominent so agents can ask for `explain_file`, `get_related_files`, and `get_delta_context` instead of relying only on a static startup pack.
 - Keep integration contracts stable across Claude, Cursor, Windsurf, Codex, Antigravity, and Generic before any 1.0 work.
 

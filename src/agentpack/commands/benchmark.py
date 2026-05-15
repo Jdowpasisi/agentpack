@@ -24,6 +24,7 @@ class BenchmarkCase:
     mode: str = "balanced"
     expected_files: list[str] = field(default_factory=list)
     task_type: str = "general"
+    workspace: str | None = None
 
 
 @dataclass
@@ -159,6 +160,7 @@ def _load_cases(path: Path) -> list[BenchmarkCase]:
             mode=raw.get("mode", "balanced"),
             expected_files=raw.get("expected_files", []),
             task_type=raw.get("task_type", "general"),
+            workspace=raw.get("workspace"),
         ))
     return cases
 
@@ -181,6 +183,7 @@ def _scaffold_cases(root: Path) -> Path:
         'task = "fix auth token expiry"\n'
         'mode = "balanced"\n'
         'task_type = "backend-api"\n'
+        '# workspace = "apps/api"\n'
         '# expected_files = [\n'
         '#   "src/auth/token.py",\n'
         '#   "src/auth/session.py",\n'
@@ -291,6 +294,7 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         budget=0,
         since=None,
         refresh=False,
+        workspace=case.workspace,
     )
 
     t0 = time.perf_counter()
@@ -429,6 +433,7 @@ def _persist_result(root: Path, result: CaseResult) -> None:
         "ts": datetime.now(timezone.utc).isoformat(),
         "task": result.case.task,
         "task_type": result.case.task_type,
+        "workspace": result.case.workspace,
         "mode": result.case.mode,
         "packed_tokens": result.packed_tokens,
         "raw_tokens": result.raw_tokens,
@@ -446,6 +451,7 @@ def _persist_result(root: Path, result: CaseResult) -> None:
         "f1": round(f1, 3) if f1 is not None else None,
         "rank_at_k": result.rank_at_k,
         "noise_pct": round(result.noise_pct, 1) if result.noise_pct is not None else None,
+        "token_precision": round(1 - (result.noise_pct / 100), 3) if result.noise_pct is not None else None,
         "random_f1": round(result.random_f1, 3) if result.random_f1 is not None else None,
         "misses": result.missed_expected,
     }
@@ -462,7 +468,8 @@ def _print_case_detail(result: CaseResult, show_misses: bool = False) -> None:
 
     console.print(
         f"\n[bold cyan]{result.case.task}[/]  "
-        f"[dim]mode={result.case.mode} type={result.case.task_type}[/]"
+        f"[dim]mode={result.case.mode} type={result.case.task_type}"
+        f"{' workspace=' + result.case.workspace if result.case.workspace else ''}[/]"
     )
 
     tbl = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
@@ -594,6 +601,57 @@ def _print_summary_table(results: list[CaseResult]) -> None:
     console.print(tbl)
 
 
+def _quality_status(
+    results: list[CaseResult],
+    *,
+    min_recall: float = 0.60,
+    min_token_precision: float = 0.50,
+) -> tuple[bool, dict[str, float]]:
+    scored = [result for result in results if result.case.expected_files]
+    if not scored:
+        return False, {"cases": 0.0}
+    recalls = [_precision_recall(result)[1] for result in scored]
+    token_precisions = [
+        1 - (result.noise_pct / 100)
+        for result in scored
+        if result.noise_pct is not None
+    ]
+    avg_recall = sum(recalls) / len(recalls)
+    avg_token_precision = sum(token_precisions) / len(token_precisions) if token_precisions else 0.0
+    return (
+        avg_recall >= min_recall and avg_token_precision >= min_token_precision,
+        {
+            "cases": float(len(scored)),
+            "avg_recall": avg_recall,
+            "avg_token_precision": avg_token_precision,
+        },
+    )
+
+
+def _print_quality_status(
+    results: list[CaseResult],
+    *,
+    min_recall: float = 0.60,
+    min_token_precision: float = 0.50,
+) -> bool:
+    passed, metrics = _quality_status(
+        results,
+        min_recall=min_recall,
+        min_token_precision=min_token_precision,
+    )
+    if not metrics.get("cases"):
+        console.print("[yellow]Quality target not proven: no benchmark cases have expected_files.[/]")
+        return False
+    color = "green" if passed else "yellow"
+    console.print(
+        f"[{color}]Quality target {'passed' if passed else 'not met'}:[/{color}] "
+        f"{int(metrics['cases'])} case(s), "
+        f"avg recall {metrics['avg_recall']:.1%} / {min_recall:.0%}, "
+        f"avg token precision {metrics['avg_token_precision']:.1%} / {min_token_precision:.0%}"
+    )
+    return passed
+
+
 def _print_task_type_summary(results: list[CaseResult]) -> None:
     grouped: dict[str, list[CaseResult]] = {}
     for result in results:
@@ -719,6 +777,7 @@ def register(app: typer.Typer) -> None:
     def benchmark(
         task: str = typer.Option("", "--task", help="Single task to benchmark (skips cases file)."),
         mode: str = typer.Option("balanced", "--mode", help="Mode for single-task run (minimal|balanced|deep)."),
+        workspace: str = typer.Option("", "--workspace", help="Restrict benchmark packs to a workspace, e.g. apps/web."),
         cases: str = typer.Option("", "--cases", help="Path to TOML cases file (default: .agentpack/benchmark.toml)."),
         compare: bool = typer.Option(False, "--compare", is_flag=True, help="Compare minimal/balanced/deep for each task."),
         init: bool = typer.Option(False, "--init", is_flag=True, help="Scaffold a benchmark.toml and exit."),
@@ -726,6 +785,9 @@ def register(app: typer.Typer) -> None:
         from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
         sample_fixtures: bool = typer.Option(False, "--sample-fixtures", is_flag=True, help="Run bundled FastAPI/Next.js/mixed-repo fixture evals from a source checkout."),
         misses: bool = typer.Option(False, "--misses", is_flag=True, help="Show diagnostics for expected files that were not selected."),
+        prove_targets: bool = typer.Option(False, "--prove-targets", is_flag=True, help="Exit non-zero unless recall/token precision targets pass."),
+        min_recall: float = typer.Option(0.60, "--min-recall", help="Recall target for --prove-targets."),
+        min_token_precision: float = typer.Option(0.50, "--min-token-precision", help="Token precision target for --prove-targets."),
     ) -> None:
         """Benchmark file selection quality and token efficiency across tasks."""
         root = _root()
@@ -758,12 +820,13 @@ def register(app: typer.Typer) -> None:
                             FixtureCase(
                                 fixture=fixture_case.fixture,
                                 root=fixture_case.root,
-                case=BenchmarkCase(
-                    task=fixture_case.case.task,
-                    mode=fixture_mode,
-                    expected_files=fixture_case.case.expected_files,
-                    task_type=fixture_case.case.task_type,
-                ),
+                                case=BenchmarkCase(
+                                    task=fixture_case.case.task,
+                                    mode=fixture_mode,
+                                    expected_files=fixture_case.case.expected_files,
+                                    task_type=fixture_case.case.task_type,
+                                    workspace=fixture_case.case.workspace,
+                                ),
                             )
                         )
                 fixture_cases = expanded_fixtures
@@ -793,12 +856,16 @@ def register(app: typer.Typer) -> None:
             console.print(f"[dim]Fixtures:[/] {fixture_names}")
             if len(results) == 1:
                 _print_case_detail(results[0], show_misses=misses)
+                _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
             else:
                 console.print("\n[bold]Summary[/]")
                 _print_fixture_summary_table(results)
                 _print_task_type_summary(results)
                 if misses:
                     _print_miss_details(results)
+                _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+            if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
+                raise typer.Exit(2)
             return
 
         # Build case list
@@ -809,7 +876,7 @@ def register(app: typer.Typer) -> None:
                 raise typer.Exit(1)
         elif task:
             resolved = _resolve_task(task) if task == "auto" else task
-            bench_cases = [BenchmarkCase(task=resolved, mode=mode)]
+            bench_cases = [BenchmarkCase(task=resolved, mode=mode, workspace=workspace or None)]
         else:
             cases_path = Path(cases) if cases else root / ".agentpack" / "benchmark.toml"
             if not cases_path.exists():
@@ -820,6 +887,17 @@ def register(app: typer.Typer) -> None:
             if not bench_cases:
                 console.print("[yellow]No cases defined in benchmark file.[/]")
                 raise typer.Exit(1)
+        if workspace and not compare:
+            bench_cases = [
+                BenchmarkCase(
+                    task=c.task,
+                    mode=c.mode,
+                    expected_files=c.expected_files,
+                    task_type=c.task_type,
+                    workspace=workspace,
+                )
+                for c in bench_cases
+            ]
 
         # Expand for compare mode
         if compare:
@@ -832,6 +910,7 @@ def register(app: typer.Typer) -> None:
                             mode=m,
                             expected_files=c.expected_files,
                             task_type=c.task_type,
+                            workspace=workspace or c.workspace,
                         )
                     )
             bench_cases = expanded
@@ -857,8 +936,10 @@ def register(app: typer.Typer) -> None:
             _print_compare_table(results[0].case.task, results)
             if misses:
                 _print_miss_details(results)
+            _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
         elif len(results) == 1:
             _print_case_detail(results[0], show_misses=misses)
+            _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
         else:
             if not compare:
                 for r in results:
@@ -868,3 +949,6 @@ def register(app: typer.Typer) -> None:
             _print_task_type_summary(results)
             if misses:
                 _print_miss_details(results)
+            _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+        if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
+            raise typer.Exit(2)
