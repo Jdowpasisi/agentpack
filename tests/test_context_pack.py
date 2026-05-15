@@ -2,7 +2,7 @@ from pathlib import Path
 import subprocess
 from agentpack.application.pack_service import _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
-from agentpack.core.context_pack import save_pack_metadata, select_files
+from agentpack.core.context_pack import save_pack_metadata, select_files, _selection_priority
 from agentpack.core.models import ContextPack, FileInfo
 from agentpack.renderers.markdown import render_claude
 
@@ -176,6 +176,16 @@ def test_summary_cap_limits_unchanged_summaries():
     )
     assert [sf.path for sf in selected] == ["file0.py", "file1.py"]
     assert any(r.reason == "summary cap reached" for r in receipts)
+
+
+def test_selection_priority_lifts_paired_tests() -> None:
+    src = _fi("src/types.py", tokens=1000)
+    test = _fi("tests/test_types.py", tokens=1000)
+
+    src_priority = _selection_priority((src, 250.0, ["filename keyword match"]), set(), 4000)
+    test_priority = _selection_priority((test, 230.0, ["test for high-scoring src/types.py"]), set(), 4000)
+
+    assert test_priority > src_priority
 
 
 def test_negative_summary_cap_disables_summaries():

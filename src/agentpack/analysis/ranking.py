@@ -695,6 +695,96 @@ def boost_recall_neighbors(
     return result
 
 
+def boost_second_pass_expansion(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    dep_graph: DependencyGraph,
+    keywords: set[str] | dict[str, float],
+    weights: ScoringWeights | None = None,
+    *,
+    seed_limit: int = 10,
+    max_boosts: int = 32,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Boost guarded two-hop neighbours around strong first-pass seeds.
+
+    This is deliberately conservative: it only boosts files that are close to a
+    strong seed and share task/domain signal, are paired tests, or are config
+    files. That raises recall for adjacent implementation files without turning
+    broad task wording into repo-wide expansion.
+    """
+    if not scored:
+        return scored
+    w = weights or _DEFAULT_WEIGHTS
+    path_map = {fi.path: (fi, score, reasons) for fi, score, reasons in scored}
+    keyword_tokens = set(_keyword_token_weights(keywords)) - _PATH_NOISE_TOKENS
+
+    seed_paths = [
+        fi.path
+        for fi, score, reasons in sorted(scored, key=lambda row: row[1], reverse=True)
+        if score >= 100
+        or any(
+            reason.startswith((
+                "modified",
+                "staged",
+                "workspace match",
+                "cross-layer related",
+                "recall neighbor",
+                "historically co-changed",
+            ))
+            for reason in reasons
+        )
+    ][:seed_limit]
+    if not seed_paths:
+        return scored
+
+    boosts: dict[str, tuple[float, str, str]] = {}
+
+    def neighbours(path: str) -> set[str]:
+        node = dep_graph.get(path)
+        return {p for p in (*node.imports, *node.imported_by, *node.tests) if p in path_map and p != path}
+
+    for seed in seed_paths:
+        seed_domains = _domain_tokens(seed) | keyword_tokens
+        first_hop = neighbours(seed)
+        second_hop = {candidate for hop in first_hop for candidate in neighbours(hop)}
+        for candidate in sorted(second_hop - {seed} - first_hop):
+            fi, _score, _reasons = path_map[candidate]
+            if fi.ignored or fi.binary:
+                continue
+            candidate_domains = _domain_tokens(candidate)
+            is_test_pair = _is_test_file(candidate) and (
+                any(_test_matches_source(candidate, hop) for hop in first_hop | {seed})
+                or any(_test_matches_source(candidate, hop) for hop in seed_domains)
+            )
+            has_domain_signal = bool(candidate_domains & seed_domains)
+            has_config_signal = _is_config_file(candidate) and bool(seed_domains)
+            if not (is_test_pair or has_domain_signal or has_config_signal):
+                continue
+            amount = w.recall_neighbor * 0.5
+            label = "second-pass related test" if is_test_pair else "second-pass recall neighbor"
+            if has_domain_signal:
+                amount += 4
+            current = boosts.get(candidate)
+            if current is None or amount > current[0]:
+                boosts[candidate] = (amount, seed, label)
+
+    if not boosts:
+        return scored
+    keep = {
+        path: value
+        for path, value in sorted(boosts.items(), key=lambda item: item[1][0], reverse=True)[:max_boosts]
+    }
+
+    result: list[tuple[FileInfo, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        boost = keep.get(fi.path)
+        if boost:
+            amount, seed, label = boost
+            score += amount
+            reasons = reasons + [f"{label} of {seed}"]
+        result.append((fi, score, reasons))
+    return result
+
+
 def boost_monorepo_workspaces(
     scored: list[tuple[FileInfo, float, list[str]]],
     *,

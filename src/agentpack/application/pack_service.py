@@ -25,6 +25,7 @@ from agentpack.analysis.ranking import (
     boost_cross_layer_related,
     boost_monorepo_workspaces,
     boost_recall_neighbors,
+    boost_second_pass_expansion,
     generic_task_term_ratio,
 )
 from agentpack.analysis.repo_map import build_repo_map
@@ -217,6 +218,7 @@ class FileRanker:
             weights=cfg.scoring,
         )
         scored = boost_recall_neighbors(scored, dep_graph, changes.all_changed, weights=cfg.scoring)
+        scored = boost_second_pass_expansion(scored, dep_graph, keyword_weights, weights=cfg.scoring)
         scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
         if root is not None:
@@ -314,7 +316,12 @@ class PackPlanner:
                 root, cfg, request.mode, rank_result.generic_ratio, no_live_changes=not changes.all_changed
             ),
             max_summary_files=_guarded_summary_cap(
-                root, cfg, request.mode, rank_result.generic_ratio, no_live_changes=not changes.all_changed
+                root,
+                cfg,
+                request.mode,
+                rank_result.generic_ratio,
+                no_live_changes=not changes.all_changed,
+                effective_budget=effective_budget,
             ),
         )
         phase_times["select"] = time.perf_counter() - t0
@@ -768,12 +775,19 @@ def _guarded_summary_cap(
     generic_ratio: float = 0.0,
     *,
     no_live_changes: bool = False,
+    effective_budget: int = 0,
 ) -> int:
     cap = _summary_cap_for_mode(cfg, mode, generic_ratio)
+    if no_live_changes and effective_budget and effective_budget <= 2500 and cap > 0:
+        cap = min(cap, 4 if mode == "minimal" else 6)
     avg_summary_precision, rows = _recent_summary_token_precision(root)
     if rows < 3:
         if no_live_changes and cap > 0:
-            return min(cap, 8)
+            if effective_budget and effective_budget <= 2500:
+                return min(cap, 4 if mode == "minimal" else 6)
+            if effective_budget and effective_budget <= 6000:
+                return min(cap, 12 if mode == "minimal" else 16)
+            return min(cap, 16)
         return cap
     if avg_summary_precision <= 0.05:
         if no_live_changes:

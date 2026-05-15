@@ -37,8 +37,9 @@ def build(
         if summaries and fi.path in summaries:
             cached_imports = summaries[fi.path].get("imports", [])
             if cached_imports:
-                graph.nodes[fi.path].imports = cached_imports
-                for dep in cached_imports:
+                resolved_cached = _resolve_imports(fi.path, fi.language, cached_imports, root, path_set)
+                graph.nodes[fi.path].imports = resolved_cached
+                for dep in resolved_cached:
                     if dep in graph:
                         graph.nodes[dep].imported_by.append(fi.path)
                 continue
@@ -58,19 +59,7 @@ def build(
         elif lang in ("java", "kotlin"):
             raw_imports = java_imports(fi.abs_path, cached)
 
-        resolved: list[str] = []
-        for imp in raw_imports:
-            if imp.startswith("."):
-                if lang == "python":
-                    r = py_resolve(fi.path, imp, root)
-                elif lang in ("javascript", "typescript"):
-                    r = js_resolve(fi.path, imp, root)
-                else:
-                    r = None
-                if r and r in path_set:
-                    resolved.append(r)
-            else:
-                resolved.append(imp)
+        resolved = _resolve_imports(fi.path, lang, raw_imports, root, path_set)
 
         graph.nodes[fi.path].imports = resolved
         for dep in resolved:
@@ -78,3 +67,26 @@ def build(
                 graph.nodes[dep].imported_by.append(fi.path)
 
     return graph
+
+
+def _resolve_imports(
+    importer: str,
+    language: str | None,
+    imports: list[str],
+    root: Path,
+    path_set: set[str],
+) -> list[str]:
+    resolved: list[str] = []
+    for imp in imports:
+        if imp.startswith("."):
+            if language == "python":
+                r = py_resolve(importer, imp, root)
+            elif language in ("javascript", "typescript"):
+                r = js_resolve(importer, imp, root)
+            else:
+                r = None
+            if r and r in path_set:
+                resolved.append(r)
+        else:
+            resolved.append(imp)
+    return resolved

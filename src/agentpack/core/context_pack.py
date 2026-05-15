@@ -292,9 +292,18 @@ def _selection_priority(
     fi, score, reasons = item
     changed_priority = 1 if fi.path in changed_paths else 0
     signal_priority = 1 if _has_task_signal(reasons) else 0
+    role_bonus = 0.0
+    if any(
+        ("test for high-scoring" in reason and "docs/" not in reason and "examples/" not in reason)
+        or "related test" in reason
+        for reason in reasons
+    ):
+        role_bonus += 30.0
+    if any("config file" in reason for reason in reasons):
+        role_bonus += 25.0
     rough_tokens = max(1, min(fi.estimated_tokens, max_file_tokens))
     value_bonus = min(60.0, (score / rough_tokens) * 120.0)
-    return changed_priority, signal_priority, score + value_bonus, score
+    return changed_priority, signal_priority, score + role_bonus + value_bonus, score
 
 
 def select_files(
@@ -491,6 +500,7 @@ def select_files(
         )
 
     return selected, receipts
+
 
 
 def _has_redactable_secret(fi: FileInfo) -> bool:

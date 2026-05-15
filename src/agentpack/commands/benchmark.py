@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ class BenchmarkCase:
     expected_files: list[str] = field(default_factory=list)
     task_type: str = "general"
     workspace: str | None = None
+    budget: int = 0
 
 
 @dataclass
@@ -55,6 +57,25 @@ class FixtureCase:
     fixture: str
     root: Path
     case: BenchmarkCase
+
+
+@dataclass
+class PublicRepoCase:
+    commit: str
+    task: str
+    expected_files: list[str]
+    mode: str = "balanced"
+    task_type: str = "general"
+    workspace: str | None = None
+    budget: int = 0
+
+
+@dataclass
+class PublicRepoSpec:
+    name: str
+    url: str
+    ref: str = "main"
+    cases: list[PublicRepoCase] = field(default_factory=list)
 
 
 def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
@@ -146,6 +167,36 @@ def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
     return cases
 
 
+def _load_public_repo_specs(path: Path) -> list[PublicRepoSpec]:
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    specs: list[PublicRepoSpec] = []
+    for raw_repo in data.get("repos", []):
+        cases = [
+            PublicRepoCase(
+                commit=raw_case["commit"],
+                task=raw_case["task"],
+                expected_files=raw_case.get("expected_files", []),
+                mode=raw_case.get("mode", "balanced"),
+                task_type=raw_case.get("task_type", "general"),
+                workspace=raw_case.get("workspace"),
+                budget=raw_case.get("budget", 0),
+            )
+            for raw_case in raw_repo.get("cases", [])
+        ]
+        specs.append(PublicRepoSpec(
+            name=raw_repo["name"],
+            url=raw_repo["url"],
+            ref=raw_repo.get("ref", "main"),
+            cases=cases,
+        ))
+    return specs
+
+
 def _load_cases(path: Path) -> list[BenchmarkCase]:
     try:
         import tomllib
@@ -161,6 +212,7 @@ def _load_cases(path: Path) -> list[BenchmarkCase]:
             expected_files=raw.get("expected_files", []),
             task_type=raw.get("task_type", "general"),
             workspace=raw.get("workspace"),
+            budget=raw.get("budget", 0),
         ))
     return cases
 
@@ -184,6 +236,7 @@ def _scaffold_cases(root: Path) -> Path:
         'mode = "balanced"\n'
         'task_type = "backend-api"\n'
         '# workspace = "apps/api"\n'
+        '# budget = 2000\n'
         '# expected_files = [\n'
         '#   "src/auth/token.py",\n'
         '#   "src/auth/session.py",\n'
@@ -225,6 +278,219 @@ def _write_results_template(root: Path, date: str | None = None) -> Path:
         encoding="utf-8",
     )
     return out
+
+
+def _public_benchmark_markdown(
+    results: list[CaseResult],
+    *,
+    title: str = "AgentPack Public Benchmark Table",
+    suite: str = "historical tasks",
+    version: str = "",
+    command: str = "agentpack benchmark --misses --public-table",
+) -> str:
+    """Render benchmark results as publishable Markdown evidence."""
+    scored = [result for result in results if result.case.expected_files]
+    rows = scored or results
+    generated = datetime.now(timezone.utc).date().isoformat()
+    version_line = f"- agentpack version/commit: {version}\n" if version else ""
+    lines = [
+        f"# {title}",
+        "",
+        f"- date: {generated}",
+        f"- suite: {suite}",
+        f"- cases: {len(rows)}",
+        f"- command: `{command}`",
+        "",
+    ]
+    if version:
+        lines.insert(4, version_line.rstrip())
+
+    if scored:
+        metrics = [_precision_recall(result) for result in scored]
+        avg_p = sum(metric[0] for metric in metrics) / len(metrics)
+        avg_r = sum(metric[1] for metric in metrics) / len(metrics)
+        avg_f1 = sum(metric[2] for metric in metrics) / len(metrics)
+        token_precisions = [
+            1 - (result.noise_pct / 100)
+            for result in scored
+            if result.noise_pct is not None
+        ]
+        avg_token_precision = sum(token_precisions) / len(token_precisions) if token_precisions else 0.0
+        pack_tokens = sorted(result.packed_tokens for result in scored)
+        p50_tokens = pack_tokens[len(pack_tokens) // 2]
+        p95_tokens = pack_tokens[min(len(pack_tokens) - 1, int((len(pack_tokens) - 1) * 0.95))]
+        lines += [
+            "| Metric | Value |",
+            "|---|---:|",
+            f"| avg precision | {avg_p:.1%} |",
+            f"| avg recall | {avg_r:.1%} |",
+            f"| avg F1 | {avg_f1:.1%} |",
+            f"| avg token precision | {avg_token_precision:.1%} |",
+            f"| pack p50 tokens | {p50_tokens:,} |",
+            f"| pack p95 tokens | {p95_tokens:,} |",
+            "",
+        ]
+
+    lines += [
+        "| Repo / suite | Task | Type | Mode | Budget | Packed tokens | Recall | Token precision | Rank@K | Time | Misses |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for result in rows:
+        repo, task = _split_public_task(result.case.task)
+        _p, recall, _f1 = _precision_recall(result) if result.case.expected_files else (0.0, 0.0, 0.0)
+        token_precision = 1 - (result.noise_pct / 100) if result.noise_pct is not None else None
+        misses = len(result.missed_expected)
+        lines.append(
+            "| "
+            + " | ".join([
+                _md_cell(repo),
+                _md_cell(task),
+                _md_cell(result.case.task_type),
+                result.case.mode,
+                f"{result.case.budget:,}" if result.case.budget else "default",
+                f"{result.packed_tokens:,}",
+                f"{recall:.1%}" if result.case.expected_files else "-",
+                f"{token_precision:.1%}" if token_precision is not None else "-",
+                str(result.rank_at_k) if result.rank_at_k is not None else "-",
+                f"{result.total_s:.2f}s",
+                str(misses),
+            ])
+            + " |"
+        )
+    lines += [
+        "",
+        "## Notes",
+        "",
+        "- Use real historical tasks with `expected_files` set to files actually changed.",
+        "- Treat small curated suites as smoke proof; expand case counts before broad external claims.",
+        "- Keep synthetic fixture smoke results separate from public repo claims.",
+        "- Investigate misses with `agentpack benchmark --misses` and `agentpack explain --omitted`.",
+    ]
+    return "\n".join(lines).replace("\n\n\n", "\n\n") + "\n"
+
+
+def _write_public_benchmark_table(
+    root: Path,
+    results: list[CaseResult],
+    *,
+    suite: str,
+    version: str = "",
+    command: str = "agentpack benchmark --misses --public-table",
+    date: str | None = None,
+) -> Path:
+    stamp = date or datetime.now(timezone.utc).date().isoformat()
+    out = root / "benchmarks" / "results" / f"{stamp}-public.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        _public_benchmark_markdown(results, suite=suite, version=version, command=command),
+        encoding="utf-8",
+    )
+    return out
+
+
+def _split_public_task(task: str) -> tuple[str, str]:
+    if ":" in task:
+        prefix, rest = task.split(":", 1)
+        if prefix and "/" not in prefix and len(prefix) <= 40:
+            return prefix.strip(), rest.strip()
+    return "current repo", task
+
+
+def _md_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _git_stdout(cwd: Path, args: list[str]) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _run_git(cwd: Path | None, args: list[str]) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+
+def _ensure_public_repo_clone(
+    spec: PublicRepoSpec,
+    cache_dir: Path,
+    *,
+    refresh: bool = False,
+    depth: int = 120,
+) -> Path:
+    safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in spec.name)
+    repo_dir = cache_dir / safe_name
+    if refresh and repo_dir.exists():
+        shutil.rmtree(repo_dir)
+    if not repo_dir.exists():
+        repo_dir.parent.mkdir(parents=True, exist_ok=True)
+        _run_git(None, [
+            "clone",
+            "--quiet",
+            "--filter=blob:none",
+            "--depth",
+            str(depth),
+            spec.url,
+            str(repo_dir),
+        ])
+    else:
+        _run_git(repo_dir, ["fetch", "--quiet", "--depth", str(depth), "origin", spec.ref])
+    _run_git(repo_dir, ["checkout", "--quiet", spec.ref])
+    return repo_dir
+
+
+def _run_public_repo_suite(
+    root: Path,
+    specs: list[PublicRepoSpec],
+    *,
+    cache_dir: Path | None = None,
+    refresh: bool = False,
+) -> list[CaseResult]:
+    """Run benchmark cases against parent checkouts of real public commits."""
+    cache = cache_dir or root / ".agentpack" / "public-repos"
+    results: list[CaseResult] = []
+    with tempfile.TemporaryDirectory(prefix="agentpack-public-benchmark-") as temp_dir:
+        temp_root = Path(temp_dir)
+        for spec in specs:
+            source_repo = _ensure_public_repo_clone(spec, cache, refresh=refresh)
+            for public_case in spec.cases:
+                parent = _git_stdout(source_repo, ["rev-parse", f"{public_case.commit}^"])
+                work_root = temp_root / f"{spec.name}-{public_case.commit[:8]}"
+                shutil.copytree(
+                    source_repo,
+                    work_root,
+                    ignore=shutil.ignore_patterns(".agentpack", ".pytest_cache", "__pycache__"),
+                )
+                _run_git(work_root, ["checkout", "--quiet", parent])
+                result = _run_case(
+                    work_root,
+                    BenchmarkCase(
+                        task=f"{spec.name}: {public_case.task}",
+                        mode=public_case.mode,
+                        expected_files=public_case.expected_files,
+                        task_type=public_case.task_type,
+                        workspace=public_case.workspace,
+                        budget=public_case.budget,
+                    ),
+                )
+                results.append(result)
+    return results
+
+
+def _default_public_repos_file(root: Path) -> Path:
+    return root / "benchmarks" / "public-repos.toml"
 
 
 def _load_history_cases(root: Path, n: int) -> list[BenchmarkCase]:
@@ -291,10 +557,10 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         agent="generic",
         task=case.task,
         mode=case.mode,
-        budget=0,
         since=None,
         refresh=False,
         workspace=case.workspace,
+        budget=case.budget,
     )
 
     t0 = time.perf_counter()
@@ -342,7 +608,7 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
 
         packable_paths = [f.path for f in plan.scan_result.packable]
         packable_token_map = {f.path: f.estimated_tokens for f in plan.scan_result.packable}
-        budget = cfg.context.default_budget
+        budget = case.budget or cfg.context.default_budget
         _, rand_p, rand_r, rand_f1 = _random_baseline(packable_paths, packable_token_map, case.expected_files, budget)
 
         missed_expected = []
@@ -435,6 +701,7 @@ def _persist_result(root: Path, result: CaseResult) -> None:
         "task_type": result.case.task_type,
         "workspace": result.case.workspace,
         "mode": result.case.mode,
+        "budget": result.case.budget,
         "packed_tokens": result.packed_tokens,
         "raw_tokens": result.raw_tokens,
         "after_ignore_tokens": result.after_ignore_tokens,
@@ -784,6 +1051,11 @@ def register(app: typer.Typer) -> None:
         results_template: bool = typer.Option(False, "--results-template", is_flag=True, help="Create benchmarks/results/YYYY-MM-DD.md for publishing benchmark evidence."),
         from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
         sample_fixtures: bool = typer.Option(False, "--sample-fixtures", is_flag=True, help="Run bundled FastAPI/Next.js/mixed-repo fixture evals from a source checkout."),
+        public_repos: bool = typer.Option(False, "--public-repos", is_flag=True, help="Run real public-repo commit cases from benchmarks/public-repos.toml."),
+        public_repos_file: str = typer.Option("", "--public-repos-file", help="Path to public repo benchmark manifest."),
+        public_repos_cache: str = typer.Option("", "--public-repos-cache", help="Directory for cached public repo clones."),
+        refresh_public_repos: bool = typer.Option(False, "--refresh-public-repos", is_flag=True, help="Delete and reclone public repo benchmark cache before running."),
+        public_table: bool = typer.Option(False, "--public-table", is_flag=True, help="Write a publishable Markdown benchmark table under benchmarks/results/."),
         misses: bool = typer.Option(False, "--misses", is_flag=True, help="Show diagnostics for expected files that were not selected."),
         prove_targets: bool = typer.Option(False, "--prove-targets", is_flag=True, help="Exit non-zero unless recall/token precision targets pass."),
         min_recall: float = typer.Option(0.60, "--min-recall", help="Recall target for --prove-targets."),
@@ -824,8 +1096,9 @@ def register(app: typer.Typer) -> None:
                                     task=fixture_case.case.task,
                                     mode=fixture_mode,
                                     expected_files=fixture_case.case.expected_files,
-                                    task_type=fixture_case.case.task_type,
-                                    workspace=fixture_case.case.workspace,
+                        task_type=fixture_case.case.task_type,
+                        workspace=fixture_case.case.workspace,
+                        budget=fixture_case.case.budget,
                                 ),
                             )
                         )
@@ -864,6 +1137,59 @@ def register(app: typer.Typer) -> None:
                 if misses:
                     _print_miss_details(results)
                 _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+            if public_table:
+                from agentpack import __version__
+                out = _write_public_benchmark_table(
+                    root,
+                    results,
+                    suite=f"source-checkout fixtures ({fixture_names})",
+                    version=__version__,
+                    command="agentpack benchmark --sample-fixtures --misses --public-table",
+                )
+                console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
+            if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
+                raise typer.Exit(2)
+            return
+
+        if public_repos:
+            manifest = Path(public_repos_file) if public_repos_file else _default_public_repos_file(root)
+            if not manifest.exists():
+                console.print(f"[yellow]No public repo manifest found at {manifest}[/]")
+                console.print("  Use [bold]benchmarks/public-repos.toml[/] or pass [bold]--public-repos-file[/].")
+                raise typer.Exit(1)
+            specs = _load_public_repo_specs(manifest)
+            case_count = sum(len(spec.cases) for spec in specs)
+            if not specs or case_count == 0:
+                console.print(f"[yellow]No public repo cases found in {manifest}[/]")
+                raise typer.Exit(1)
+
+            console.print(f"\n[bold]Running {case_count} public real-repo benchmark case(s)...[/]")
+            console.print(f"[dim]Manifest:[/] {manifest}")
+            console.print("[dim]Each case checks out the parent of a real public commit and scores files changed by that commit.[/]\n")
+            cache = Path(public_repos_cache) if public_repos_cache else None
+            with console.status("[dim]Cloning/checking out public repo cases...[/]"):
+                results = _run_public_repo_suite(root, specs, cache_dir=cache, refresh=refresh_public_repos)
+
+            if not results:
+                raise typer.Exit(1)
+
+            console.print("\n[bold]Summary[/]")
+            _print_summary_table(results)
+            _print_task_type_summary(results)
+            if misses:
+                _print_miss_details(results)
+            _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+            if public_table:
+                from agentpack import __version__
+                repo_names = ", ".join(spec.name for spec in specs)
+                out = _write_public_benchmark_table(
+                    root,
+                    results,
+                    suite=f"public real-repo commits ({repo_names})",
+                    version=__version__,
+                    command="agentpack benchmark --public-repos --prove-targets --misses --public-table",
+                )
+                console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
             if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
                 raise typer.Exit(2)
             return
@@ -895,6 +1221,7 @@ def register(app: typer.Typer) -> None:
                     expected_files=c.expected_files,
                     task_type=c.task_type,
                     workspace=workspace,
+                    budget=c.budget,
                 )
                 for c in bench_cases
             ]
@@ -911,6 +1238,7 @@ def register(app: typer.Typer) -> None:
                             expected_files=c.expected_files,
                             task_type=c.task_type,
                             workspace=workspace or c.workspace,
+                            budget=c.budget,
                         )
                     )
             bench_cases = expanded
@@ -950,5 +1278,15 @@ def register(app: typer.Typer) -> None:
             if misses:
                 _print_miss_details(results)
             _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+        if public_table:
+            from agentpack import __version__
+            out = _write_public_benchmark_table(
+                root,
+                results,
+                suite="current repo benchmark.toml",
+                version=__version__,
+                command="agentpack benchmark --misses --public-table",
+            )
+            console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
         if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
             raise typer.Exit(2)

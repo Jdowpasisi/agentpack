@@ -14,6 +14,7 @@ Or register in Claude Code settings:
     }
 
 Tools exposed:
+    start_task          — write task.md and return a fresh context pack
     pack_context        — generate/refresh a context pack for a task
     get_context         — read the latest context pack (no repack)
     refresh             — refresh using the current task.md
@@ -150,6 +151,54 @@ def _task_md_body(root: Path) -> str | None:
     if body and "Write or update the current coding task here." not in body:
         return body
     return None
+
+
+def _write_task_md(root: Path, task: str) -> None:
+    task_path = root / ".agentpack" / "task.md"
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    task_path.write_text(task.strip() + "\n", encoding="utf-8")
+
+
+def _resolve_mcp_task(root: Path, task: str = "") -> str:
+    task = " ".join(task.strip().split())
+    if task:
+        _write_task_md(root, task)
+        return task
+    task_md = _task_md_body(root)
+    if task_md:
+        return task_md
+    inferred, _source = git.infer_task_with_source(root) if git.is_git_repo(root) else ("general", "fallback")
+    return inferred
+
+
+def _pack_context_impl(
+    root: Path,
+    *,
+    task: str = "",
+    mode: str = "balanced",
+    budget: int = 0,
+    max_tokens: int = 20000,
+) -> str:
+    """Write task.md when task is provided, pack context, and return markdown."""
+    from agentpack.application.pack_service import PackService, PackRequest
+    from agentpack.adapters.detect import detect_agent
+    from agentpack.renderers.markdown import render_claude
+
+    provided_task = bool(task.strip())
+    had_task_md = _task_md_body(root) is not None
+    resolved_task = _resolve_mcp_task(root, task)
+    agent = detect_agent(root)
+    result = PackService().run(PackRequest(
+        root=root,
+        agent=agent,
+        task=resolved_task,
+        mode=mode,
+        budget=budget,
+        since=None,
+        refresh=False,
+        task_source="mcp" if provided_task else ("task.md" if had_task_md else "git"),
+    ))
+    return _truncate_to_budget(render_claude(result.pack), max_tokens)
 
 
 def _explain_file_impl(root: Path, path: str, task: str = "") -> str:
@@ -378,33 +427,39 @@ def serve() -> None:
     mcp = FastMCP("agentpack")
 
     @mcp.tool()
-    def pack_context(task: str, mode: str = "balanced", budget: int = 0, max_tokens: int = 20000) -> str:
-        """Generate a ranked context pack for the given task.
+    def start_task(task: str, mode: str = "balanced", budget: int = 0, max_tokens: int = 20000) -> str:
+        """Start a new coding task: write task.md, pack context, and return it.
+
+        This is the recommended MCP-first entry point at the start of a task.
+        """
+        return _pack_context_impl(
+            _repo_root(),
+            task=task,
+            mode=mode,
+            budget=budget,
+            max_tokens=max_tokens,
+        )
+
+    @mcp.tool()
+    def pack_context(task: str = "", mode: str = "balanced", budget: int = 0, max_tokens: int = 20000) -> str:
+        """Generate a ranked context pack.
 
         Args:
-            task: Describe what you're working on (e.g. "fix auth token refresh").
+            task: Optional task text. If provided, AgentPack writes it to .agentpack/task.md.
+                  If omitted, AgentPack reads task.md or infers from git.
             mode: minimal | balanced (default) | deep
             budget: Token budget, 0 = config default (usually 25000).
             max_tokens: Maximum tokens to return (default 20000). Increase for deep context.
 
         Returns the packed context as a markdown string.
         """
-        from agentpack.application.pack_service import PackService, PackRequest
-        from agentpack.adapters.detect import detect_agent
-        from agentpack.renderers.markdown import render_claude
-
-        root = _repo_root()
-        agent = detect_agent(root)
-        result = PackService().run(PackRequest(
-            root=root,
-            agent=agent,
+        return _pack_context_impl(
+            _repo_root(),
             task=task,
             mode=mode,
             budget=budget,
-            since=None,
-            refresh=False,
-        ))
-        return _truncate_to_budget(render_claude(result.pack), max_tokens)
+            max_tokens=max_tokens,
+        )
 
     @mcp.tool()
     def get_context() -> str:
