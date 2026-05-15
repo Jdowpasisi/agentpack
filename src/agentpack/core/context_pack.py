@@ -387,6 +387,13 @@ def select_files(
                     mode_str = "summary"
                     tok = min(fi.estimated_tokens, 200)
                     reasons = reasons + ["dirty file compressed to summary"]
+        elif fi.estimated_tokens <= max_file_tokens and score > 0 and _has_redactable_secret(fi):
+            mode_str = "full"
+            content = fi.content if fi.content is not None else (
+                fi.abs_path.read_text(errors="replace") if fi.abs_path.exists() else None
+            )
+            tok = fi.estimated_tokens
+            reasons = reasons + ["full file included for secret redaction"]
         elif opts["extra_full"] and fi.estimated_tokens <= max_file_tokens and score >= 120:
             mode_str = "full"
             content = fi.content if fi.content is not None else (
@@ -484,6 +491,19 @@ def select_files(
         )
 
     return selected, receipts
+
+
+def _has_redactable_secret(fi: FileInfo) -> bool:
+    text = fi.content
+    if text is None and fi.abs_path.exists():
+        try:
+            text = fi.abs_path.read_text(errors="replace")
+        except OSError:
+            return False
+    if not text:
+        return False
+    _redacted, warnings = redact_secrets(text, fi.path)
+    return bool(warnings)
 
 
 def _budget_fallback(

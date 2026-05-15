@@ -235,6 +235,7 @@ def test_render_includes_freshness_metadata():
             "git_sha": "abc123",
             "task_source": "task.md",
             "changed_files_source": "git working tree",
+            "workspace_roots": ["apps/dashboard", "packages/core"],
             "snapshot_root_hash": "root123",
             "dirty_files_count": 2,
         },
@@ -246,6 +247,7 @@ def test_render_includes_freshness_metadata():
     assert "## Freshness" in rendered
     assert "**Generated:** 2026-05-13T00:00:00+00:00" in rendered
     assert "**Task source:** task.md" in rendered
+    assert "**Workspaces:** apps/dashboard, packages/core" in rendered
     assert "Refresh recommended" in rendered
     assert "If this pack's task does not match the user's current task" in rendered
     assert "agentpack pack --task auto" in rendered

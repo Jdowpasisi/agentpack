@@ -20,6 +20,12 @@ def _symbols_block(symbols: list[Symbol], lang: str | None) -> str:
     return "\n".join(lines)
 
 
+def _freshness_value(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    return str(value)
+
+
 def _file_section(sf: SelectedFile) -> str:
     # Content is already redacted at materialization time (context_pack.select_files)
     parts = [f"### {sf.path}", ""]
@@ -85,12 +91,13 @@ def render_claude(pack: ContextPack) -> str:
             ("Task class", "task_class"),
             ("Task source", "task_source"),
             ("Changed-file source", "changed_files_source"),
+            ("Workspaces", "workspace_roots"),
             ("Snapshot hash", "snapshot_root_hash"),
             ("Dirty files at pack time", "dirty_files_count"),
         ):
             value = pack.freshness.get(key)
             if value is not None:
-                sections.append(f"- **{label}:** {value}")
+                sections.append(f"- **{label}:** {_freshness_value(value)}")
         sections.append("")
     sections.append(pack.task)
     sections.append("")

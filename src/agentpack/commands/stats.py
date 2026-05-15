@@ -27,14 +27,19 @@ def register(app: typer.Typer) -> None:
         root = _root()
         cfg = load_config(root)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
+        meta = load_pack_metadata(root)
+        freshness = (meta or {}).get("freshness") or {}
+        workspace = freshness.get("workspace") or (meta or {}).get("workspace")
+        include_globs = [f"{workspace}/**"] if isinstance(workspace, str) and workspace else (cfg.project.include_globs or None)
 
         scan_result = scan(
             root,
             ignore_spec,
             cfg.context.max_file_tokens,
+            include_globs=include_globs,
+            exclude_globs=cfg.project.exclude_globs or None,
             always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
         )
-        meta = load_pack_metadata(root)
 
         raw = sum(f.estimated_tokens for f in scan_result.all_files)
         after_ignore = sum(f.estimated_tokens for f in scan_result.packable)
@@ -131,6 +136,17 @@ def register(app: typer.Typer) -> None:
         token_tbl.add_row("files summary", f"{summarized_count:,}")
         console.print(token_tbl)
 
+        workspace_rows = _workspace_rows(meta, top_files)
+        if workspace_rows:
+            console.print()
+            workspace_tbl = Table(title="Workspaces", box=box.SIMPLE, show_header=True, padding=(0, 1))
+            workspace_tbl.add_column("workspace", style="cyan")
+            workspace_tbl.add_column("selected", justify="right")
+            workspace_tbl.add_column("tokens", justify="right")
+            for workspace_name, selected_count, token_count in workspace_rows[:10]:
+                workspace_tbl.add_row(workspace_name, str(selected_count), f"{token_count:,}")
+            console.print(workspace_tbl)
+
         if top_files:
             console.print()
             top_tbl = Table(title="Top Included", box=box.SIMPLE, show_header=True, padding=(0, 1))
@@ -195,6 +211,18 @@ def register(app: typer.Typer) -> None:
                 console.print("[dim]context precision = edited hits plus obvious support files, such as paired tests[/]")
             if avg_token_precision is not None:
                 console.print("[dim]token precision = share of previous pack tokens spent on files later changed[/]")
+
+        proof = _benchmark_proof_status(root)
+        if proof:
+            console.print()
+            proof_tbl = Table(title="Benchmark Proof", box=box.SIMPLE, show_header=False, padding=(0, 2))
+            proof_tbl.add_column(style="dim")
+            proof_tbl.add_column(justify="right", style="bold")
+            proof_tbl.add_row("cases", str(int(proof["cases"])))
+            proof_tbl.add_row("avg recall", f"{proof['avg_recall']:.1%}")
+            proof_tbl.add_row("avg token precision", f"{proof['avg_token_precision']:.1%}")
+            proof_tbl.add_row("target", "[green]passed[/]" if proof["passed"] else "[yellow]not met[/]")
+            console.print(proof_tbl)
 
         console.print("[dim]'top-20 full files' = raw full contents for top included files, capped at 20[/]")
 
@@ -371,6 +399,68 @@ def _top_files_from_metadata(meta: dict) -> list[tuple[str, str, str]]:
         if isinstance(path, str) and isinstance(mode, str):
             result.append((path, mode, str(why)))
     return result
+
+
+def _workspace_rows(meta: dict | None, top_files: list[tuple[str, str, str]]) -> list[tuple[str, int, int]]:
+    if not meta:
+        return []
+    freshness = meta.get("freshness") or {}
+    roots = freshness.get("workspace_roots") or meta.get("workspace_roots") or []
+    if not isinstance(roots, list) or not roots:
+        return []
+    from agentpack.analysis.monorepo import workspace_for_path
+
+    selected_meta = meta.get("selected_files_meta") or []
+    rows: dict[str, tuple[int, int]] = {}
+    if isinstance(selected_meta, list):
+        for item in selected_meta:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                continue
+            workspace = workspace_for_path(item["path"], [str(root) for root in roots]) or "(root)"
+            count, tokens = rows.get(workspace, (0, 0))
+            token_count = item.get("tokens", 0)
+            rows[workspace] = (count + 1, tokens + (token_count if isinstance(token_count, int | float) else 0))
+    if not rows and top_files:
+        for path, _mode, _why in top_files:
+            workspace = workspace_for_path(path, [str(root) for root in roots]) or "(root)"
+            count, tokens = rows.get(workspace, (0, 0))
+            rows[workspace] = (count + 1, tokens)
+    active = freshness.get("workspace") or meta.get("workspace")
+    if isinstance(active, str) and active and active not in rows:
+        rows[active] = (0, 0)
+    return sorted(
+        ((workspace, count, int(tokens)) for workspace, (count, tokens) in rows.items()),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+
+def _benchmark_proof_status(root: Path, *, n: int = 20) -> dict[str, float | bool] | None:
+    path = root / ".agentpack" / "benchmark_results.jsonl"
+    if not path.exists():
+        return None
+    rows: list[dict] = []
+    try:
+        for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+            if len(rows) >= n:
+                break
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row.get("recall"), int | float) and isinstance(row.get("token_precision"), int | float):
+                rows.append(row)
+    except OSError:
+        return None
+    if not rows:
+        return None
+    avg_recall = sum(float(row["recall"]) for row in rows) / len(rows)
+    avg_token_precision = sum(float(row["token_precision"]) for row in rows) / len(rows)
+    return {
+        "cases": float(len(rows)),
+        "avg_recall": avg_recall,
+        "avg_token_precision": avg_token_precision,
+        "passed": avg_recall >= 0.60 and avg_token_precision >= 0.50,
+    }
 
 
 def _advice_panel(title: str, diagnostics: list[str]) -> Panel:

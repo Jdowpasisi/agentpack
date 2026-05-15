@@ -24,6 +24,7 @@ def register(app: typer.Typer) -> None:
         task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
         mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
+        workspace: str = typer.Option("", "--workspace", help="Restrict pack to a monorepo workspace, e.g. apps/web."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
         refresh: bool = typer.Option(False, "--refresh", help="Rebuild summaries before packing."),
         watch: bool = typer.Option(False, "--watch", help="Watch for file changes and re-pack automatically."),
@@ -39,7 +40,7 @@ def register(app: typer.Typer) -> None:
 
         if watch or session:
             _pack_watch(agent=resolved_agent, task=resolved_task, mode=mode, budget=budget,
-                        since=since)
+                        since=since, workspace=workspace or None)
             return
 
         result = PackService().run(PackRequest(
@@ -51,6 +52,7 @@ def register(app: typer.Typer) -> None:
             since=since,
             refresh=refresh,
             task_source=task_source,
+            workspace=workspace or None,
         ))
         _mark_session_refreshed(_root(), result)
         _print_pack_summary(result)
@@ -241,6 +243,7 @@ def _pack_watch(
     mode: str,
     budget: int,
     since: str | None,
+    workspace: str | None = None,
 ) -> None:
     try:
         from watchdog.observers import Observer
@@ -253,11 +256,13 @@ def _pack_watch(
     root = _root()
     console.print("[bold]Watch mode active.[/] Repacking on file changes... (Ctrl+C to stop)")
     console.print(f"  Task: {task}")
+    if workspace:
+        console.print(f"  Workspace: {workspace}")
 
     def _run_pack() -> None:
         result = PackService().run(PackRequest(
             root=root, agent=agent, task=task, mode=mode, budget=budget,
-            since=since, refresh=False, task_source="watch",
+            since=since, refresh=False, task_source="watch", workspace=workspace,
         ))
         _mark_session_refreshed(root, result)
         _print_pack_summary(result)

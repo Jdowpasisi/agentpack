@@ -8,6 +8,12 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+_No changes yet._
+
+---
+
+## [0.2.0] — 2026-05-15
+
 ### Added
 - Public benchmark evidence notes under `benchmarks/`, with source-checkout fixture coverage and quality gates for recall/token precision.
 - More source-checkout benchmark fixtures: Django REST-style pagination/serializer, Go service readiness/deploy, and Rails-style mailer/job flows.
@@ -15,9 +21,15 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 - `agentpack benchmark --results-template` creates a publishable benchmark result note under `benchmarks/results/`.
 - Selection accuracy now records support-context precision, separating edited-file hits from useful paired tests or adjacent support files.
 - `agentpack doctor` and the npm publish workflow now warn clearly when `NPM_TOKEN`/`NODE_AUTH_TOKEN` is missing.
+- Monorepo workspace detection for npm/pnpm/Cargo/go.work layouts, with workspace-aware ranking boosts.
+- `agentpack pack --workspace <path>` writes a filtered per-workspace context under `.agentpack/workspaces/<workspace>/context.md`.
+- `agentpack benchmark --prove-targets` checks recall and token precision against configurable quality gates.
 
 ### Changed
 - Ranking now gives a small recall boost to files that historically changed in the same commits as live changed files.
+- Ranking now expands recall around strong seed files through import, reverse-import, and related-test neighbors.
+- Monorepo ranking now uses package.json workspace dependency edges to lift shared packages and dependents near active workspaces.
+- `agentpack stats` now reports workspace distribution and benchmark proof status when that data exists.
 - README now promotes `benchmark --misses` and `explain --file/--omitted/--budget-plan` as the primary miss-debugging loop.
 - Packs now tighten summary inclusion when recent summary token precision is near zero.
 - Weak filename-only matches are downranked unless backed by symbols, content, git history, dependencies, tests, configs, or live changes.
