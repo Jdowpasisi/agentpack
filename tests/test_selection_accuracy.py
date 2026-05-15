@@ -8,6 +8,7 @@ import pytest
 from agentpack.application.pack_service import (
     _load_last_record,
     _compute_selection_accuracy,
+    _support_matches_changed,
 )
 
 
@@ -83,7 +84,9 @@ def test_compute_accuracy_partial(tmp_path):
     assert result["selection_recall"] == 1.0      # both changed files were selected
     assert result["selection_precision"] == 0.5   # 2 of 4 selected were relevant
     assert result["selection_f1"] == pytest.approx(2 / 3, abs=0.001)
+    assert result["selection_context_precision"] == 0.5
     assert result["selection_token_precision"] == 0.4
+    assert result["selection_token_context_precision"] == 0.4
     assert result["selection_noise_pct"] == 60.0
 
 
@@ -106,3 +109,22 @@ def test_compute_accuracy_zero_hits(tmp_path):
     assert result["selection_recall"] == 0.0
     assert result["selection_precision"] == 0.0
     assert result["selection_f1"] == 0.0
+
+
+def test_compute_accuracy_support_context_credit(tmp_path):
+    p = tmp_path / ".agentpack" / "metrics.jsonl"
+    _write_metrics(p, [{
+        "selected_paths": ["src/auth/session.py", "tests/test_session.py", "src/noise.py"],
+        "selected_tokens": {"src/auth/session.py": 100, "tests/test_session.py": 50, "src/noise.py": 50},
+    }])
+
+    result = _compute_selection_accuracy(tmp_path, p, [], {"src/auth/session.py"})
+
+    assert result["selection_precision"] == pytest.approx(1 / 3, abs=0.001)
+    assert result["selection_context_precision"] == pytest.approx(2 / 3, abs=0.001)
+    assert result["selection_support_paths"] == ["tests/test_session.py"]
+    assert result["selection_token_context_precision"] == 0.75
+
+
+def test_support_matches_changed_pairs_tests() -> None:
+    assert _support_matches_changed("tests/test_session.py", {"src/auth/session.py"})

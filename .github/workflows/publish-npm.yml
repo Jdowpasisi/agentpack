@@ -63,6 +63,14 @@ jobs:
       - name: Dry-run npm package contents
         run: npm pack --dry-run
         working-directory: npm
+      - name: Verify npm token is configured
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "ERROR: NPM_TOKEN secret is not configured."
+            exit 1
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish npm package
         run: npm publish --access public --provenance
         working-directory: npm

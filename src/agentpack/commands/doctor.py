@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import typer
@@ -252,6 +253,15 @@ def register(app: typer.Typer) -> None:
         else:
             console.print("  [green]✓[/] no generated release-noise files staged or untracked")
 
+        # --- Publish secrets ---
+        console.print("\n[bold]Publish secrets[/]")
+        publish_findings = _publish_secret_findings(root)
+        if publish_findings:
+            for finding in publish_findings:
+                console.print(f"  [yellow]![/] {finding}")
+        else:
+            console.print("  [green]✓[/] npm publish token available in environment")
+
         # --- Slash command ---
         console.print("\n[bold]Slash command (/agentpack)[/]")
         local_cmd = root / ".claude" / "commands" / "agentpack.md"
@@ -364,6 +374,18 @@ def _release_hygiene_findings(root: Path) -> list[str]:
     sample = ", ".join(noisy[:8])
     extra = f", ... {len(noisy) - 8} more" if len(noisy) > 8 else ""
     return [f"generated/local artifacts present: {sample}{extra}"]
+
+
+def _publish_secret_findings(root: Path, env: Mapping[str, str] | None = None) -> list[str]:
+    """Warn when local/release env is missing publish secrets."""
+    env = env or os.environ
+    findings: list[str] = []
+    if (root / "npm" / "package.json").exists() and not (env.get("NPM_TOKEN") or env.get("NODE_AUTH_TOKEN")):
+        findings.append(
+            "npm package present but NPM_TOKEN/NODE_AUTH_TOKEN is not set; "
+            "npm publish will fail until GitHub secret NPM_TOKEN exists."
+        )
+    return findings
 
 
 def _print_summary(ok: bool) -> None:

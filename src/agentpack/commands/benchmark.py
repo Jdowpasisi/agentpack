@@ -194,6 +194,36 @@ def _scaffold_cases(root: Path) -> Path:
     return out
 
 
+def _write_results_template(root: Path, date: str | None = None) -> Path:
+    stamp = date or datetime.now(timezone.utc).date().isoformat()
+    out = root / "benchmarks" / "results" / f"{stamp}.md"
+    if out.exists():
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        "# AgentPack Benchmark Results\n\n"
+        f"- date: {stamp}\n"
+        "- agentpack version/commit: <version or git sha>\n"
+        "- repo/task set: <repo names, anonymized domains, or fixture suite>\n"
+        "- cases: <count>\n"
+        "- command: `agentpack benchmark --compare --misses`\n\n"
+        "| Metric | Value |\n"
+        "|---|---:|\n"
+        "| avg recall | <percent> |\n"
+        "| avg precision | <percent> |\n"
+        "| avg token precision | <percent> |\n"
+        "| balanced p50 tokens | <tokens> |\n"
+        "| balanced p95 tokens | <tokens> |\n"
+        "| miss count | <count> |\n\n"
+        "## Notes\n\n"
+        "- Use historical tasks with `expected_files` set to files actually changed.\n"
+        "- Do not mix synthetic fixture smoke results with real repo claims.\n"
+        "- Include notable misses and the output from `agentpack benchmark --misses`.\n",
+        encoding="utf-8",
+    )
+    return out
+
+
 def _load_history_cases(root: Path, n: int) -> list[BenchmarkCase]:
     """Sample last N unique tasks from metrics.jsonl."""
     metrics_path = root / ".agentpack" / "metrics.jsonl"
@@ -692,6 +722,7 @@ def register(app: typer.Typer) -> None:
         cases: str = typer.Option("", "--cases", help="Path to TOML cases file (default: .agentpack/benchmark.toml)."),
         compare: bool = typer.Option(False, "--compare", is_flag=True, help="Compare minimal/balanced/deep for each task."),
         init: bool = typer.Option(False, "--init", is_flag=True, help="Scaffold a benchmark.toml and exit."),
+        results_template: bool = typer.Option(False, "--results-template", is_flag=True, help="Create benchmarks/results/YYYY-MM-DD.md for publishing benchmark evidence."),
         from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
         sample_fixtures: bool = typer.Option(False, "--sample-fixtures", is_flag=True, help="Run bundled FastAPI/Next.js/mixed-repo fixture evals from a source checkout."),
         misses: bool = typer.Option(False, "--misses", is_flag=True, help="Show diagnostics for expected files that were not selected."),
@@ -703,6 +734,12 @@ def register(app: typer.Typer) -> None:
             out = _scaffold_cases(root)
             console.print(f"[green]✓[/] Created [bold]{out}[/]")
             console.print("  Edit the file to add your tasks and expected files, then run [bold]agentpack benchmark[/].")
+            return
+
+        if results_template:
+            out = _write_results_template(root)
+            console.print(f"[green]✓[/] Created [bold]{out}[/]")
+            console.print("  Fill it with `agentpack benchmark --compare --misses` results from real historical tasks.")
             return
 
         if sample_fixtures:
