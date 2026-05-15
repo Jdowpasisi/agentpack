@@ -415,6 +415,7 @@ Command map:
 | `agentpack status` | Inspect current pack freshness and metadata |
 | `agentpack diff` | Show what changed between context snapshots |
 | `agentpack monitor` | Review recent pack runs and quality signals |
+| `agentpack scan` | Inspect packable, ignored, binary, and largest files |
 | `agentpack global-install` | Install opt-in global hooks for initialized repos |
 
 ### `agentpack global-install`
@@ -841,6 +842,12 @@ Add `task_type` to group results by workflow area. Benchmark summaries report av
 
 Scan the repo and report file statistics.
 
+```bash
+agentpack scan
+agentpack scan --largest 20
+agentpack scan --ignored-summary
+```
+
 ```
 Files discovered:     1,248
 Files ignored/binary:   230
@@ -848,6 +855,8 @@ Files scanned:          210
 Raw estimated tokens: 940,000
 Tokens after ignore:  210,000
 ```
+
+Use `--largest` to find high-token files still entering packs. Use `--ignored-summary` when repo counts look surprising; it groups ignored and binary files by common directories or file extensions.
 
 ---
 
@@ -1274,6 +1283,7 @@ src/agentpack/
 - **Repo maps are first-class context**: `analysis/repo_map.py` builds a compact semantic map before file context, and its token cost is reserved before file selection.
 - **Metrics feed history learning**: selection accuracy records hit/noise paths, token precision, mode counts, and mode tokens. Later packs gently penalize repeated noisy paths unless they are currently changed.
 - **Git history feeds recall**: files that historically changed in the same commits as live changed files receive a small boost, helping related tests, schemas, services, and configs surface without forcing full-content inclusion.
+- **Co-change is guarded by precision history**: one-off co-change neighbors are ignored, and paths repeatedly measured as noise do not get revived by history boosts.
 - **Precision guardrails adapt to bad history**: when summary token precision stays near zero, later packs raise the summary score floor, cap summaries more aggressively, and suppress summaries entirely for no-live-change packs. Weak filename-only matches are also damped unless other signals confirm them.
 - **`AdapterRegistry` maps agent → adapter**: adding a new agent output format requires one entry in `AdapterRegistry.get()`, not changes to `PackService`.
 - **`detect_agent()` runs at invocation time**: `--agent auto` (the default) calls `detect_agent()` fresh on every `pack` run and git hook execution — so context is always written for the active IDE, even when switching between agents or running in CI.
@@ -1349,6 +1359,7 @@ python -m ruff check src tests
 python -m build
 npm test --prefix npm
 (cd npm && npm pack --dry-run)
+pytest tests/test_agent_integration_matrix.py -q
 agentpack benchmark --sample-fixtures --misses
 ```
 

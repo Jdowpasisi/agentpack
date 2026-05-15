@@ -8,6 +8,7 @@ from agentpack.application.pack_service import (
     _apply_history_penalties,
     _apply_no_live_precision_guard,
     _compute_delta_summary,
+    _filter_co_changed_paths,
     _guarded_summary_cap,
     _guarded_summary_score_floor,
 )
@@ -153,6 +154,29 @@ def test_history_penalties_downrank_previous_noise(tmp_path):
 
     assert adjusted[0][1] < 100.0
     assert "history noise penalty" in adjusted[0][2][-1]
+
+
+def test_cochange_filter_requires_repetition_and_skips_noisy_paths(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join(
+            '{"selection_noise_paths":["src/noisy.py"]}'
+            for _ in range(5)
+        ),
+        encoding="utf-8",
+    )
+
+    filtered = _filter_co_changed_paths(
+        tmp_path,
+        {
+            "src/oneoff.py": 1,
+            "src/noisy.py": 8,
+            "src/useful.py": 2,
+        },
+    )
+
+    assert filtered == {"src/useful.py": 2}
 
 
 def test_summary_precision_guard_tightens_noisy_summaries(tmp_path):

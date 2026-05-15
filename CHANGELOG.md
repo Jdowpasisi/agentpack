@@ -20,6 +20,9 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 - `agentpack stats` now warns on session/pack agent mismatch, recommends minimal mode when token precision is low, and lists repeated noisy paths.
 - No-live-change packs now suppress summaries entirely when recent summary token precision is near zero, and damp uncorroborated filename-only matches more aggressively.
 - `agentpack stats` now treats `auto`/`generic` agent sessions as resolver modes instead of false mismatches, clarifies ignored/binary vs packable file counts, and suggests `explain --file` for noisy paths.
+- Co-change recall boosts now require repeated co-change history and skip paths already proven noisy by recent metrics.
+- `agentpack scan` now supports `--largest N` and `--ignored-summary` for large-repo ignore diagnosis.
+- CI now runs an explicit all-agent integration matrix so hook/config drift fails before release tagging.
 
 ---
 

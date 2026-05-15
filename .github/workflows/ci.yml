@@ -38,3 +38,15 @@ jobs:
           AGENTPACK_NPM_DRY_RUN=1 node npm/bin/agentpack.js --version
           cd npm
           npm pack --dry-run
+
+  agent-integration-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Verify all agent integrations
+        run: pytest tests/test_agent_integration_matrix.py -q
