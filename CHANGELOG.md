@@ -15,6 +15,9 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Changed
 - Ranking now gives a small recall boost to files that historically changed in the same commits as live changed files.
 - README now promotes `benchmark --misses` and `explain --file/--omitted/--budget-plan` as the primary miss-debugging loop.
+- Packs now tighten summary inclusion when recent summary token precision is near zero.
+- Weak filename-only matches are downranked unless backed by symbols, content, git history, dependencies, tests, configs, or live changes.
+- `agentpack stats` now warns on session/pack agent mismatch, recommends minimal mode when token precision is low, and lists repeated noisy paths.
 
 ---
 

@@ -220,6 +220,22 @@ _PATH_NOISE_TOKENS = {
     "test", "tests", "spec", "specs",
 } | _IMPLEMENTATION_ROLE_TOKENS | _ENTRYPOINT_ROLE_TOKENS
 
+_FILENAME_CORROBORATION_PREFIXES = (
+    "modified",
+    "staged",
+    "symbol keyword match",
+    "content keyword match",
+    "direct dependency",
+    "reverse dependency",
+    "has related tests",
+    "test for",
+    "config file",
+    "knowledge/architecture doc",
+    "implementation role match",
+    "recently modified",
+    "historically co-changed",
+)
+
 
 def _add_keyword_weight(weights: dict[str, float], keyword: str, weight: float) -> None:
     weights[keyword] = max(weights.get(keyword, 0.0), weight)
@@ -526,6 +542,10 @@ def score_files(
             score += w.co_changed * min(1.0, 0.5 + (count / 4))
             reasons.append(f"historically co-changed ({count} commits)")
 
+        if filename_weight > 0 and not _has_filename_corroboration(reasons):
+            score = max(1.0, score + w.weak_filename_match_penalty)
+            reasons.append(f"weak filename-only match {w.weak_filename_match_penalty:.0f}")
+
         if fi.too_large and score < 50:
             score += w.large_unrelated_penalty
             reasons.append("large unrelated file")
@@ -533,6 +553,10 @@ def score_files(
         results.append((fi, score, reasons))
 
     return results
+
+
+def _has_filename_corroboration(reasons: list[str]) -> bool:
+    return any(reason.startswith(_FILENAME_CORROBORATION_PREFIXES) for reason in reasons)
 
 
 def boost_cross_layer_related(

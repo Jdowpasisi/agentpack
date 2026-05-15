@@ -74,6 +74,7 @@ class ScoringWeights(BaseModel):
     implementation_role: float = 35
     cross_layer_related: float = 30
     co_changed: float = 28
+    weak_filename_match_penalty: float = -45
     recently_modified: float = 20
     churn_high: float = 15   # file appears in top 10% by churn
     large_unrelated_penalty: float = -50
@@ -135,6 +136,7 @@ knowledge_file        = 30
 implementation_role   = 35
 cross_layer_related   = 30
 co_changed            = 28
+weak_filename_match_penalty = -45
 recently_modified     = 20
 churn_high            = 15
 large_unrelated_penalty = -50
