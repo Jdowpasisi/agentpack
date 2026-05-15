@@ -1,5 +1,7 @@
 import pathspec
+from typer.testing import CliRunner
 
+from agentpack.cli import app
 from agentpack.core.scanner import scan, file_hash
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 
@@ -84,6 +86,24 @@ def test_token_estimation(tmp_path):
     fi = next(x for x in result.packable if x.path == "big.py")
     assert fi.estimated_tokens > 0
     assert fi.estimated_tokens <= 400
+
+
+def test_scan_cli_largest_and_ignored_summary(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "small.py").write_text("x = 1")
+    (tmp_path / "src" / "large.py").write_text("x = 1\n" * 100)
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pkg.js").write_text("module.exports = {}")
+
+    result = CliRunner().invoke(app, ["scan", "--largest", "1", "--ignored-summary"])
+
+    assert result.exit_code == 0, result.output
+    assert "Largest Files" in result.output
+    assert "src/large.py" in result.output
+    assert "src/small.py" not in result.output
+    assert "Ignored / Binary Summary" in result.output
+    assert "node_modules" in result.output
 
 
 # ---------------------------------------------------------------------------

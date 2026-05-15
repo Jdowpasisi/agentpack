@@ -169,7 +169,10 @@ class FileRanker:
         co_changed_paths: dict[str, int] = {}
         if root is not None and _git.is_git_repo(root):
             churn_counts = _git.file_churn_counts(root)
-            co_changed_paths = _git.co_changed_files(root, changes.all_changed)
+            co_changed_paths = _filter_co_changed_paths(
+                root,
+                _git.co_changed_files(root, changes.all_changed),
+            )
 
         scored = score_files(
             packable,
@@ -499,22 +502,7 @@ def _apply_history_penalties(
     window: int = 20,
 ) -> list[tuple[Any, float, list[str]]]:
     """Downrank paths that recent packs proved noisy for later edits."""
-    metrics_path = root / ".agentpack" / "metrics.jsonl"
-    if not metrics_path.exists():
-        return scored
-    counts: dict[str, int] = {}
-    try:
-        lines = metrics_path.read_text(encoding="utf-8").splitlines()[-window:]
-    except OSError:
-        return scored
-    for line in lines:
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        for path in rec.get("selection_noise_paths", []) or []:
-            if isinstance(path, str):
-                counts[path] = counts.get(path, 0) + 1
+    counts = _history_noise_counts(root, window=window)
     if not counts:
         return scored
 
@@ -530,6 +518,48 @@ def _apply_history_penalties(
         penalty = min(25.0, count * 4.0)
         adjusted.append((fi, max(0.0, score - penalty), [*reasons, f"history noise penalty -{penalty:.0f}"]))
     return adjusted
+
+
+def _history_noise_counts(root: Path, *, window: int = 20) -> dict[str, int]:
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if not metrics_path.exists():
+        return {}
+    counts: dict[str, int] = {}
+    try:
+        lines = metrics_path.read_text(encoding="utf-8").splitlines()[-window:]
+    except OSError:
+        return {}
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for path in rec.get("selection_noise_paths", []) or []:
+            if isinstance(path, str):
+                counts[path] = counts.get(path, 0) + 1
+    return counts
+
+
+def _filter_co_changed_paths(
+    root: Path,
+    co_changed_paths: dict[str, int],
+    *,
+    min_count: int = 2,
+    max_noise_count: int = 4,
+) -> dict[str, int]:
+    """Keep only repeated, not-recently-noisy co-change hints.
+
+    Single co-change commits are often incidental. Repeated noisy files should
+    not get revived by the recall boost after metrics already proved them bad.
+    """
+    if not co_changed_paths:
+        return {}
+    noise_counts = _history_noise_counts(root)
+    return {
+        path: count
+        for path, count in co_changed_paths.items()
+        if count >= min_count and noise_counts.get(path, 0) <= max_noise_count
+    }
 
 
 _NO_LIVE_STRONG_SIGNALS = (
