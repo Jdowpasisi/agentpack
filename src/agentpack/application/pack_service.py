@@ -237,6 +237,8 @@ class PackPlanner:
 
         t0 = time.perf_counter()
         rank_result = FileRanker().rank(packable, changes, dep_graph, request.task, cfg, summaries=summaries, root=root)
+        if not changes.all_changed:
+            rank_result.scored = _apply_no_live_precision_guard(rank_result.scored, rank_result.generic_ratio)
         phase_times["rank"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -262,8 +264,12 @@ class PackPlanner:
             budget=selection_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=rank_result.keywords,
-            min_summary_score=_guarded_summary_score_floor(root, cfg, request.mode, rank_result.generic_ratio),
-            max_summary_files=_guarded_summary_cap(root, cfg, request.mode, rank_result.generic_ratio),
+            min_summary_score=_guarded_summary_score_floor(
+                root, cfg, request.mode, rank_result.generic_ratio, no_live_changes=not changes.all_changed
+            ),
+            max_summary_files=_guarded_summary_cap(
+                root, cfg, request.mode, rank_result.generic_ratio, no_live_changes=not changes.all_changed
+            ),
         )
         phase_times["select"] = time.perf_counter() - t0
 
@@ -526,6 +532,48 @@ def _apply_history_penalties(
     return adjusted
 
 
+_NO_LIVE_STRONG_SIGNALS = (
+    "symbol keyword match",
+    "content keyword match",
+    "direct dependency",
+    "reverse dependency",
+    "has related tests",
+    "test for",
+    "config file",
+    "knowledge/architecture doc",
+    "historically co-changed",
+)
+
+
+def _apply_no_live_precision_guard(
+    scored: list[tuple[Any, float, list[str]]],
+    generic_ratio: float,
+) -> list[tuple[Any, float, list[str]]]:
+    """Tighten ranking when task keywords are the only signal.
+
+    No-live-change packs are useful as orientation, but they are also where
+    filename and summary noise dominate. Keep corroborated files, damp weak
+    filename-only hits, and avoid letting broad task words fan out across repo.
+    """
+    adjusted: list[tuple[Any, float, list[str]]] = []
+    broad_task = generic_ratio >= 0.35
+    for fi, score, reasons in scored:
+        has_filename = any(reason.startswith("filename keyword match") for reason in reasons)
+        has_strong = any(reason.startswith(_NO_LIVE_STRONG_SIGNALS) for reason in reasons)
+        if has_filename and not has_strong:
+            damped = min(score, max(0.0, score * 0.35))
+            adjusted.append((fi, damped, [*reasons, "no-live filename-only dampening"]))
+            continue
+        if broad_task and has_filename and not any(
+            reason.startswith(("symbol keyword match", "content keyword match", "historically co-changed"))
+            for reason in reasons
+        ):
+            adjusted.append((fi, max(0.0, score - 30), [*reasons, "broad-task filename dampening"]))
+            continue
+        adjusted.append((fi, score, reasons))
+    return adjusted
+
+
 def _compute_delta_summary(
     previous_metadata: dict[str, Any] | None,
     selected: list[SelectedFile],
@@ -588,28 +636,50 @@ def _summary_cap_for_mode(cfg: Any, mode: str, generic_ratio: float = 0.0) -> in
     return cap
 
 
-def _guarded_summary_score_floor(root: Path, cfg: Any, mode: str, generic_ratio: float) -> float:
+def _guarded_summary_score_floor(
+    root: Path,
+    cfg: Any,
+    mode: str,
+    generic_ratio: float,
+    *,
+    no_live_changes: bool = False,
+) -> float:
     floor = _summary_score_floor(cfg, generic_ratio)
     avg_summary_precision, rows = _recent_summary_token_precision(root)
     if rows < 3:
-        return floor
+        return floor + (35 if no_live_changes else 0)
     if avg_summary_precision <= 0.05:
-        return floor + 80
+        return floor + (140 if no_live_changes else 80)
     if avg_summary_precision <= 0.15:
-        return floor + 40
+        return floor + (80 if no_live_changes else 40)
+    if no_live_changes:
+        return floor + 35
     return floor
 
 
-def _guarded_summary_cap(root: Path, cfg: Any, mode: str, generic_ratio: float = 0.0) -> int:
+def _guarded_summary_cap(
+    root: Path,
+    cfg: Any,
+    mode: str,
+    generic_ratio: float = 0.0,
+    *,
+    no_live_changes: bool = False,
+) -> int:
     cap = _summary_cap_for_mode(cfg, mode, generic_ratio)
     avg_summary_precision, rows = _recent_summary_token_precision(root)
     if rows < 3:
+        if no_live_changes and cap > 0:
+            return min(cap, 8)
         return cap
     if avg_summary_precision <= 0.05:
+        if no_live_changes:
+            return -1
         strict_cap = 3 if mode == "minimal" else 5 if mode == "balanced" else 10
     elif avg_summary_precision <= 0.15:
-        strict_cap = 6 if mode == "minimal" else 12 if mode == "balanced" else 20
+        strict_cap = 3 if no_live_changes else 6 if mode == "minimal" else 12 if mode == "balanced" else 20
     else:
+        if no_live_changes and cap > 0:
+            return min(cap, 8)
         return cap
     if cap <= 0:
         return strict_cap

@@ -6,6 +6,7 @@ from agentpack.analysis.repo_map import build_repo_map
 from agentpack.analysis.task_classifier import classify_task
 from agentpack.application.pack_service import (
     _apply_history_penalties,
+    _apply_no_live_precision_guard,
     _compute_delta_summary,
     _guarded_summary_cap,
     _guarded_summary_score_floor,
@@ -166,9 +167,35 @@ def test_summary_precision_guard_tightens_noisy_summaries(tmp_path):
 
     floor = _guarded_summary_score_floor(tmp_path, DEFAULT_CONFIG, "balanced", 0.0)
     cap = _guarded_summary_cap(tmp_path, DEFAULT_CONFIG, "balanced", 0.0)
+    no_live_floor = _guarded_summary_score_floor(
+        tmp_path, DEFAULT_CONFIG, "balanced", 0.0, no_live_changes=True
+    )
+    no_live_cap = _guarded_summary_cap(
+        tmp_path, DEFAULT_CONFIG, "balanced", 0.0, no_live_changes=True
+    )
 
     assert floor == DEFAULT_CONFIG.context.min_summary_score + 80
     assert cap == 5
+    assert no_live_floor == DEFAULT_CONFIG.context.min_summary_score + 140
+    assert no_live_cap == -1
+
+
+def test_no_live_precision_guard_dampens_filename_only_matches(tmp_path):
+    filename_only = _fi(tmp_path, "src/release.py")
+    corroborated = _fi(tmp_path, "src/auth.py")
+
+    adjusted = _apply_no_live_precision_guard(
+        [
+            (filename_only, 100.0, ["filename keyword match"]),
+            (corroborated, 90.0, ["filename keyword match", "content keyword match (2)"]),
+        ],
+        generic_ratio=0.4,
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in adjusted}
+    assert scores["src/release.py"][0] < 40
+    assert "no-live filename-only dampening" in scores["src/release.py"][1]
+    assert scores["src/auth.py"][0] == 90.0
 
 
 def test_offline_summary_includes_richer_fields(tmp_path):

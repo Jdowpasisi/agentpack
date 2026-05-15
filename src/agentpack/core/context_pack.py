@@ -419,6 +419,10 @@ def select_files(
                 mode_str, content, tok, why = fallback
                 reasons = reasons + [why]
 
+        if mode_str == "summary" and max_summary_files < 0:
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="summaries disabled by precision guard"))
+            continue
+
         if mode_str == "summary" and max_summary_files > 0 and summaries_used >= max_summary_files:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="summary cap reached"))
             continue

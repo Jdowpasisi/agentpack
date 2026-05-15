@@ -39,6 +39,24 @@ Quality gates for a serious local eval:
 | Miss diagnostics | every miss has status, rank, score, and reasons |
 | Mode comparison | `minimal`, `balanced`, and `deep` all reported |
 
+Before publishing benchmark claims, add a results file with this shape:
+
+```text
+benchmarks/results/YYYY-MM-DD.md
+repo/task set: <repo names or anonymized domains>
+agentpack version/commit: <version or sha>
+cases: <count>
+avg recall: <percent>
+avg precision: <percent>
+avg token precision: <percent>
+balanced pack p50/p95 tokens: <tokens>
+miss-debug command used: agentpack benchmark --compare --misses
+```
+
+Do not publish author-session anecdotes as benchmark proof. Either use the
+committed smoke fixtures or a documented historical-task set with expected
+files.
+
 When recall is low, inspect misses before changing weights:
 
 ```bash
