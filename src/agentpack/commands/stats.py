@@ -153,10 +153,20 @@ def register(app: typer.Typer) -> None:
             avg_recall = sum(r["selection_recall"] for r in accuracy_rows) / len(accuracy_rows)
             avg_precision = sum(r["selection_precision"] for r in accuracy_rows) / len(accuracy_rows)
             avg_f1 = sum(r["selection_f1"] for r in accuracy_rows) / len(accuracy_rows)
+            context_rows = [r for r in accuracy_rows if "selection_context_precision" in r]
+            avg_context_precision = (
+                sum(r["selection_context_precision"] for r in context_rows) / len(context_rows)
+                if context_rows else None
+            )
             token_rows = [r for r in accuracy_rows if "selection_token_precision" in r]
             avg_token_precision = (
                 sum(r["selection_token_precision"] for r in token_rows) / len(token_rows)
                 if token_rows else None
+            )
+            token_context_rows = [r for r in accuracy_rows if "selection_token_context_precision" in r]
+            avg_token_context_precision = (
+                sum(r["selection_token_context_precision"] for r in token_context_rows) / len(token_context_rows)
+                if token_context_rows else None
             )
             mode_token_precision: dict[str, float] = {}
             for mode in ("full", "symbols", "summary"):
@@ -170,13 +180,19 @@ def register(app: typer.Typer) -> None:
             acc_tbl.add_column(justify="right", style="bold")
             acc_tbl.add_row("avg recall", f"{avg_recall:.1%}")
             acc_tbl.add_row("avg precision", f"{avg_precision:.1%}")
+            if avg_context_precision is not None:
+                acc_tbl.add_row("avg context precision", f"{avg_context_precision:.1%}")
             if avg_token_precision is not None:
                 acc_tbl.add_row("avg token precision", f"{avg_token_precision:.1%}")
+                if avg_token_context_precision is not None:
+                    acc_tbl.add_row("token context precision", f"{avg_token_context_precision:.1%}")
                 for mode, value in mode_token_precision.items():
                     acc_tbl.add_row(f"{mode} token precision", f"{value:.1%}")
             acc_tbl.add_row("avg F1", f"{avg_f1:.1%}")
             console.print(acc_tbl)
             console.print("[dim]recall = how many changed files were in the previous pack[/]")
+            if avg_context_precision is not None:
+                console.print("[dim]context precision = edited hits plus obvious support files, such as paired tests[/]")
             if avg_token_precision is not None:
                 console.print("[dim]token precision = share of previous pack tokens spent on files later changed[/]")
 

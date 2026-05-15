@@ -858,15 +858,22 @@ def _compute_selection_accuracy(
         return {}
 
     hits = prev_selected & actual_changed
+    support = {
+        path for path in prev_selected - hits
+        if _support_matches_changed(path, actual_changed)
+    }
     recall = len(hits) / len(actual_changed)
     precision = len(hits) / len(prev_selected)
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    context_precision = (len(hits) + len(support)) / len(prev_selected)
     result = {
         "selection_recall": round(recall, 3),
         "selection_precision": round(precision, 3),
         "selection_f1": round(f1, 3),
         "selection_hit_paths": sorted(hits),
-        "selection_noise_paths": sorted(prev_selected - hits),
+        "selection_support_paths": sorted(support),
+        "selection_context_precision": round(context_precision, 3),
+        "selection_noise_paths": sorted(prev_selected - hits - support),
     }
     token_map = prev.get("selected_tokens") or {}
     if isinstance(token_map, dict):
@@ -878,7 +885,13 @@ def _compute_selection_accuracy(
         )
         if total_tokens > 0:
             token_precision = hit_tokens / total_tokens
+            support_tokens = sum(
+                token_map.get(path, 0)
+                for path in support
+                if isinstance(token_map.get(path, 0), int | float)
+            )
             result["selection_token_precision"] = round(token_precision, 3)
+            result["selection_token_context_precision"] = round((hit_tokens + support_tokens) / total_tokens, 3)
             result["selection_noise_pct"] = round((1 - token_precision) * 100, 1)
         mode_map = prev.get("selected_modes") or {}
         if isinstance(mode_map, dict):
@@ -898,6 +911,34 @@ def _compute_selection_accuracy(
                 )
                 result[f"selection_token_precision_{mode}"] = round(mode_hit_tokens / mode_total, 3)
     return result
+
+
+def _support_matches_changed(path: str, changed_paths: set[str]) -> bool:
+    """Heuristic for read-only support context that was plausibly useful.
+
+    Edit precision only rewards files later changed. This helper gives partial
+    credit to obvious support files such as paired tests or files sharing a
+    meaningful stem/domain with a changed file.
+    """
+    from agentpack.analysis.ranking import _is_test_file, _test_matches_source
+
+    p = Path(path)
+    path_stem = p.stem.removeprefix("test_").removesuffix("_test")
+    path_parts = {part.lower() for part in p.parts if len(part) >= 3}
+    for changed in changed_paths:
+        c = Path(changed)
+        changed_stem = c.stem.removeprefix("test_").removesuffix("_test")
+        if _is_test_file(path) and _test_matches_source(path, changed):
+            return True
+        if _is_test_file(changed) and _test_matches_source(changed, path):
+            return True
+        if path_stem and path_stem == changed_stem:
+            return True
+        changed_parts = {part.lower() for part in c.parts if len(part) >= 3}
+        shared = (path_parts & changed_parts) - {"src", "app", "test", "tests", "lib", "core"}
+        if len(shared) >= 2:
+            return True
+    return False
 
 
 def _record_metrics(

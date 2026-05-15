@@ -18,6 +18,7 @@ from agentpack.commands.benchmark import (
     _persist_result,
     _load_history_cases,
     _random_baseline,
+    _write_results_template,
 )
 
 
@@ -127,6 +128,16 @@ def test_scaffold_cases_idempotent(tmp_path: Path) -> None:
     out1.write_text("existing content", encoding="utf-8")
     out2 = _scaffold_cases(tmp_path)
     assert out2.read_text() == "existing content"
+
+
+def test_write_results_template_creates_publishable_markdown(tmp_path: Path) -> None:
+    out = _write_results_template(tmp_path, date="2026-05-15")
+    content = out.read_text(encoding="utf-8")
+
+    assert out == tmp_path / "benchmarks" / "results" / "2026-05-15.md"
+    assert "AgentPack Benchmark Results" in content
+    assert "avg recall" in content
+    assert "agentpack benchmark --compare --misses" in content
 
 
 # ---------------------------------------------------------------------------

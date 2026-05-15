@@ -112,6 +112,7 @@ Use real repo evals instead of trusting compression numbers:
 agentpack benchmark --init
 # add historical tasks and files actually changed
 agentpack benchmark --compare --misses
+agentpack benchmark --results-template
 ```
 
 ## Debugging Selection
@@ -198,6 +199,7 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 - **One-shot public repo questions**: gitingest's "replace hub with ingest" is faster for quick read-only exploration
 - **Guaranteed source-of-truth selection**: AgentPack ranks likely files; it can miss task-critical files. Use `agentpack benchmark --misses`, `agentpack explain`, and normal `rg`/agent file reads for correctness.
 - **Deep semantic understanding**: keyword/concept scoring, imports, symbols, and path roles help, but they are not an LLM-level code understanding system
+- **Public proof without real cases**: bundled fixtures are smoke tests. Strong claims need historical tasks from real repos and published results.
 
 ---
 
@@ -412,6 +414,7 @@ Command map:
 | `agentpack doctor` | Audit hooks, agent files, CLI path, and repo health |
 | `agentpack explain` | Understand why a file was selected or omitted |
 | `agentpack benchmark` | Measure recall, precision, and misses against real tasks |
+| `agentpack tune` | Suggest fixes from recent pack metrics and benchmark misses |
 | `agentpack status` | Inspect current pack freshness and metadata |
 | `agentpack diff` | Show what changed between context snapshots |
 | `agentpack monitor` | Review recent pack runs and quality signals |
@@ -778,6 +781,7 @@ Measure token efficiency, file selection quality, and speed across tasks.
 agentpack benchmark --task "fix auth token expiry"         # single task
 agentpack benchmark --task "fix auth bug" --compare        # compare minimal/balanced/deep
 agentpack benchmark --init                                 # scaffold .agentpack/benchmark.toml
+agentpack benchmark --results-template                     # scaffold publishable results note
 agentpack benchmark                                        # run all cases in benchmark.toml
 agentpack benchmark --sample-fixtures                      # source checkout demo evals
 agentpack benchmark --misses                               # explain expected-file misses
@@ -870,7 +874,7 @@ agentpack stats
 
 When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files from the latest pack and avg recall/precision/F1 over the last 10 runs.
 
-Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." `stats` also breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible.
+Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." Context precision also credits obvious read-only support context, such as paired tests beside changed source files. `stats` breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible.
 
 To build a real usefulness signal for your repo:
 
@@ -887,6 +891,22 @@ agentpack benchmark --compare --misses
 For an 8+ usefulness signal, use `benchmark.toml` with real third-party or customer-style repos: 5-20 historical tasks, `task_type` labels, the files actually changed for each task, and `--compare` results for recall, F1, rank@K, and token noise. That is better than trusting generic benchmarks because it tells you whether AgentPack selects the files that matter in code the package has never seen.
 
 See [benchmarks/README.md](benchmarks/README.md) for the public smoke-suite fixtures, quality gates, and the recommended miss-debugging workflow.
+
+---
+
+### `agentpack tune`
+
+Turn noisy `stats` and `benchmark --misses` output into next actions.
+
+```bash
+agentpack tune
+agentpack tune --write
+agentpack tune --no-benchmark
+```
+
+`tune` reads `.agentpack/metrics.jsonl` and, when present, `.agentpack/benchmark_results.jsonl`. It flags low token precision, zero-value summaries, repeated noisy paths, support-context gaps, and benchmark miss patterns. `--write` saves the same guidance to `.agentpack/tuning.md`.
+
+This command does not pretend a pack is correct. It gives the next thing to inspect: lower mode, explain noisy files, adjust `.agentignore`, add benchmark cases, or inspect budget/score misses.
 
 ---
 
@@ -1266,6 +1286,7 @@ src/agentpack/
     monitor.py                 # agentpack monitor
     explain.py                 # agentpack explain
     doctor.py                  # agentpack doctor
+    tune.py                    # agentpack tune — tuning suggestions from metrics + benchmark misses
     hook_cmd.py                # agentpack hook — Claude prompt hook + stale detection
     mcp_cmd.py                 # agentpack mcp — MCP server entrypoint
     watch.py                   # agentpack watch — file watcher with debounce
@@ -1310,6 +1331,7 @@ src/agentpack/
 
 - **Windows**: not supported. Git hooks use POSIX shell (`#!/bin/sh`, `>/dev/null 2>&1 &`). The Claude Code session hooks use `python3` and `rm -f`. Contributions welcome.
 - **Monorepos**: single-root repos only. If you `agentpack pack` from a monorepo root, all packages are scanned together with no workspace awareness. Workaround: `cd packages/my-pkg && agentpack init && agentpack pack`.
+- **Public benchmark proof**: source-checkout fixture results are useful regressions, not market proof. Use `agentpack benchmark --results-template` to publish real historical task results.
 - **Symbol extraction**: Python (AST, full) and JavaScript/TypeScript (regex, arrow functions + classes) are well-supported. Go, Rust, Java, Kotlin have import graph traversal but no symbol extraction — they fall back to file-level summaries.
 - **Selection recall**: ranking is heuristic. It can miss files when task language differs from code language, when repos have unusual architecture, or when important files are only connected at runtime.
 - **Secret redaction**: covers AWS keys, GitHub tokens, OpenAI/Anthropic keys, JWTs, and private key blocks. Not a substitute for a dedicated secrets scanner on sensitive repos.
@@ -1361,7 +1383,10 @@ npm test --prefix npm
 (cd npm && npm pack --dry-run)
 pytest tests/test_agent_integration_matrix.py -q
 agentpack benchmark --sample-fixtures --misses
+agentpack doctor
 ```
+
+For npm publish, configure GitHub secret `NPM_TOKEN`. `agentpack doctor` warns locally when neither `NPM_TOKEN` nor `NODE_AUTH_TOKEN` is present, and the npm publish workflow fails early with a clear error if the secret is missing.
 
 Good contribution areas:
 

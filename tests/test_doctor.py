@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentpack.commands.doctor import _latest_context_path, _release_hygiene_findings, _source_checkout_warning
+from agentpack.commands.doctor import (
+    _latest_context_path,
+    _publish_secret_findings,
+    _release_hygiene_findings,
+    _source_checkout_warning,
+)
 
 
 def test_source_checkout_warning_when_importing_installed_package(tmp_path: Path) -> None:
@@ -39,6 +44,23 @@ def test_release_hygiene_flags_generated_artifacts(tmp_path: Path, monkeypatch) 
     assert ".agentpack/context.md" in findings[0]
     assert ".coverage" in findings[0]
     assert "pack.py" not in findings[0]
+
+
+def test_publish_secret_findings_warns_when_npm_token_missing(tmp_path: Path) -> None:
+    (tmp_path / "npm").mkdir()
+    (tmp_path / "npm" / "package.json").write_text("{}", encoding="utf-8")
+
+    findings = _publish_secret_findings(tmp_path, env={})
+
+    assert findings
+    assert "NPM_TOKEN" in findings[0]
+
+
+def test_publish_secret_findings_accepts_npm_token(tmp_path: Path) -> None:
+    (tmp_path / "npm").mkdir()
+    (tmp_path / "npm" / "package.json").write_text("{}", encoding="utf-8")
+
+    assert _publish_secret_findings(tmp_path, env={"NPM_TOKEN": "secret"}) == []
 
 
 def test_latest_context_path_uses_metadata_path(tmp_path: Path) -> None:

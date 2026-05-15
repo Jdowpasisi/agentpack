@@ -19,6 +19,7 @@ from agentpack.commands import (
     stats,
     status,
     summarize,
+    tune,
     watch,
 )
 from agentpack import __version__
@@ -53,6 +54,7 @@ for mod in [
     monitor,
     explain,
     doctor,
+    tune,
     watch,
     claude_cmd,
     benchmark,

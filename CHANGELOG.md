@@ -11,6 +11,10 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - Public benchmark evidence notes under `benchmarks/`, with source-checkout fixture coverage and quality gates for recall/token precision.
 - More source-checkout benchmark fixtures: Django REST-style pagination/serializer, Go service readiness/deploy, and Rails-style mailer/job flows.
+- `agentpack tune` suggests concrete tuning actions from recent precision metrics and benchmark misses, with optional `.agentpack/tuning.md` output.
+- `agentpack benchmark --results-template` creates a publishable benchmark result note under `benchmarks/results/`.
+- Selection accuracy now records support-context precision, separating edited-file hits from useful paired tests or adjacent support files.
+- `agentpack doctor` and the npm publish workflow now warn clearly when `NPM_TOKEN`/`NODE_AUTH_TOKEN` is missing.
 
 ### Changed
 - Ranking now gives a small recall boost to files that historically changed in the same commits as live changed files.
