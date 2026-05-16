@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.2.1).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Not yet validated across a wide range of repos. API may change before 1.0.
+> **Status: alpha (v0.2.2).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -54,7 +54,7 @@ npm install -g @vishal2612200/agentpack
 agentpack --version
 ```
 
-The npm package is a Node launcher around the Python implementation. It installs the matching `agentpack-cli` package into a per-version virtual environment on first run.
+The npm package is a Node launcher around the Python implementation. It requires Node.js 18+ and Python 3.10+, then installs the matching core `agentpack-cli` package into a per-version virtual environment on first run. The Python package remains the source of truth; npm is the convenience install path for JavaScript-heavy teams. Use the PyPI extras below when you need optional `watch` or `mcp` dependencies.
 
 ## Quickstart
 
