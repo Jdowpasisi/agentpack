@@ -8,8 +8,12 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Added
+- Expanded npm package documentation with first-project setup, daily workflow, MCP usage, cache controls, troubleshooting, and privacy notes.
+
 ### Changed
 - npm publishing now verifies registry identity and scoped-package access before `npm publish`, turning the scoped-package `E404` into an actionable release error.
+- Main README install/status copy now reflects the published npm wrapper, optional extras boundary, and current alpha version.
 
 ---
 
