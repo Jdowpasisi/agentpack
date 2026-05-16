@@ -71,6 +71,30 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify npm scope access
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          NPM_USER="$(npm whoami)"
+
+          echo "npm user: ${NPM_USER}"
+          echo "package: ${PACKAGE_NAME}"
+
+          if [[ "${PACKAGE_NAME}" == @*/* ]]; then
+            PACKAGE_SCOPE="${PACKAGE_NAME%%/*}"
+            SCOPE_OWNER="${PACKAGE_SCOPE#@}"
+
+            if [ "${SCOPE_OWNER}" != "${NPM_USER}" ]; then
+              if ! npm access list packages "${PACKAGE_SCOPE}" >/tmp/npm-scope-access.json 2>/tmp/npm-scope-access.err; then
+                echo "::error title=npm scope access failed::NPM_TOKEN is authenticated as '${NPM_USER}', but ${PACKAGE_NAME} publishes under '${PACKAGE_SCOPE}'. Use a token from npm user '${SCOPE_OWNER}', create an npm org named '${SCOPE_OWNER}' and grant publish access, or rename npm/package.json to a scope owned by the token."
+                cat /tmp/npm-scope-access.err
+                exit 1
+              fi
+              echo "scope access verified for ${PACKAGE_SCOPE}"
+            fi
+          fi
+        working-directory: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish npm package
         run: npm publish --access public --provenance
         working-directory: npm
