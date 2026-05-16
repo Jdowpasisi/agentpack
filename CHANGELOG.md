@@ -8,7 +8,8 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
-_No changes yet._
+### Changed
+- npm publishing now verifies registry identity and scoped-package access before `npm publish`, turning the scoped-package `E404` into an actionable release error.
 
 ---
 
