@@ -85,7 +85,7 @@ def _args_str(args: ast.arguments) -> str:
 
 
 _JS_FUNC = re.compile(
-    r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(",
+    r"(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+(\w+)\s*\(",
 )
 # Require => on the same line to avoid matching non-arrow assignments like:
 #   const result = (a + b)

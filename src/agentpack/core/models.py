@@ -3,6 +3,8 @@ from typing import Literal
 from typing import Any
 from pydantic import BaseModel, Field
 
+SUMMARY_SCHEMA_VERSION = 2
+
 
 class ScanResult(BaseModel):
     packable: list["FileInfo"]
@@ -44,15 +46,26 @@ class FileSummary(BaseModel):
     hash: str
     language: str | None = None
     provider: str = "offline"
-    schema_version: int = 1
+    schema_version: int = SUMMARY_SCHEMA_VERSION
     summary: str
-    imports: list[str] = []
-    symbols: list[Symbol] = []
+    imports: list[str] = Field(default_factory=list)
+    symbols: list[Symbol] = Field(default_factory=list)
+    domain: str | None = None
     role: str | None = None
-    side_effects: list[str] = []
-    public_api: list[str] = []
-    error_paths: list[str] = []
-    test_hints: list[str] = []
+    entrypoints: list[str] = Field(default_factory=list)
+    defines: list[str] = Field(default_factory=list)
+    calls: list[str] = Field(default_factory=list)
+    reads_env: list[str] = Field(default_factory=list)
+    reads_files: list[str] = Field(default_factory=list)
+    writes_files: list[str] = Field(default_factory=list)
+    external_systems: list[str] = Field(default_factory=list)
+    side_effects: list[str] = Field(default_factory=list)
+    failure_hints: list[str] = Field(default_factory=list)
+    ranking_keywords: list[str] = Field(default_factory=list)
+    related_hints: list[str] = Field(default_factory=list)
+    public_api: list[str] = Field(default_factory=list)
+    error_paths: list[str] = Field(default_factory=list)
+    test_hints: list[str] = Field(default_factory=list)
 
 
 class SelectedFile(BaseModel):

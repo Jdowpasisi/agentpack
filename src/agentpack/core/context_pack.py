@@ -243,8 +243,20 @@ def _skeleton_content(fi: FileInfo, summary_data: dict[str, Any] | None) -> tupl
     if not summary_data:
         return None, 0
     lines: list[str] = []
+    for label, field, limit in [
+        ("# entrypoints", "entrypoints", 12),
+        ("# external systems", "external_systems", 8),
+    ]:
+        values = summary_data.get(field) or []
+        if values:
+            if lines:
+                lines.append("")
+            lines.append(label)
+            lines.extend(f"- {item}" for item in values[:limit])
     imports = summary_data.get("imports") or []
     if imports:
+        if lines:
+            lines.append("")
         lines.append("# imports")
         lines.extend(f"- {item}" for item in imports[:20])
     raw_symbols = summary_data.get("symbols") or []

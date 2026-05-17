@@ -24,7 +24,7 @@ from unittest.mock import patch
 # ---------------------------------------------------------------------------
 
 from agentpack.core.cache import save_summary, load_summary  # noqa: E402
-from agentpack.core.models import FileSummary  # noqa: E402
+from agentpack.core.models import FileSummary, SUMMARY_SCHEMA_VERSION  # noqa: E402
 
 
 def _make_summary(path: str = "src/foo.py", file_hash: str = "abc123") -> FileSummary:
@@ -33,7 +33,7 @@ def _make_summary(path: str = "src/foo.py", file_hash: str = "abc123") -> FileSu
         hash=file_hash,
         language="python",
         provider="offline",
-        schema_version=1,
+        schema_version=SUMMARY_SCHEMA_VERSION,
         summary="test summary",
         imports=["os"],
         symbols=[],
@@ -372,11 +372,11 @@ class TestOfflineSummarize:
         result = summarize("foo.py", src, "python", "h")
         assert result.provider == "offline"
 
-    def test_schema_version_is_1(self, tmp_path: Path) -> None:
+    def test_schema_version_is_current(self, tmp_path: Path) -> None:
         src = tmp_path / "foo.py"
         src.write_text("")
         result = summarize("foo.py", src, "python", "h")
-        assert result.schema_version == 1
+        assert result.schema_version == SUMMARY_SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------
