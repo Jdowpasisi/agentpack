@@ -44,7 +44,7 @@ def build_repo_map(
         top_members = sorted(members, key=lambda member: file_scores.get(member.path, 0.0), reverse=True)[:4]
         for member in top_members:
             summary = summaries.get(member.path) or {}
-            label = summary.get("role") or _short_summary(summary.get("summary", ""))
+            label = _member_label(summary)
             deps = dep_graph.get(member.path)
             rel = ""
             if deps.imports or deps.imported_by:
@@ -71,7 +71,12 @@ def _group_role(members: list[FileInfo], summaries: dict[str, Any]) -> str:
     roles: dict[str, int] = {}
     for member in members:
         summary = summaries.get(member.path) or {}
+        domain = summary.get("domain")
         role = summary.get("role") or _short_summary(summary.get("summary", ""))
+        if domain and role:
+            role = f"{domain} / {role}"
+        elif domain:
+            role = domain
         if role:
             roles[role] = roles.get(role, 0) + 1
     if not roles:
@@ -88,6 +93,20 @@ def _short_summary(summary: str) -> str:
         if clean.lower().startswith("role:"):
             return clean.split(":", 1)[1].strip()
     return ""
+
+
+def _member_label(summary: dict[str, Any]) -> str:
+    domain = summary.get("domain")
+    role = summary.get("role") or _short_summary(summary.get("summary", ""))
+    parts = []
+    if role:
+        parts.append(role)
+    elif domain:
+        parts.append(domain)
+    entrypoints = summary.get("entrypoints") or []
+    if entrypoints:
+        parts.append(str(entrypoints[0]))
+    return "; ".join(parts)
 
 
 def _fits(lines: list[str], candidate: str, budget_tokens: int) -> bool:

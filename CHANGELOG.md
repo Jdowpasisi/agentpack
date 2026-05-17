@@ -8,10 +8,22 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] — 2026-05-17
+
 ### Added
+- Structured deterministic summary fields for domain, role, entrypoints, definitions, calls, env reads, file reads/writes, external systems, side effects, ranking keywords, and related hints.
+- Deterministic role/domain and entrypoint inference for common Python and JavaScript/TypeScript patterns, including FastAPI routes, Django URLs/views, Typer/Click commands, Celery tasks, Express/Next.js routes, and React components.
+- Offline side-effect extraction for env/config reads, file I/O, Redis/cache, HTTP clients, Stripe, cloud services, DB/ORM usage, queues, email, and observability tools.
+- Focused tests for structured summary extraction, cache schema invalidation/backward compatibility, ranking boosts, and repo-map rendering.
 - Expanded npm package documentation with first-project setup, daily workflow, MCP usage, cache controls, troubleshooting, and privacy notes.
 
 ### Changed
+- Offline summaries now render compact structured text while keeping richer fields in the cache for ranking.
+- Ranking now boosts matches against structured summary fields such as entrypoints, role/domain, definitions, env reads, external systems, and side effects, with receipts explaining each boost.
+- Repo maps now include domain/role/entrypoint hints so selected areas show what each file is likely responsible for.
+- Summary schema version bumped to v2, invalidating stale shallow summaries while old cached records still load safely when requested explicitly.
 - npm publishing now verifies registry identity and scoped-package access before `npm publish`, turning the scoped-package `E404` into an actionable release error.
 - Main README install/status copy now reflects the published npm wrapper, optional extras boundary, and current alpha version.
 

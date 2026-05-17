@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentpack.core.models import FileSummary
+from agentpack.core.models import FileSummary, SUMMARY_SCHEMA_VERSION
 
 
 def _cache_key(path: str, file_hash: str, provider: str, schema_version: int) -> str:
@@ -16,7 +16,11 @@ def _cache_dir(root: Path) -> Path:
 
 
 def load_summary(
-    root: Path, path: str, file_hash: str, provider: str = "offline", schema_version: int = 1
+    root: Path,
+    path: str,
+    file_hash: str,
+    provider: str = "offline",
+    schema_version: int = SUMMARY_SCHEMA_VERSION,
 ) -> FileSummary | None:
     key = _cache_key(path, file_hash, provider, schema_version)
     cache_file = _cache_dir(root) / f"{key}.json"
