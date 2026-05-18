@@ -33,7 +33,7 @@ class ContextConfig(BaseModel):
 
 class SummaryConfig(BaseModel):
     provider: str = "offline"
-    schema_version: int = 1
+    schema_version: int = 2
 
 
 class HooksConfig(BaseModel):
@@ -114,6 +114,10 @@ max_summary_files_deep = 0       # deep mode stays uncapped
 include_tests = true
 include_configs = true
 include_receipts = true
+
+[summary]
+provider = "offline"
+schema_version = 2
 
 [hooks]
 # Claude UserPromptSubmit can detect a clearly different coding prompt,

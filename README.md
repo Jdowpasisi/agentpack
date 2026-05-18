@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.2.2).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.0).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
 
@@ -1412,7 +1412,7 @@ src/agentpack/
 
 ## Roadmap
 
-Next release target: **0.3.0 = public proof + npm publish hardening**.
+Post-0.3 release focus: broader real-repo proof, npm publish reliability, and continued ranking precision.
 
 - Expand the public real-repo suite beyond the current curated Pallets smoke set.
 - Keep recall gains measured with `--prove-targets`; target 60%+ recall, 50%+ token precision, and task packs under 25k tokens.

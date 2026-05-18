@@ -3,7 +3,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agentpack.core.models import FileSummary
+from agentpack.core.models import FileSummary, SUMMARY_SCHEMA_VERSION
+from agentpack.analysis.role_inference import (
+    extract_code_intelligence,
+    extract_failure_hints,
+    extract_side_effects,
+    infer_role_domain,
+)
 from agentpack.analysis.symbols import extract_python_symbols, extract_js_symbols
 from agentpack.analysis.python_imports import extract_imports as py_imports
 from agentpack.analysis.js_ts_imports import extract_imports as js_imports
@@ -22,38 +28,60 @@ def _python_summary(path: str, abs_path: Path, file_hash: str) -> FileSummary:
     symbols = extract_python_symbols(abs_path)
     text = _read_sample(abs_path)
 
-    top_level_imports = [i for i in imports if not i.startswith(".")][:8]
-    exposed = [s.name for s in symbols if s.kind in ("class", "function")][:8]
-    role = _infer_responsibility(path, exposed)
-    side_effects = _infer_side_effects(path, text, imports)
-    public_api = _infer_public_api(path, exposed, text)
-    error_paths = _infer_error_paths(text)
-    test_hints = _infer_test_hints(path, role, exposed)
-
-    parts = ["Language: Python"]
-    parts.append(f"Role: {role}")
-    if exposed:
-        parts.append(f"Exposes: {', '.join(exposed)}")
-    if top_level_imports:
-        parts.append(f"Imports: {', '.join(top_level_imports)}")
-    if side_effects:
-        parts.append(f"Side effects: {', '.join(side_effects[:4])}")
-    if error_paths:
-        parts.append(f"Error paths: {', '.join(error_paths[:4])}")
+    intel = extract_code_intelligence(path=path, language="python", text=text, symbols=symbols)
+    effects = extract_side_effects(path=path, language="python", text=text, imports=imports)
+    role_info = infer_role_domain(
+        path=path,
+        language="python",
+        symbols=symbols,
+        imports=imports,
+        text=text,
+        entrypoints=intel.entrypoints,
+        external_systems=effects.external_systems,
+    )
+    role = role_info.role or _infer_responsibility(path, intel.defines)
+    failure_hints = extract_failure_hints(text)
+    public_api = _dedupe([*_infer_public_api(path, intel.defines, text), *intel.entrypoints])[:12]
+    test_hints = _infer_test_hints(path, role, intel.defines)
+    summary_text = _render_summary(
+        language="Python",
+        domain=role_info.domain,
+        role=role,
+        entrypoints=intel.entrypoints,
+        defines=intel.defines,
+        calls=intel.calls,
+        imports=imports,
+        external_systems=effects.external_systems,
+        reads_env=effects.reads_env,
+        side_effects=effects.side_effects,
+        ranking_keywords=role_info.ranking_keywords,
+        failure_hints=failure_hints,
+    )
 
     return FileSummary(
         path=path,
         hash=file_hash,
         language="python",
         provider="offline",
-        schema_version=1,
-        summary="\n- ".join([""] + parts).lstrip("\n- ") if parts else "",
+        schema_version=SUMMARY_SCHEMA_VERSION,
+        summary=summary_text,
         imports=imports[:20],
         symbols=symbols,
+        domain=role_info.domain,
         role=role,
-        side_effects=side_effects,
+        entrypoints=intel.entrypoints,
+        defines=intel.defines,
+        calls=intel.calls,
+        reads_env=effects.reads_env,
+        reads_files=effects.reads_files,
+        writes_files=effects.writes_files,
+        external_systems=effects.external_systems,
+        side_effects=effects.side_effects,
+        failure_hints=failure_hints,
+        ranking_keywords=role_info.ranking_keywords,
+        related_hints=role_info.reasons,
         public_api=public_api,
-        error_paths=error_paths,
+        error_paths=failure_hints,
         test_hints=test_hints,
     )
 
@@ -63,38 +91,60 @@ def _js_summary(path: str, abs_path: Path, language: str, file_hash: str) -> Fil
     symbols = extract_js_symbols(abs_path)
     text = _read_sample(abs_path)
 
-    rel_imports = [i for i in imports if not i.startswith(".")][:8]
-    exposed = [s.name for s in symbols][:8]
-    role = _infer_responsibility(path, exposed)
-    side_effects = _infer_side_effects(path, text, imports)
-    public_api = _infer_public_api(path, exposed, text)
-    error_paths = _infer_error_paths(text)
-    test_hints = _infer_test_hints(path, role, exposed)
-
-    parts = [f"Language: {language.capitalize()}"]
-    parts.append(f"Role: {role}")
-    if exposed:
-        parts.append(f"Exposes: {', '.join(exposed)}")
-    if rel_imports:
-        parts.append(f"Imports: {', '.join(rel_imports)}")
-    if side_effects:
-        parts.append(f"Side effects: {', '.join(side_effects[:4])}")
-    if error_paths:
-        parts.append(f"Error paths: {', '.join(error_paths[:4])}")
+    intel = extract_code_intelligence(path=path, language=language, text=text, symbols=symbols)
+    effects = extract_side_effects(path=path, language=language, text=text, imports=imports)
+    role_info = infer_role_domain(
+        path=path,
+        language=language,
+        symbols=symbols,
+        imports=imports,
+        text=text,
+        entrypoints=intel.entrypoints,
+        external_systems=effects.external_systems,
+    )
+    role = role_info.role or _infer_responsibility(path, intel.defines)
+    failure_hints = extract_failure_hints(text)
+    public_api = _dedupe([*_infer_public_api(path, intel.defines, text), *intel.entrypoints])[:12]
+    test_hints = _infer_test_hints(path, role, intel.defines)
+    summary_text = _render_summary(
+        language=language.capitalize(),
+        domain=role_info.domain,
+        role=role,
+        entrypoints=intel.entrypoints,
+        defines=intel.defines,
+        calls=intel.calls,
+        imports=imports,
+        external_systems=effects.external_systems,
+        reads_env=effects.reads_env,
+        side_effects=effects.side_effects,
+        ranking_keywords=role_info.ranking_keywords,
+        failure_hints=failure_hints,
+    )
 
     return FileSummary(
         path=path,
         hash=file_hash,
         language=language,
         provider="offline",
-        schema_version=1,
-        summary="\n- ".join([""] + parts).lstrip("\n- ") if parts else "",
+        schema_version=SUMMARY_SCHEMA_VERSION,
+        summary=summary_text,
         imports=imports[:20],
         symbols=symbols,
+        domain=role_info.domain,
         role=role,
-        side_effects=side_effects,
+        entrypoints=intel.entrypoints,
+        defines=intel.defines,
+        calls=intel.calls,
+        reads_env=effects.reads_env,
+        reads_files=effects.reads_files,
+        writes_files=effects.writes_files,
+        external_systems=effects.external_systems,
+        side_effects=effects.side_effects,
+        failure_hints=failure_hints,
+        ranking_keywords=role_info.ranking_keywords,
+        related_hints=role_info.reasons,
         public_api=public_api,
-        error_paths=error_paths,
+        error_paths=failure_hints,
         test_hints=test_hints,
     )
 
@@ -106,20 +156,58 @@ def _generic_summary(path: str, abs_path: Path, language: str | None, file_hash:
     except OSError:
         snippet = ""
 
+    effects = extract_side_effects(path=path, language=language, text=snippet, imports=[])
+    role_info = infer_role_domain(
+        path=path,
+        language=language,
+        symbols=[],
+        imports=[],
+        text=snippet,
+        entrypoints=[],
+        external_systems=effects.external_systems,
+    )
+    role = role_info.role or _infer_responsibility(path, [])
+    failure_hints = extract_failure_hints(snippet)
+
     return FileSummary(
         path=path,
         hash=file_hash,
         language=language,
         provider="offline",
-        schema_version=1,
-        summary=f"Language: {language or 'unknown'}\nFirst lines:\n{snippet[:300]}",
+        schema_version=SUMMARY_SCHEMA_VERSION,
+        summary=_render_summary(
+            language=language or "unknown",
+            domain=role_info.domain,
+            role=role,
+            entrypoints=[],
+            defines=[],
+            calls=[],
+            imports=[],
+            external_systems=effects.external_systems,
+            reads_env=effects.reads_env,
+            side_effects=effects.side_effects,
+            ranking_keywords=role_info.ranking_keywords,
+            failure_hints=failure_hints,
+            fallback=f"First lines:\n{snippet[:300]}",
+        ),
         imports=[],
         symbols=[],
-        role=_infer_responsibility(path, []),
-        side_effects=_infer_side_effects(path, snippet, []),
+        domain=role_info.domain,
+        role=role,
+        entrypoints=[],
+        defines=[],
+        calls=[],
+        reads_env=effects.reads_env,
+        reads_files=effects.reads_files,
+        writes_files=effects.writes_files,
+        external_systems=effects.external_systems,
+        side_effects=effects.side_effects,
+        failure_hints=failure_hints,
+        ranking_keywords=role_info.ranking_keywords,
+        related_hints=role_info.reasons,
         public_api=[],
-        error_paths=_infer_error_paths(snippet),
-        test_hints=_infer_test_hints(path, _infer_responsibility(path, []), []),
+        error_paths=failure_hints,
+        test_hints=_infer_test_hints(path, role, []),
     )
 
 
@@ -128,6 +216,58 @@ def _read_sample(abs_path: Path, max_chars: int = 16000) -> str:
         return abs_path.read_text(errors="replace")[:max_chars]
     except OSError:
         return ""
+
+
+def _render_summary(
+    *,
+    language: str,
+    domain: str | None,
+    role: str | None,
+    entrypoints: list[str],
+    defines: list[str],
+    calls: list[str],
+    imports: list[str],
+    external_systems: list[str],
+    reads_env: list[str],
+    side_effects: list[str],
+    ranking_keywords: list[str],
+    failure_hints: list[str],
+    fallback: str | None = None,
+) -> str:
+    lines = [f"Language: {language}"]
+    if domain:
+        lines.append(f"Domain: {domain}")
+    if role:
+        lines.append(f"Role: {role}")
+    _add_list(lines, "Entrypoints", entrypoints, limit=6)
+    _add_list(lines, "Defines", defines, limit=8)
+    internal_deps = [imp for imp in imports if imp.startswith(".")]
+    external_deps = [imp for imp in imports if not imp.startswith(".")]
+    _add_list(lines, "Internal deps", internal_deps, limit=8)
+    _add_list(lines, "Imports", external_deps, limit=8)
+    _add_list(lines, "External systems", external_systems, limit=6)
+    _add_list(lines, "Reads env", reads_env, limit=8)
+    _add_list(lines, "Side effects", side_effects, limit=6)
+    _add_list(lines, "Failure hints", failure_hints, limit=4)
+    if fallback:
+        lines.append(fallback)
+    return "\n".join(lines)
+
+
+def _add_list(lines: list[str], label: str, values: list[str], *, limit: int) -> None:
+    shown = _dedupe(values)[:limit]
+    if shown:
+        lines.append(f"{label}: {', '.join(shown)}")
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
 
 
 def _infer_side_effects(path: str, text: str, imports: list[str]) -> list[str]:

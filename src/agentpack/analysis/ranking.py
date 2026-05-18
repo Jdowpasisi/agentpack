@@ -160,6 +160,12 @@ _VARIANTS: dict[str, str] = {
     "middleware": "middleware",
     "request": "req",
     "response": "res",
+    "verification": "verify",
+    "verified": "verify",
+    "verifying": "verify",
+    "payments": "payment",
+    "webhooks": "webhook",
+    "variables": "variable",
     "session": "session",
     "sessions": "session",
     "error": "error",
@@ -226,6 +232,7 @@ _FILENAME_CORROBORATION_PREFIXES = (
     "staged",
     "symbol keyword match",
     "content keyword match",
+    "matched ",
     "direct dependency",
     "reverse dependency",
     "has related tests",
@@ -404,6 +411,82 @@ def _symbol_matches_keywords(symbols: list[str], keywords: set[str] | dict[str, 
     return best_weight
 
 
+def _summary_values(summary: object, field: str) -> list[str]:
+    if summary is None:
+        return []
+    if isinstance(summary, dict):
+        value = summary.get(field)
+    else:
+        value = getattr(summary, field, None)
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        result: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict) and "name" in item:
+                result.append(str(item["name"]))
+            elif hasattr(item, "name"):
+                result.append(str(item.name))
+            else:
+                result.append(str(item))
+        return result
+    return [str(value)]
+
+
+def _best_summary_match(
+    values: list[str],
+    keywords: set[str] | dict[str, float],
+    *,
+    presence_terms: set[str] | None = None,
+) -> tuple[str, float] | None:
+    if not values:
+        return None
+    best_value = ""
+    best_weight = 0.0
+    for value in values:
+        weight = _match_weight(value, keywords)
+        if weight > best_weight:
+            best_value = value
+            best_weight = weight
+    if best_weight > 0:
+        return best_value, best_weight
+    if presence_terms and (set(_keyword_token_weights(keywords)) & presence_terms):
+        return values[0], 0.6
+    return None
+
+
+def _short_reason_value(value: str, max_len: int = 80) -> str:
+    clean = " ".join(value.split())
+    if len(clean) <= max_len:
+        return clean
+    return clean[: max_len - 1].rstrip() + "..."
+
+
+_GENERIC_SUMMARY_VALUES = {
+    "HTTP API route handler",
+    "React UI component",
+    "React page component",
+    "React page: page",
+    "entrypoint",
+    "configuration",
+    "api",
+    "frontend",
+    "data",
+}
+
+
+def _summary_boost_weight(field: str, value: str, amount: float) -> float:
+    if field in {"role", "domain"} and value in _GENERIC_SUMMARY_VALUES:
+        return min(amount, 16.0)
+    if field == "ranking_keywords" and value in {"handler", "http", "route", "api", "component", "page"}:
+        return min(amount, 10.0)
+    return amount
+
+
 def _has_role(path: str, roles: set[str]) -> bool:
     return bool(_path_tokens(path) & roles)
 
@@ -463,16 +546,37 @@ def score_files(
 
         node = dep_graph.get(fi.path)
         sym_names: list[str] = []
-        if summaries and fi.path in summaries:
-            raw_syms = summaries[fi.path].get("symbols", [])
-            sym_names = [
-                (s["name"] if isinstance(s, dict) else s.name)
-                for s in raw_syms
-            ]
+        summary_data = summaries.get(fi.path) if summaries and fi.path in summaries else None
+        if summary_data:
+            sym_names = _summary_values(summary_data, "symbols")
         symbol_weight = _symbol_matches_keywords(sym_names, keywords)
         if symbol_weight > 0:
             score += w.symbol_keyword * symbol_weight
             reasons.append("symbol keyword match")
+
+        if summary_data:
+            summary_boosts = [
+                ("entrypoints", "matched entrypoint", 72.0, None),
+                ("external_systems", "matched external system", 64.0, None),
+                ("role", "matched role keyword", 56.0, None),
+                ("domain", "matched domain", 50.0, None),
+                ("ranking_keywords", "matched ranking keyword", 44.0, None),
+                ("defines", "matched define", 42.0, None),
+                ("reads_env", "matched env read", 52.0, {"env", "environment", "variable", "config", "settings"}),
+                ("side_effects", "matched side effect", 46.0, {"side", "effect", "effects", "io", "debug"}),
+                ("calls", "matched call", 26.0, None),
+            ]
+            for field, label, amount, presence_terms in summary_boosts:
+                match = _best_summary_match(
+                    _summary_values(summary_data, field),
+                    keywords,
+                    presence_terms=presence_terms,
+                )
+                if not match:
+                    continue
+                value, match_weight = match
+                score += _summary_boost_weight(field, value, amount) * match_weight
+                reasons.append(f"{label}: {_short_reason_value(value)}")
 
         content_hits = 0
         if fi.content is not None:
