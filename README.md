@@ -41,11 +41,30 @@ AgentPack is useful when a repo is too large to paste, but a blank agent session
 ## Install
 
 ```bash
-pip install agentpack-cli
+pipx install agentpack-cli
 agentpack --version
 ```
 
-Requires Python 3.10+. The PyPI package is `agentpack-cli`; the command is `agentpack`.
+Requires Python 3.10+. The PyPI package is `agentpack-cli`; the command is `agentpack`. Use `pipx` for normal installs because many macOS/Linux Python distributions block global `pip install` with PEP 668's `externally-managed-environment` error. If you prefer `pip`, install inside a virtual environment.
+
+Install `pipx` with your OS package manager first if needed:
+
+```bash
+# macOS
+brew install pipx
+
+# Ubuntu/Debian
+sudo apt install pipx
+
+# Fedora
+sudo dnf install pipx
+
+# Arch
+sudo pacman -S python-pipx
+
+# Then ensure pipx apps are on PATH
+pipx ensurepath
+```
 
 JavaScript-heavy teams can install the npm wrapper:
 
@@ -415,7 +434,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install agentpack-cli
+      - run: python -m pip install agentpack-cli
 
       - name: Generate context pack
         run: |
@@ -728,7 +747,7 @@ Uses `watchdog` if installed, falls back to polling. Context is refreshed whenev
 
 Install watchdog for better performance:
 ```bash
-pip install "agentpack-cli[watch]"
+pipx inject agentpack-cli watchdog
 ```
 
 ---
@@ -750,7 +769,7 @@ Requires an initialized project (`agentpack init`). Refreshes context, prints th
 Run AgentPack as an MCP server — exposes context packing as tools that Claude Code (and any MCP-compatible agent) can call directly.
 
 ```bash
-pip install "agentpack-cli[mcp]"
+pipx inject agentpack-cli "agentpack-cli[mcp]"
 agentpack mcp
 ```
 
@@ -1425,9 +1444,9 @@ Post-0.3 release focus: broader real-repo proof, npm publish reliability, and co
 ## Optional dependencies
 
 ```bash
-pip install "agentpack-cli[watch]"    # watchdog — faster file watching for agentpack watch
-pip install "agentpack-cli[mcp]"      # mcp — expose agentpack as MCP server tools
-pip install "agentpack-cli[all]"      # watch + mcp
+pipx inject agentpack-cli watchdog              # faster file watching for agentpack watch
+pipx inject agentpack-cli "agentpack-cli[mcp]"  # expose agentpack as MCP server tools
+pipx inject agentpack-cli "agentpack-cli[all]"  # watch + mcp
 ```
 
 ---

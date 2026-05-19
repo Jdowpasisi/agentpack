@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import typer
@@ -129,16 +128,12 @@ def register(app: typer.Typer) -> None:
             if result.returncode == 0:
                 console.print("[green]agentpack installed globally.[/] Available as `agentpack` in any shell.")
             else:
-                console.print("[yellow]pipx install failed. Trying pip install --user...[/]")
-                result2 = sp.run(
-                    [sys.executable, "-m", "pip", "install", "--user", "agentpack-cli"],
-                    capture_output=True,
-                    text=True,
-                )
-                if result2.returncode != 0:
-                    console.print(f"[red]Install failed:[/] {result2.stderr[:200]}")
-                    raise typer.Exit(1)
-                console.print("[green]Installed via pip --user.[/]")
+                console.print("[red]pipx install failed.[/]")
+                console.print(result.stderr[:300])
+                console.print("Install pipx with your OS package manager, then retry: [bold]pipx ensurepath && pipx install agentpack-cli[/]")
+                console.print("Examples: [bold]brew install pipx[/], [bold]sudo apt install pipx[/], [bold]sudo dnf install pipx[/], [bold]sudo pacman -S python-pipx[/].")
+                console.print("Avoid global [bold]pip3 install[/] on system-managed Python; PEP 668 may block it.")
+                raise typer.Exit(1)
         elif pipx and dry_run:
             console.print("[dim]Would run: pipx install agentpack-cli[/]")
 

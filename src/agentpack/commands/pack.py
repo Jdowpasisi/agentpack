@@ -259,7 +259,7 @@ def _pack_watch(
         from watchdog.events import FileSystemEventHandler
     except ImportError:
         console.print("[red]watchdog is required for --watch mode.[/]")
-        console.print("Install it: [bold]pip install watchdog[/]")
+        console.print("Install it: [bold]pipx inject agentpack-cli watchdog[/]")
         raise typer.Exit(1)
 
     root = _root()
