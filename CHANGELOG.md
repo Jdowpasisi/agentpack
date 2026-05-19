@@ -8,9 +8,27 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.3.2] — 2026-05-20
+
+### Added
+- Public naming-signal analysis for files, exported symbols, tests, and env/config identifiers so offline summaries can capture domain-revealing names as structured ranking hints.
+- Focused tests covering naming classification, summary population, and ranking receipts for strong and weak public names.
+
 ### Changed
 - Aligned GitHub, PyPI, and npm discovery copy, keywords, and README openings around AgentPack's local context engine positioning, including clearer npm wrapper framing.
 - Ranking and offline summaries now use public naming signals from files, exported symbols, tests, and env/config identifiers, with small receipts-driven bonuses for domain-revealing names and a light penalty for vague public APIs.
+- README architecture and development guidance now document naming-signal flow and public naming advice for ranking.
+
+---
+
+## [0.3.1] — 2026-05-19
+
+### Fixed
+- Recommended `pipx install agentpack-cli` for normal installs so new users avoid PEP 668 `externally-managed-environment` errors from system-managed Python.
+- Removed the `agentpack global-install` fallback to `pip install --user`; failed `pipx` installs now give OS package-manager guidance for installing `pipx`.
+- Updated optional `watch` and `mcp` dependency guidance to use `pipx inject` instead of global `pip install`.
 
 ---
 
