@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -8,37 +10,116 @@ import typer
 from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 from agentpack.commands._shared import console, _root
-from agentpack.integrations.agents import install_agent_integration
+from agentpack.integrations.agents import check_agent_integration, install_agent_integration
 from agentpack.session.state import load_session, create_session, SESSION_FILE, TASK_FILE
 
 _GITIGNORE_START = "# agentpack:start"
 _GITIGNORE_END = "# agentpack:end"
+_INIT_MODES = ("minimal", "balanced", "deep")
+_INIT_AGENTS = ("auto", "claude", "cursor", "windsurf", "codex", "antigravity", "generic")
+_AGENT_GITIGNORE_ENTRIES = {
+    "cursor": (".vscode/tasks.json",),
+    "windsurf": (".vscode/tasks.json",),
+    "antigravity": (".agent/skills/agentpack/", ".vscode/tasks.json", "GEMINI.md"),
+}
 
 
-def _repo_gitignore_block(share_cache: bool = False) -> str:
-    cache_line = "" if share_cache else ".agentpack/cache/\n"
+@dataclass
+class InitResult:
+    path: str
+    action: str
+
+
+@dataclass
+class InitHealth:
+    label: str
+    ok: bool
+    detail: str
+
+
+def _repo_gitignore_entries(share_cache: bool = False, agent: str = "generic") -> list[str]:
+    entries = [
+        ".agentpack/*",
+        "!.agentpack/config.toml",
+    ]
+    if share_cache:
+        entries.extend(["!.agentpack/cache/", "!.agentpack/cache/**"])
+    else:
+        entries.append(".agentpack/cache/")
+    entries.extend(
+        [
+            ".agentpack/snapshots/",
+            ".agentpack/context*",
+            ".agentpack/metrics.jsonl",
+            ".agentpack/pack_metadata.json",
+            ".agentpack/activity.log",
+            ".agentpack/.gitignore",
+            ".agentpack/.mcp_reminded",
+            ".agentpack/session.json",
+            ".agentpack/task.md",
+            ".agentpack/benchmark_results.jsonl",
+            ".agentignore",
+        ]
+    )
+    entries.extend(_AGENT_GITIGNORE_ENTRIES.get(agent, ()))
+    return entries
+
+
+def _repo_gitignore_block(share_cache: bool = False, agent: str = "generic") -> str:
     return (
         f"{_GITIGNORE_START}\n"
         "# AgentPack generated context/cache (safe to ignore)\n"
-        f"{cache_line}"
-        ".agentpack/snapshots/\n"
-        ".agentpack/context*\n"
-        ".agentpack/metrics.jsonl\n"
-        ".agentpack/pack_metadata.json\n"
-        ".agentpack/activity.log\n"
-        ".agentpack/.gitignore\n"
-        ".agentpack/.mcp_reminded\n"
-        ".agentpack/session.json\n"
-        ".agentpack/task.md\n"
-        ".agentpack/benchmark_results.jsonl\n"
-        ".agent/skills/agentpack/\n"
+        + "\n".join(_repo_gitignore_entries(share_cache, agent))
+        + "\n"
         f"{_GITIGNORE_END}\n"
     )
 
 
-def _patch_repo_gitignore(root, share_cache: bool = False) -> str:
+def _agentpack_gitignore_content(share_cache: bool = False) -> str:
+    entries = []
+    if not share_cache:
+        entries.append("cache/")
+    entries.extend(
+        [
+            "snapshots/",
+            "context.*",
+            "metrics.jsonl",
+            "pack_metadata.json",
+            "activity.log",
+            ".mcp_reminded",
+            "session.json",
+            "task.md",
+            "benchmark_results.jsonl",
+        ]
+    )
+    return "\n".join(entries) + "\n"
+
+
+def _backup_file(path: Path) -> Path:
+    backup = path.with_name(f"{path.name}.bak")
+    index = 1
+    while backup.exists():
+        backup = path.with_name(f"{path.name}.bak.{index}")
+        index += 1
+    backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    return backup
+
+
+def _write_text(root: Path, path: Path, content: str, *, force: bool = False, backups: list[InitResult] | None = None) -> str:
+    existed = path.exists()
+    if existed and path.read_text(encoding="utf-8") == content:
+        return "unchanged"
+    if force and existed and backups is not None:
+        backup = _backup_file(path)
+        backups.append(InitResult(str(backup.relative_to(root)), "created"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return "updated" if existed else "created"
+
+
+def _patch_repo_gitignore(root: Path, share_cache: bool = False, agent: str = "generic", *, force: bool = False, backups: list[InitResult] | None = None) -> str:
     gitignore = root / ".gitignore"
-    block = _repo_gitignore_block(share_cache)
+    block = _repo_gitignore_block(share_cache, agent)
     if not gitignore.exists():
         gitignore.write_text(block, encoding="utf-8")
         return "created"
@@ -52,10 +133,16 @@ def _patch_repo_gitignore(root, share_cache: bool = False) -> str:
         updated = content[:start].rstrip() + "\n\n" + replacement + "\n" + content[end:].lstrip("\n")
         if updated == content:
             return "unchanged"
+        if force and backups is not None:
+            backup = _backup_file(gitignore)
+            backups.append(InitResult(str(backup.relative_to(root)), "created"))
         gitignore.write_text(updated, encoding="utf-8")
         return "updated"
 
     prefix = content.rstrip() + "\n\n" if content.strip() else ""
+    if force and backups is not None:
+        backup = _backup_file(gitignore)
+        backups.append(InitResult(str(backup.relative_to(root)), "created"))
     gitignore.write_text(prefix + block, encoding="utf-8")
     return "updated"
 
@@ -77,6 +164,123 @@ def _print_agent_integration_results(results: dict[str, str]) -> None:
             console.print(f"[green]{key} {action}[/]")
 
 
+def _validate_init_options(agent: str, mode: str | None, budget: int) -> None:
+    if agent not in _INIT_AGENTS:
+        console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_INIT_AGENTS)}[/]")
+        raise typer.Exit(1)
+    if mode is not None and mode not in _INIT_MODES:
+        console.print(f"[yellow]Unknown mode: {mode}. Supported: {', '.join(_INIT_MODES)}[/]")
+        raise typer.Exit(1)
+    if budget < 0:
+        console.print("[yellow]Budget must be 0 or greater.[/]")
+        raise typer.Exit(1)
+
+
+def _resolve_init_agent(root: Path, agent: str, *, force: bool = False) -> str:
+    if agent != "auto":
+        return agent
+    existing_session = load_session(root)
+    if existing_session is not None and not force:
+        return existing_session.agent
+    from agentpack.adapters.detect import detect_agent
+
+    return detect_agent(root)
+
+
+def _agent_integration_paths(agent: str) -> tuple[str, ...]:
+    if agent == "claude":
+        return ("CLAUDE.md", ".claude/settings.json", ".mcp.json")
+    if agent == "cursor":
+        return (".cursorrules", ".cursor/rules/agentpack.mdc", ".vscode/tasks.json")
+    if agent == "windsurf":
+        return (".windsurfrules", ".vscode/tasks.json")
+    if agent == "codex":
+        return ("AGENTS.md", ".codex/hooks.json")
+    if agent == "antigravity":
+        return ("GEMINI.md", ".vscode/tasks.json")
+    return ()
+
+
+def _backup_existing_paths(root: Path, paths: tuple[str, ...], backups: list[InitResult]) -> None:
+    for rel in paths:
+        path = root / rel
+        if path.exists() and path.is_file():
+            backup = _backup_file(path)
+            backups.append(InitResult(str(backup.relative_to(root)), "created"))
+
+
+def _planned_action(path: Path, expected: str | None = None) -> str:
+    if not path.exists():
+        return "create"
+    if expected is None:
+        return "update"
+    try:
+        return "unchanged" if path.read_text(encoding="utf-8") == expected else "update"
+    except OSError:
+        return "update"
+
+
+def _print_dry_run(root: Path, agent: str, share_cache: bool, mode: str | None, budget: int) -> None:
+    console.print("[bold yellow]Dry run — no files will be changed.[/]\n")
+    items = [
+        InitResult(".agentpack/", "ensure"),
+        InitResult(".agentpack/snapshots/", "ensure"),
+        InitResult(".agentpack/cache/", "ensure"),
+        InitResult(".agentpack/.gitignore", _planned_action(root / ".agentpack" / ".gitignore")),
+        InitResult(".gitignore", _planned_action(root / ".gitignore")),
+        InitResult(".agentpack/config.toml", _planned_action(root / ".agentpack" / "config.toml")),
+        InitResult(".agentignore", _planned_action(root / ".agentignore", DEFAULT_AGENTIGNORE)),
+        InitResult(SESSION_FILE, _planned_action(root / SESSION_FILE)),
+        InitResult(TASK_FILE, _planned_action(root / TASK_FILE)),
+    ]
+    for rel in _agent_integration_paths(agent):
+        items.append(InitResult(rel, _planned_action(root / rel)))
+    _print_init_summary("Dry Run", items)
+    console.print(f"  Agent: {agent}")
+    console.print(f"  Mode: {mode or DEFAULT_CONFIG.context.default_mode}")
+    console.print(f"  Budget: {budget or DEFAULT_CONFIG.context.default_budget:,}")
+    console.print(f"  Share cache: {'yes' if share_cache else 'no'}")
+
+
+def _print_init_summary(title: str, results: list[InitResult]) -> None:
+    console.print(f"\n[bold]{title}[/]")
+    grouped: dict[str, list[str]] = {}
+    for result in results:
+        grouped.setdefault(result.action, []).append(result.path)
+    for action in ("created", "updated", "unchanged", "skipped", "ensure", "create", "update"):
+        paths = grouped.get(action)
+        if not paths:
+            continue
+        console.print(f"  {action}: {', '.join(paths)}")
+
+
+def _init_health(root: Path, agent: str) -> list[InitHealth]:
+    checks = [
+        InitHealth(".gitignore", (root / ".gitignore").exists(), "repo ignore file present"),
+        InitHealth(".agentpack/config.toml", (root / ".agentpack" / "config.toml").exists(), "config file present"),
+        InitHealth(".agentignore", (root / ".agentignore").exists(), "agent ignore file present"),
+        InitHealth(SESSION_FILE, (root / SESSION_FILE).exists(), "session file present"),
+        InitHealth(TASK_FILE, (root / TASK_FILE).exists(), "task file present"),
+    ]
+    try:
+        from agentpack.core.config import load_config
+
+        load_config(root)
+        checks.append(InitHealth("config", True, "loads successfully"))
+    except Exception as exc:
+        checks.append(InitHealth("config", False, f"failed to load: {exc}"))
+    for check in check_agent_integration(root, agent):
+        checks.append(InitHealth(check.label, check.ok, check.detail))
+    return checks
+
+
+def _print_health(root: Path, agent: str) -> None:
+    console.print("\n[bold]Init health[/]")
+    for check in _init_health(root, agent):
+        marker = "[green]✓[/]" if check.ok else "[yellow]![/]"
+        console.print(f"  {marker} {check.label}: {check.detail}")
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def init(
@@ -87,6 +291,8 @@ def register(app: typer.Typer) -> None:
         silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
         share_cache: bool = typer.Option(False, "--share-cache", help="Commit summary cache to git (recommended for teams)."),
         agent: str = typer.Option("auto", "--agent", help="Target agent (auto|claude|cursor|windsurf|codex|antigravity|generic)."),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without writing files."),
+        health_check: bool = typer.Option(True, "--health-check/--no-health-check", help="Verify init outputs after setup."),
     ) -> None:
         """Initialize AgentPack in the current directory.
 
@@ -95,32 +301,39 @@ def register(app: typer.Typer) -> None:
         if silent:
             yes = True
             console.quiet = True
+        _validate_init_options(agent, mode, budget)
         root = _root()
+        resolved_agent = _resolve_init_agent(root, agent, force=force)
+        if dry_run:
+            _print_dry_run(root, resolved_agent, share_cache, mode, budget)
+            return
+
+        results: list[InitResult] = []
+        backups: list[InitResult] = []
         agentpack_dir = root / ".agentpack"
+        agentpack_existed = agentpack_dir.exists()
+        snapshots_existed = (agentpack_dir / "snapshots").exists()
+        cache_existed = (agentpack_dir / "cache").exists()
         agentpack_dir.mkdir(exist_ok=True)
         (agentpack_dir / "snapshots").mkdir(exist_ok=True)
         (agentpack_dir / "cache").mkdir(exist_ok=True)
+        results.extend(
+            [
+                InitResult(".agentpack/", "unchanged" if agentpack_existed else "created"),
+                InitResult(".agentpack/snapshots/", "unchanged" if snapshots_existed else "created"),
+                InitResult(".agentpack/cache/", "unchanged" if cache_existed else "created"),
+            ]
+        )
 
         gitignore = agentpack_dir / ".gitignore"
         if not gitignore.exists() or force:
-            # With --share-cache, cache/ is committed so teammates skip the summarize step
-            cache_line = "" if share_cache else ".agentpack/cache/\n"
-            gitignore.write_text(
-                f"{cache_line}.agentpack/snapshots/\n.agentpack/context.*\n.agentpack/metrics.jsonl\n"
-            )
-            console.print("[green]Created[/] .agentpack/.gitignore")
-            if share_cache:
-                console.print("  [dim]cache/ not gitignored — commit it so teammates skip agentpack summarize[/]")
+            action = _write_text(root, gitignore, _agentpack_gitignore_content(share_cache), force=force, backups=backups)
+            results.append(InitResult(".agentpack/.gitignore", action))
         else:
-            console.print("[dim]Skipped[/] .agentpack/.gitignore (exists)")
+            results.append(InitResult(".agentpack/.gitignore", "unchanged"))
 
-        gitignore_action = _patch_repo_gitignore(root, share_cache=share_cache)
-        if gitignore_action == "created":
-            console.print("[green]Created[/] .gitignore [dim](AgentPack generated artifacts ignored)[/]")
-        elif gitignore_action == "updated":
-            console.print("[green]Updated[/] .gitignore [dim](AgentPack generated artifacts ignored)[/]")
-        else:
-            console.print("[dim]Skipped[/] .gitignore (AgentPack block unchanged)")
+        gitignore_action = _patch_repo_gitignore(root, share_cache=share_cache, agent=resolved_agent, force=force, backups=backups)
+        results.append(InitResult(".gitignore", gitignore_action))
 
         config_path_file = agentpack_dir / "config.toml"
         if not config_path_file.exists() or force:
@@ -151,36 +364,45 @@ def register(app: typer.Typer) -> None:
                     "default_budget = 25000",
                     f"default_budget = {cfg.context.default_budget}",
                 )
-            config_path_file.parent.mkdir(parents=True, exist_ok=True)
-            config_path_file.write_text(config_toml)
-            console.print(f"[green]Created[/] .agentpack/config.toml  [dim](mode: {cfg.context.default_mode}, budget: {cfg.context.default_budget:,})[/]")
+            action = _write_text(root, config_path_file, config_toml, force=force, backups=backups)
+            results.append(InitResult(".agentpack/config.toml", action))
         else:
-            console.print("[dim]Skipped[/] .agentpack/config.toml (exists)")
+            results.append(InitResult(".agentpack/config.toml", "unchanged"))
 
         ignore_path = root / ".agentignore"
         if not ignore_path.exists() or force:
-            ignore_path.write_text(DEFAULT_AGENTIGNORE)
-            console.print("[green]Created[/] .agentignore")
+            action = _write_text(root, ignore_path, DEFAULT_AGENTIGNORE, force=force, backups=backups)
+            results.append(InitResult(".agentignore", action))
         else:
-            console.print("[dim]Skipped[/] .agentignore (exists)")
+            results.append(InitResult(".agentignore", "unchanged"))
 
         # Bootstrap session so `agentpack watch` works immediately — no separate `session start` needed
         from agentpack.core.config import load_config
         resolved_mode = load_config(root).context.default_mode
         existing_session = load_session(root)
-        resolved_agent = agent
         if existing_session is None or force:
-            from agentpack.adapters.detect import detect_agent
-            resolved_agent = agent if agent != "auto" else detect_agent(root)
             create_session(root, agent=resolved_agent, mode=resolved_mode)
-            console.print(f"[green]Created[/] {SESSION_FILE}  [dim]agent={resolved_agent} mode={resolved_mode}[/]")
-            console.print(f"[green]Created[/] {TASK_FILE}  [dim]edit to set your task[/]")
+            results.append(InitResult(SESSION_FILE, "created" if existing_session is None else "updated"))
+            results.append(InitResult(TASK_FILE, "created" if existing_session is None else "updated"))
         else:
-            console.print(f"[dim]Skipped[/] {SESSION_FILE} (exists)")
-            if agent == "auto":
-                resolved_agent = existing_session.agent
+            results.append(InitResult(SESSION_FILE, "unchanged"))
+            results.append(InitResult(TASK_FILE, "unchanged"))
 
-        _print_agent_integration_results(_install_agent_integration(root, resolved_agent))
+        if force:
+            _backup_existing_paths(root, _agent_integration_paths(resolved_agent), backups)
+        integration_results = _install_agent_integration(root, resolved_agent)
+        for key, action in integration_results.items():
+            if key.startswith("git:"):
+                results.append(InitResult(f".git/hooks/{key[4:]}", action))
+            elif key == "vscode:tasks":
+                results.append(InitResult(".vscode/tasks.json", action))
+            else:
+                results.append(InitResult(key, action))
 
-        console.print("\n[bold green]AgentPack initialized.[/]")
+        if backups:
+            _print_init_summary("Backups", backups)
+        _print_init_summary("Init Summary", results)
+        if health_check:
+            _print_health(root, resolved_agent)
+        console.print(f"\n[bold green]AgentPack initialized.[/] [dim]agent={resolved_agent} mode={resolved_mode}[/]")
         console.print("Run [bold]agentpack watch[/] to start auto-refreshing context.")
