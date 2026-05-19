@@ -10,6 +10,7 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ### Changed
 - Aligned GitHub, PyPI, and npm discovery copy, keywords, and README openings around AgentPack's local context engine positioning, including clearer npm wrapper framing.
+- Ranking and offline summaries now use public naming signals from files, exported symbols, tests, and env/config identifiers, with small receipts-driven bonuses for domain-revealing names and a light penalty for vague public APIs.
 
 ---
 

@@ -1241,7 +1241,8 @@ Works like `.gitignore`. Default rules exclude:
           │                                         │
           │  Summary cache  ── role, imports,       │
           │  (offline)        symbols, side effects, │
-          │                   public API, errors     │
+          │                   public API, naming     │
+          │                   signals, errors        │
           │                                         │
           │  Import graph  ──  Python AST           │
           │  (6 languages)  ─  JS/TS regex          │
@@ -1254,6 +1255,9 @@ Works like `.gitignore`. Default rules exclude:
           │  ast.get_source_segment)   classes,     │
           │                    ── arrow fns w/ =>)  │
           │                                         │
+          │  Naming signals ── public files/symbols │
+          │                  ── env/config/test ids │
+          │                  ── generic-name hints  │
           │  Test detection  ── name heuristics     │
           │  Task keywords   ── stopwords + variants│
           │                  ── concept synonyms    │
@@ -1279,6 +1283,7 @@ Works like `.gitignore`. Default rules exclude:
           │   +70 symbol    +60 content match       │
           │   +50 dep       +40 rev-dep             │
           │   +35 test      +25 config  +20 recent  │
+          │   +20 naming    -6 generic public API   │
           │   -50 large unrelated                   │
           │  History noise penalty from metrics     │
           └────────────────────┬────────────────────┘
@@ -1366,14 +1371,15 @@ src/agentpack/
     rust_imports.py            # use, mod, extern crate
     java_imports.py            # Java import + Kotlin import
     symbols.py                 # AST symbols + body via ast.get_source_segment
+    naming_signals.py          # public-name classification for summaries + ranking boosts
     tests.py                   # source → test file mapping heuristics
-    ranking.py                 # keyword extraction, concept synonyms, scoring
+    ranking.py                 # keyword extraction, concept synonyms, scoring, naming receipts
     monorepo.py                # workspace detection + workspace ownership helpers
     repo_map.py                # compact semantic repo map reserved inside token budget
     task_classifier.py         # coarse task class for freshness/rendering/scoring context
 
   summaries/
-    offline.py                 # zero-API: AST/regex → imports, symbols, role, side effects, API, errors
+    offline.py                 # zero-API: AST/regex → imports, symbols, role, side effects, API, naming signals, errors
     base.py                    # cache-or-build orchestration (parallel, ThreadPool+ProcessPool)
 
   adapters/                    # context rendering only — no installation logic
@@ -1502,6 +1508,16 @@ pipx inject agentpack-cli "agentpack-cli[all]"  # watch + mcp
 ---
 
 ## Development
+
+## Public Naming And Ranking
+
+AgentPack works better when public surfaces carry domain context. Prefer domain-revealing names for files, exported functions/classes, CLI commands, tests, and config/env identifiers.
+
+- `verify_otp` is better than `handle`
+- `StripeWebhookHandler` is better than `Processor`
+- `session_token_expiry_test` is better than `test_flow`
+
+This is guidance, not a lint rule. Local variable names are out of scope for AgentPack ranking.
 
 Clone and run locally:
 

@@ -64,6 +64,8 @@ class FileSummary(BaseModel):
     ranking_keywords: list[str] = Field(default_factory=list)
     related_hints: list[str] = Field(default_factory=list)
     public_api: list[str] = Field(default_factory=list)
+    naming_signals: list[str] = Field(default_factory=list)
+    naming_keywords: list[str] = Field(default_factory=list)
     error_paths: list[str] = Field(default_factory=list)
     test_hints: list[str] = Field(default_factory=list)
 

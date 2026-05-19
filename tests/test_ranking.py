@@ -206,3 +206,54 @@ def test_cross_layer_boost_connects_page_to_matching_service():
 
     assert scores["backend/src/services/chart.service.ts"] > scores["backend/src/services/payment.service.ts"]
     assert "cross-layer related implementation" in reasons["backend/src/services/chart.service.ts"]
+
+
+def test_strong_public_name_gets_bonus():
+    fi = _fi("src/auth/otp.py")
+    summaries = {
+        fi.path: {
+            "symbols": [],
+            "naming_signals": ["strong public name: verify_otp"],
+            "naming_keywords": ["verify", "otp"],
+        }
+    }
+    scored = score_files(
+        [fi],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("fix otp verify issue"),
+        summaries=summaries,
+    )
+    assert any("matched naming keyword:" in reason for reason in scored[0][2])
+
+
+def test_generic_public_name_gets_small_penalty_when_otherwise_weak():
+    good = _fi("src/auth/otp.py")
+    weak = _fi("src/auth/handler.py")
+    summaries = {
+        good.path: {
+            "symbols": [],
+            "naming_signals": ["strong public name: verify_otp"],
+            "naming_keywords": ["verify", "otp"],
+        },
+        weak.path: {
+            "symbols": [],
+            "naming_signals": ["generic public name: handle"],
+            "naming_keywords": [],
+        },
+    }
+    scored = score_files(
+        [good, weak],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("fix otp verify issue"),
+        summaries=summaries,
+    )
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores["src/auth/otp.py"] > scores["src/auth/handler.py"]
+    assert any(reason == "generic public API penalty: handle" for reason in reasons["src/auth/handler.py"])

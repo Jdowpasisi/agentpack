@@ -578,6 +578,23 @@ def score_files(
                 score += _summary_boost_weight(field, value, amount) * match_weight
                 reasons.append(f"{label}: {_short_reason_value(value)}")
 
+            naming_keywords = _summary_values(summary_data, "naming_keywords")
+            naming_signals = _summary_values(summary_data, "naming_signals")
+            naming_match = _best_summary_match(naming_keywords, keywords)
+            if naming_match:
+                value, match_weight = naming_match
+                score += min(20.0, match_weight * 18.0)
+                reasons.append(f"matched naming keyword: {_short_reason_value(value)}")
+
+            generic_public_names = [
+                value.split(": ", 1)[1]
+                for value in naming_signals
+                if value.startswith("generic public name: ")
+            ]
+            if generic_public_names and filename_weight == 0 and symbol_weight == 0:
+                score += min(-6.0, w.weak_filename_match_penalty / 2)
+                reasons.append(f"generic public API penalty: {generic_public_names[0]}")
+
         content_hits = 0
         if fi.content is not None:
             hits, hit_weight = _content_matches_keywords(fi.content, keywords)

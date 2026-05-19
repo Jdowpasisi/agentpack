@@ -10,6 +10,7 @@ from agentpack.analysis.role_inference import (
     extract_side_effects,
     infer_role_domain,
 )
+from agentpack.analysis.naming_signals import collect_public_name_candidates, summarize_naming_signals
 from agentpack.analysis.symbols import extract_python_symbols, extract_js_symbols
 from agentpack.analysis.python_imports import extract_imports as py_imports
 from agentpack.analysis.js_ts_imports import extract_imports as js_imports
@@ -42,6 +43,8 @@ def _python_summary(path: str, abs_path: Path, file_hash: str) -> FileSummary:
     role = role_info.role or _infer_responsibility(path, intel.defines)
     failure_hints = extract_failure_hints(text)
     public_api = _dedupe([*_infer_public_api(path, intel.defines, text), *intel.entrypoints])[:12]
+    public_names = collect_public_name_candidates(abs_path, "python")
+    naming_signals, naming_keywords = summarize_naming_signals(path, public_names, effects.reads_env)
     test_hints = _infer_test_hints(path, role, intel.defines)
     summary_text = _render_summary(
         language="Python",
@@ -81,6 +84,8 @@ def _python_summary(path: str, abs_path: Path, file_hash: str) -> FileSummary:
         ranking_keywords=role_info.ranking_keywords,
         related_hints=role_info.reasons,
         public_api=public_api,
+        naming_signals=naming_signals,
+        naming_keywords=naming_keywords,
         error_paths=failure_hints,
         test_hints=test_hints,
     )
@@ -105,6 +110,8 @@ def _js_summary(path: str, abs_path: Path, language: str, file_hash: str) -> Fil
     role = role_info.role or _infer_responsibility(path, intel.defines)
     failure_hints = extract_failure_hints(text)
     public_api = _dedupe([*_infer_public_api(path, intel.defines, text), *intel.entrypoints])[:12]
+    public_names = collect_public_name_candidates(abs_path, language)
+    naming_signals, naming_keywords = summarize_naming_signals(path, public_names, effects.reads_env)
     test_hints = _infer_test_hints(path, role, intel.defines)
     summary_text = _render_summary(
         language=language.capitalize(),
@@ -144,6 +151,8 @@ def _js_summary(path: str, abs_path: Path, language: str, file_hash: str) -> Fil
         ranking_keywords=role_info.ranking_keywords,
         related_hints=role_info.reasons,
         public_api=public_api,
+        naming_signals=naming_signals,
+        naming_keywords=naming_keywords,
         error_paths=failure_hints,
         test_hints=test_hints,
     )
@@ -206,6 +215,8 @@ def _generic_summary(path: str, abs_path: Path, language: str | None, file_hash:
         ranking_keywords=role_info.ranking_keywords,
         related_hints=role_info.reasons,
         public_api=[],
+        naming_signals=[],
+        naming_keywords=[],
         error_paths=failure_hints,
         test_hints=_infer_test_hints(path, role, []),
     )
