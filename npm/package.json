@@ -1,7 +1,7 @@
 {
   "name": "@vishal2612200/agentpack",
   "version": "0.3.0",
-  "description": "Task-aware context packing for AI coding agents. npm wrapper for the Python AgentPack CLI.",
+  "description": "npm launcher for the Python AgentPack CLI, a local context engine for AI coding agents that ranks relevant files and builds task-focused context packs.",
   "license": "MIT",
   "homepage": "https://github.com/vishal2612200/agentpack#readme",
   "repository": {
@@ -28,15 +28,25 @@
     "node": ">=18"
   },
   "keywords": [
-    "ai",
-    "cli",
-    "claude",
+    "ai-coding-agents",
+    "developer-tools",
+    "repo-analysis",
+    "context-engine",
+    "context-packing",
+    "prompt-context",
+    "mcp",
+    "ci",
+    "claude-code",
     "codex",
-    "context",
     "cursor",
+    "windsurf",
     "antigravity",
+    "ai",
     "llm",
+    "context",
     "packing",
-    "windsurf"
+    "claude",
+    "npm",
+    "cli"
   ]
 }

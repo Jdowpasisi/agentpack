@@ -82,25 +82,34 @@ Then read `.agentpack/context.claude.md` in full.
 ### Step 1: Check agentpack is installed
 
 ```bash
-agentpack --help 2>/dev/null || pipx install agentpack-cli
+if command -v pipx >/dev/null 2>&1; then
+  export AGENTPACK_BIN="$(pipx environment --value PIPX_BIN_DIR)/agentpack"
+  test -x "$AGENTPACK_BIN" || pipx install agentpack-cli
+elif command -v agentpack >/dev/null 2>&1; then
+  export AGENTPACK_BIN="$(command -v agentpack)"
+else
+  python3 -m venv .venv
+  "$PWD/.venv/bin/pip" install agentpack-cli
+  export AGENTPACK_BIN="$PWD/.venv/bin/agentpack"
+fi
 ```
 
 ### Step 2: Initialize if not already done
 
 ```bash
-test -f .agentpack/config.toml || agentpack init --yes
+test -f .agentpack/config.toml || "$AGENTPACK_BIN" init --yes
 ```
 
 ### Step 3: Determine workflow
 
 **Session active** (`.agentpack/session.json` exists, `"active": true`):
 - Update `.agentpack/task.md` if task changed
-- Run `agentpack pack --task auto` unless watch already refreshed it
+- Run `"$AGENTPACK_BIN" pack --task auto` unless watch already refreshed it
 - Read `.agentpack/context.md`
 - Proceed immediately
 
 **No session**:
-- Run `agentpack session start` or `agentpack pack --task auto`
+- Run `"$AGENTPACK_BIN" session start` or `"$AGENTPACK_BIN" pack --task auto`
 - Read the context file
 - Proceed
 
@@ -116,9 +125,9 @@ Do not say "context pack ready" and stop. Do not tell the user to run more comma
 
 ## Stale pack handling
 
-If `agentpack status` exits non-zero or context seems unrelated to the task:
-- Run `agentpack session refresh` (if session active)
-- Or run `agentpack pack --task auto` (manual mode)
+If `"$AGENTPACK_BIN" status` exits non-zero or context seems unrelated to the task:
+- Run `"$AGENTPACK_BIN" session refresh` (if session active)
+- Or run `"$AGENTPACK_BIN" pack --task auto` (manual mode)
 - Re-read the context, then proceed
 
 Do not ask the user — just refresh and proceed.
@@ -126,9 +135,9 @@ Do not ask the user — just refresh and proceed.
 ## Debugging selection
 
 ```bash
-agentpack explain --task auto                          # show ranked file list
-agentpack explain --file src/auth/session.py           # per-file score breakdown
-agentpack explain --omitted                            # see what was excluded and why
+"$AGENTPACK_BIN" explain --task auto                   # show ranked file list
+"$AGENTPACK_BIN" explain --file src/auth/session.py    # per-file score breakdown
+"$AGENTPACK_BIN" explain --omitted                     # see what was excluded and why
 ```
 
 ## Subcommand routing

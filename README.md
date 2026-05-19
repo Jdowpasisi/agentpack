@@ -1,6 +1,8 @@
 # AgentPack
 
 [![PyPI version](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
+[![npm version](https://img.shields.io/npm/v/@vishal2612200/agentpack.svg)](https://www.npmjs.com/package/@vishal2612200/agentpack)
+[![npm downloads](https://img.shields.io/npm/dm/@vishal2612200/agentpack.svg)](https://www.npmjs.com/package/@vishal2612200/agentpack)
 [![Python versions](https://img.shields.io/pypi/pyversions/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
@@ -11,9 +13,9 @@
 
 **Local context engine for AI coding agents.**
 
-AgentPack builds task-focused context packs for Claude Code, Cursor, Windsurf, Codex, Antigravity, CI jobs, and any LLM workflow that can read markdown. It scans your repo locally, ranks files for the task, compresses the result into a token budget, and keeps the pack fresh through CLI commands, MCP tools, hooks, and agent integrations.
+AgentPack gives Claude Code, Codex, Cursor, Windsurf, Antigravity, CI jobs, and other agent workflows a better starting point. It analyzes your repo locally, finds the relevant files for a task, and packages them into compact task-focused context packs for CLI and MCP tool workflows.
 
-AgentPack is useful when a repo is too large to paste, but a blank agent session wastes time rediscovering the same code structure. It is a context preparation tool, not a coding agent.
+Use AgentPack when a repo is too large to paste and you want faster, more consistent context preparation before an agent starts working. It works offline, keeps the product boundary explicit, and is a context preparation tool, not a coding agent.
 
 ## Contents
 
@@ -21,6 +23,7 @@ AgentPack is useful when a repo is too large to paste, but a blank agent session
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [Quality Bar](#quality-bar)
+- [Download Stats](#download-stats)
 - [Debugging Selection](#debugging-selection)
 - [Supported Integrations](#supported-integrations)
 - [Commands](#commands)
@@ -31,8 +34,9 @@ AgentPack is useful when a repo is too large to paste, but a blank agent session
 
 ## Features
 
-- **Task-focused packing**: ranks files from git changes, task terms, symbols, imports, related tests, configs, churn, and repo history.
+- **Task-focused packing**: ranks files from git changes, task terms, symbols, imports, related tests, configs, churn, repo history, and deterministic offline summaries.
 - **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
+- **Local code intelligence**: extracts roles, domains, entrypoints, definitions, dependencies, env reads, side effects, and external systems using static analysis.
 - **Semantic repo map**: adds a compact module-level map before file context so agents orient faster.
 - **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, and stale-context warnings.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
@@ -66,6 +70,27 @@ sudo pacman -S python-pipx
 pipx ensurepath
 ```
 
+If `pipx` is not installed yet:
+
+```bash
+# macOS
+brew install pipx
+
+# Ubuntu/Debian
+sudo apt install pipx
+
+# Fedora
+sudo dnf install pipx
+
+# Arch
+sudo pacman -S python-pipx
+
+# Then ensure pipx apps are on PATH
+pipx ensurepath
+```
+
+`pipx` is the recommended default because it keeps the CLI isolated and avoids many macOS/Linux global `pip install` issues, including PEP 668 `externally-managed-environment` errors. If you prefer `pip`, install inside a virtual environment.
+
 JavaScript-heavy teams can install the npm wrapper:
 
 ```bash
@@ -73,7 +98,7 @@ npm install -g @vishal2612200/agentpack
 agentpack --version
 ```
 
-The npm package is a Node launcher around the Python implementation. It requires Node.js 18+ and Python 3.10+, then installs the matching core `agentpack-cli` package into a per-version virtual environment on first run. The Python package remains the source of truth; npm is the convenience install path for JavaScript-heavy teams. Use the PyPI extras below when you need optional `watch` or `mcp` dependencies.
+The npm package is a Node launcher around the Python implementation. It requires Node.js 18+ and Python 3.10+, then installs the matching core `agentpack-cli` package into a per-version virtual environment on first run. The Python package remains the source of truth; npm is the convenience install path for JavaScript-heavy teams. See the [npm README](https://github.com/vishal2612200/agentpack/blob/main/npm/README.md) for wrapper cache controls and troubleshooting. Use the PyPI extras below when you need optional `watch` or `mcp` dependencies.
 
 ## Quickstart
 
@@ -143,6 +168,24 @@ This repo includes a curated public smoke suite in
 ItsDangerous, and MarkupSafe by checking out each commit's parent and scoring
 against files actually changed by the commit. Synthetic fixtures are useful
 regression tests, but should not be presented as market proof.
+
+## Download Stats
+
+npm exposes official package download counts through its public registry API and the npm downloads badge above:
+
+```bash
+curl https://api.npmjs.org/downloads/point/last-month/%40vishal2612200%2Fagentpack
+curl https://api.npmjs.org/downloads/point/last-week/%40vishal2612200%2Fagentpack
+```
+
+PyPI does not show official project download counts on package pages. For rough trend data on the Python core package, use third-party mirrors:
+
+```bash
+curl https://pypistats.org/api/packages/agentpack-cli/recent
+```
+
+- PyPI Stats: <https://pypistats.org/packages/agentpack-cli>
+- pepy.tech: <https://pepy.tech/project/agentpack-cli>
 
 ## Debugging Selection
 
@@ -748,7 +791,11 @@ Uses `watchdog` if installed, falls back to polling. Context is refreshed whenev
 Install watchdog for better performance:
 ```bash
 pipx inject agentpack-cli watchdog
+PIPX_AGENTPACK="$(pipx environment --value PIPX_BIN_DIR)/agentpack"
+"$PIPX_AGENTPACK" watch
 ```
+
+Use the explicit `pipx` binary path above if you also have the npm wrapper on `PATH`; otherwise `agentpack watch` may still resolve to the Node launcher.
 
 ---
 
@@ -770,8 +817,11 @@ Run AgentPack as an MCP server — exposes context packing as tools that Claude 
 
 ```bash
 pipx inject agentpack-cli "agentpack-cli[mcp]"
-agentpack mcp
+PIPX_AGENTPACK="$(pipx environment --value PIPX_BIN_DIR)/agentpack"
+"$PIPX_AGENTPACK" mcp
 ```
+
+Use the explicit `pipx` binary path above if you also have the npm wrapper on `PATH`; otherwise `agentpack mcp` may still resolve to the Node launcher instead of the extras-enabled Python CLI.
 
 Register in Claude Code settings (`~/.claude/settings.json`):
 

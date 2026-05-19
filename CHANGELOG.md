@@ -8,6 +8,9 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Changed
+- Aligned GitHub, PyPI, and npm discovery copy, keywords, and README openings around AgentPack's local context engine positioning, including clearer npm wrapper framing.
+
 ---
 
 ## [0.3.0] — 2026-05-17
