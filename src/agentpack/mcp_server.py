@@ -419,7 +419,7 @@ def serve() -> None:
     except ImportError:
         print(
             "mcp package required for MCP server. "
-            "Install: pip install 'agentpack-cli[mcp]'",
+            "Install: pipx inject agentpack-cli 'agentpack-cli[mcp]'",
             file=sys.stderr,
         )
         sys.exit(1)

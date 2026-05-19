@@ -81,13 +81,16 @@ agentpack repair --agent all
 
 ## Optional watch and MCP workflows
 
-The `watch` and `mcp` commands use optional Python dependencies. If you need those workflows today, install the Python package with extras:
+The `watch` and `mcp` commands use optional Python dependencies. If you need those workflows today, add the Python extras to a `pipx` install or use a virtual environment. Avoid global `pip3 install` on system-managed Python: many macOS/Linux distributions block it with PEP 668's `externally-managed-environment`.
 
 ```bash
-python -m pip install "agentpack-cli[all]"
+pipx install agentpack-cli
+pipx inject agentpack-cli "agentpack-cli[all]"
 agentpack watch
 agentpack mcp
 ```
+
+Install `pipx` with your OS package manager first if needed: `brew install pipx`, `sudo apt install pipx`, `sudo dnf install pipx`, or `sudo pacman -S python-pipx`; then run `pipx ensurepath`.
 
 The npm wrapper still works well for the core setup, pack, status, doctor, explain, repair, and benchmark commands.
 
@@ -129,7 +132,16 @@ Install Python 3.10+ or set `AGENTPACK_PYTHON=/path/to/python3`.
 
 `failed to install agentpack-cli==<version>`
 
-Check that `python -m pip` can reach PyPI. Corporate networks may need standard pip index or proxy configuration.
+Check that Python can reach PyPI. Corporate networks may need standard package index or proxy configuration. Avoid global `pip3 install` on system-managed Python; many macOS/Linux distributions block it with PEP 668's `externally-managed-environment`. Use `pipx` or a virtual environment for direct Python installs.
+
+Optional Python `watch` and `mcp` extras can be added to a `pipx` install:
+
+```bash
+pipx install agentpack-cli
+pipx inject agentpack-cli "agentpack-cli[all]"
+```
+
+Install `pipx` with your OS package manager first if needed: `brew install pipx`, `sudo apt install pipx`, `sudo dnf install pipx`, or `sudo pacman -S python-pipx`; then run `pipx ensurepath`.
 
 `agentpack: command not found`
 

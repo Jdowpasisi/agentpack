@@ -82,7 +82,7 @@ Then read `.agentpack/context.claude.md` in full.
 ### Step 1: Check agentpack is installed
 
 ```bash
-agentpack --help 2>/dev/null || pip install agentpack-cli
+agentpack --help 2>/dev/null || pipx install agentpack-cli
 ```
 
 ### Step 2: Initialize if not already done
