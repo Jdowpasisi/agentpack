@@ -106,28 +106,28 @@ def check_agent_integration(root: Path, agent: str) -> list[AgentCheck]:
         return _check_claude(root)
     if agent == "cursor":
         return [
-            _file_contains(root, agent, ".cursorrules", "agentpack", "agentpack repair --agent cursor"),
-            _file_contains(root, agent, ".cursor/rules/agentpack.mdc", "agentpack", "agentpack repair --agent cursor"),
+            _current_rule_file(root, agent, ".cursorrules", "agentpack repair --agent cursor"),
+            _current_rule_file(root, agent, ".cursor/rules/agentpack.mdc", "agentpack repair --agent cursor"),
             *_check_git_hooks(root, agent),
-            _file_contains(root, agent, ".vscode/tasks.json", "agentpack", "agentpack repair --agent cursor"),
+            _current_vscode_tasks(root, agent, "agentpack repair --agent cursor"),
         ]
     if agent == "windsurf":
         return [
-            _file_contains(root, agent, ".windsurfrules", "agentpack", "agentpack repair --agent windsurf"),
+            _current_rule_file(root, agent, ".windsurfrules", "agentpack repair --agent windsurf"),
             *_check_git_hooks(root, agent),
-            _file_contains(root, agent, ".vscode/tasks.json", "agentpack", "agentpack repair --agent windsurf"),
+            _current_vscode_tasks(root, agent, "agentpack repair --agent windsurf"),
         ]
     if agent == "codex":
         return [
-            _file_contains(root, agent, "AGENTS.md", "agentpack", "agentpack repair --agent codex"),
+            _current_rule_file(root, agent, "AGENTS.md", "agentpack repair --agent codex"),
             _codex_hooks(root),
             *_check_git_hooks(root, agent),
         ]
     if agent == "antigravity":
         return [
-            _file_contains(root, agent, "GEMINI.md", "agentpack", "agentpack repair --agent antigravity"),
+            _current_rule_file(root, agent, "GEMINI.md", "agentpack repair --agent antigravity"),
             *_check_git_hooks(root, agent),
-            _file_contains(root, agent, ".vscode/tasks.json", "agentpack", "agentpack repair --agent antigravity"),
+            _current_vscode_tasks(root, agent, "agentpack repair --agent antigravity"),
         ]
     if agent == "generic":
         return [AgentCheck(agent, "generic", True, "no agent-specific files required")]
@@ -147,6 +147,59 @@ def _file_contains(root: Path, agent: str, rel: str, needle: str, fix: str) -> A
     return AgentCheck(agent, rel, False, "present but AgentPack block missing", fix)
 
 
+def _current_rule_file(root: Path, agent: str, rel: str, fix: str) -> AgentCheck:
+    path = root / rel
+    if not path.exists():
+        return AgentCheck(agent, rel, False, "missing", fix)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return AgentCheck(agent, rel, False, "unreadable", fix)
+    required = (
+        "agentpack",
+        "MCP is the active path",
+        "agentpack_get_context",
+        "agentpack:freshness",
+        "agentpack guard",
+        "--repair-stale",
+    )
+    missing = [needle for needle in required if needle.lower() not in content.lower()]
+    if not missing:
+        return AgentCheck(agent, rel, True, "current MCP-first AgentPack rule present")
+    if "agentpack" in content.lower():
+        return AgentCheck(
+            agent,
+            rel,
+            False,
+            "stale AgentPack rule; missing MCP-first guard/freshness contract",
+            fix,
+        )
+    return AgentCheck(agent, rel, False, "present but AgentPack block missing", fix)
+
+
+def _current_vscode_tasks(root: Path, agent: str, fix: str) -> AgentCheck:
+    path = root / ".vscode" / "tasks.json"
+    if not path.exists():
+        return AgentCheck(agent, ".vscode/tasks.json", False, "missing", fix)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return AgentCheck(agent, ".vscode/tasks.json", False, "unreadable", fix)
+    required = ("agentpack", "agentpack guard", "--repair-stale", "--refresh-context")
+    missing = [needle for needle in required if needle.lower() not in content.lower()]
+    if not missing:
+        return AgentCheck(agent, ".vscode/tasks.json", True, "current AgentPack guard task present")
+    if "agentpack" in content.lower():
+        return AgentCheck(
+            agent,
+            ".vscode/tasks.json",
+            False,
+            "stale AgentPack tasks; missing executable guard command",
+            fix,
+        )
+    return AgentCheck(agent, ".vscode/tasks.json", False, "present but AgentPack tasks missing", fix)
+
+
 def _check_git_hooks(root: Path, agent: str) -> list[AgentCheck]:
     checks: list[AgentCheck] = []
     for event in GIT_HOOK_EVENTS:
@@ -164,7 +217,7 @@ def _check_git_hooks(root: Path, agent: str) -> list[AgentCheck]:
 
 
 def _check_claude(root: Path) -> list[AgentCheck]:
-    checks = [_file_contains(root, "claude", "CLAUDE.md", "agentpack", "agentpack repair --agent claude")]
+    checks = [_current_claude_md(root)]
     settings = root / ".claude" / "settings.json"
     if settings.exists():
         try:
@@ -209,6 +262,29 @@ def _check_claude(root: Path) -> list[AgentCheck]:
     else:
         checks.append(AgentCheck("claude", ".mcp.json", False, "missing", "agentpack repair --agent claude"))
     return checks
+
+
+def _current_claude_md(root: Path) -> AgentCheck:
+    path = root / "CLAUDE.md"
+    if not path.exists():
+        return AgentCheck("claude", "CLAUDE.md", False, "missing", "agentpack repair --agent claude")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return AgentCheck("claude", "CLAUDE.md", False, "unreadable", "agentpack repair --agent claude")
+    required = ("agentpack", "Prefer MCP", "mcp__agentpack__get_context", "agentpack guard", "--repair-stale")
+    missing = [needle for needle in required if needle.lower() not in content.lower()]
+    if not missing:
+        return AgentCheck("claude", "CLAUDE.md", True, "current MCP-first AgentPack block present")
+    if "agentpack" in content.lower():
+        return AgentCheck(
+            "claude",
+            "CLAUDE.md",
+            False,
+            "stale AgentPack block; missing MCP-first guard guidance",
+            "agentpack repair --agent claude",
+        )
+    return AgentCheck("claude", "CLAUDE.md", False, "present but AgentPack block missing", "agentpack repair --agent claude")
 
 
 def _codex_hooks(root: Path) -> AgentCheck:

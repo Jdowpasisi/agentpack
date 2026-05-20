@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.4).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.5).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 
@@ -38,7 +38,7 @@ Use AgentPack when a repo is too large to paste and you want faster, more consis
 - **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
 - **Local code intelligence**: extracts roles, domains, entrypoints, definitions, dependencies, env reads, side effects, and external systems using static analysis.
 - **Semantic repo map**: adds a compact module-level map before file context so agents orient faster.
-- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, and MCP auto-refresh signals.
+- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, MCP auto-refresh signals, and a machine-readable `agentpack:freshness` block in markdown fallback artifacts.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
 - **Local and measurable**: no API calls for scan, summarize, rank, pack, stats, or benchmark; quality is measured with expected-file evals.
 
@@ -212,6 +212,16 @@ For MCP-capable agents, the preferred workflow is pull-based:
 4. Call `explain_file(path)` or `get_related_files(path)` when a file looks relevant or suspicious.
 
 The CLI remains the setup/debug/release path. MCP is the best interactive path because the agent can ask for only the context it needs instead of relying on one static startup blob.
+
+Markdown context files are fallback artifacts for CI, logs, manual review, and non-MCP agents. Every rendered pack includes a machine-readable `agentpack:freshness` comment; agents should treat `active_context: mcp` as the preferred path and refresh before using markdown when `refresh_required: true`.
+
+For non-MCP agents, use the executable guard before editing:
+
+```bash
+agentpack guard --agent auto --repair-stale --refresh-context
+```
+
+`guard` checks pack freshness, task freshness, repo snapshot freshness, and installed agent rules/hooks. With `--repair-stale --refresh-context`, it repairs stale AgentPack rule files and refreshes missing or stale context before returning success. `agentpack pack` also self-heals stale AgentPack rule blocks for the active agent, so older installs that still run `pack` get upgraded opportunistically.
 
 ## Before / After Agent Behavior
 
@@ -694,6 +704,36 @@ agentpack repair --agent all     # repair every supported integration
 
 ---
 
+### `agentpack guard`
+
+Run the pre-edit safety gate an agent can execute instead of only reading instructions.
+
+```bash
+agentpack guard                                      # check current agent + context
+agentpack guard --refresh-context                   # refresh stale/missing context
+agentpack guard --agent codex --repair-stale        # repair stale Codex rules/hooks
+agentpack guard --agent auto --repair-stale --refresh-context
+```
+
+This is the strongest non-native enforcement AgentPack can provide: tools that run commands get a failing exit code when context is unsafe, and an automatic repair/refresh path when allowed.
+
+---
+
+### `agentpack migrate`
+
+Repair stale AgentPack integrations across existing repos after upgrading.
+
+```bash
+agentpack migrate --path . --agent auto
+agentpack migrate --path ~/src --discover --agent all
+agentpack migrate --path ~/src --discover --agent codex --refresh-context
+agentpack migrate --path ~/src --discover --dry-run
+```
+
+Use this when older repos still have stale `.cursorrules`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.windsurfrules`, VS Code tasks, or hook files. `--discover` scans nested repo folders, `--dry-run` reports without writing, and `--refresh-context` regenerates packs after repair.
+
+---
+
 ### `agentpack summarize`
 
 Build or refresh the offline summary cache. **No API calls, ever.**
@@ -856,6 +896,23 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 ```
 
 If auto-refresh fails, it falls back to the cached context with a loud stale warning and asks the agent to call `pack_context()` again.
+
+Static markdown cannot refresh itself, so rendered packs include a machine-readable fallback header:
+
+```text
+<!-- agentpack:freshness
+{
+  "active_context": "mcp",
+  "fallback_context": "markdown",
+  "refresh_required": false,
+  "mcp_refresh_tool": "agentpack_get_context",
+  "cli_refresh_command": "agentpack pack --task auto",
+  "guard_command": "agentpack guard --agent auto --repair-stale --refresh-context"
+}
+-->
+```
+
+Claude prompt hooks also block once on clear task switches so first-turn hints are fresh. Non-MCP rule files and VS Code folder-open tasks use `agentpack guard --repair-stale --refresh-context` as the executable fallback. To prefer lower latency over first-turn freshness, set `blocking_task_refresh = false` under `[hooks]` in `.agentpack/config.toml`.
 
 **Smart truncation:** `start_task()` and `pack_context()` keep headers intact and trim file content blocks to fit the token budget, appending a note about how many files were omitted.
 
@@ -1408,6 +1465,13 @@ src/agentpack/
     vscode_tasks.py            # install/remove .vscode/tasks.json entries
     global_install.py          # global: git template hooks + shell rc hook
 
+  ../native-integrations/       # tracked native-enforcement skeletons and blocked-status stubs
+    status.json                 # machine-readable native host enforcement status
+    cursor-extension/           # VS Code-style Cursor guard skeleton
+    windsurf-extension/         # VS Code-style Windsurf guard skeleton
+    claude-native/              # blocked native stub pending mandatory host API
+    codex-native/               # blocked native stub pending mandatory host API
+
   renderers/
     markdown.py                # renders pre-redacted ContextPack to markdown, including freshness/map/delta
     compact.py                 # compact protocol format for session context files
@@ -1461,6 +1525,7 @@ src/agentpack/
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
 - **Agent integration contract is shared**: `integrations/agents.py` defines install, audit, and repair behavior for Claude, Cursor, Windsurf, Codex, Antigravity, and Generic. `install`, `repair`, `doctor --agent all`, and release verification use the same contract.
 - **MCP is the interactive path**: `start_task()` writes task state and returns a fresh pack, while `get_context()` auto-refreshes stale task or repo-snapshot context and `get_delta_context()`, `explain_file()`, and `get_related_files()` let agents pull follow-up context on demand.
+- **Native enforcement status is explicit**: `native-integrations/status.json` tracks host skeletons and blockers. Entries stay `guarded`, not `enforced`, until a host exposes mandatory pre-edit/pre-tool hooks that can block failed guard checks.
 
 ---
 
@@ -1485,6 +1550,7 @@ src/agentpack/
 - **Secret redaction**: covers AWS keys, GitHub tokens, OpenAI/Anthropic keys, JWTs, and private key blocks. Not a substitute for a dedicated secrets scanner on sensitive repos.
 - **Token estimates**: uses tiktoken `cl100k_base` — approximate, not exact for Claude's billing.
 - **Large repos (>5k files)**: global auto-bootstrap is skipped for repos over 5,000 files to avoid hangs. Run `agentpack init` explicitly in large codebases.
+- **Native hard enforcement**: tracked skeletons exist under `native-integrations/`, but all hosts remain `guarded` until their native APIs can guarantee mandatory pre-edit/pre-tool execution and block failed guard checks.
 
 ---
 

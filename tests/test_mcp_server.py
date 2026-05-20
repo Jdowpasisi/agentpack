@@ -207,22 +207,28 @@ def test_get_context_auto_refreshes_when_snapshot_differs(tmp_path):
     assert "# refreshed" in result
 
 
-def test_get_context_stale_when_no_metadata(tmp_path):
+def test_get_context_auto_refreshes_when_no_metadata(tmp_path):
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "context.claude.md").write_text("# pack content")
     _write_snapshot(tmp_path, root_hash="abc123")
 
-    result = _get_context_impl(tmp_path)
-    assert "Stale context" in result
+    with patch("agentpack.mcp_server._pack_context_impl", return_value="# refreshed") as mock_pack:
+        result = _get_context_impl(tmp_path)
+
+    mock_pack.assert_called_once_with(tmp_path, task="", max_tokens=20000)
+    assert "Context auto-refreshed because pack metadata missing" in result
 
 
-def test_get_context_stale_when_no_snapshot(tmp_path):
+def test_get_context_auto_refreshes_when_no_snapshot(tmp_path):
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "context.claude.md").write_text("# pack content")
     _write_metadata(tmp_path, root_hash="abc123")
 
-    result = _get_context_impl(tmp_path)
-    assert "Stale context" in result
+    with patch("agentpack.mcp_server._pack_context_impl", return_value="# refreshed") as mock_pack:
+        result = _get_context_impl(tmp_path)
+
+    mock_pack.assert_called_once_with(tmp_path, task="", max_tokens=20000)
+    assert "Context auto-refreshed because repo snapshot missing" in result
 
 
 def test_resolve_mcp_task_writes_task_md(tmp_path):

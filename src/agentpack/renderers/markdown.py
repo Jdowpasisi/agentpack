@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from agentpack.core.models import ContextPack, SelectedFile, Symbol
 
 
@@ -24,6 +26,26 @@ def _freshness_value(value: object) -> str:
     if isinstance(value, list):
         return ", ".join(str(item) for item in value)
     return str(value)
+
+
+def _machine_freshness_block(pack: ContextPack) -> str:
+    stale_task = _has_task_stale_warning(pack)
+    refresh_required = pack.stale or stale_task
+    fields = {
+        "active_context": "mcp",
+        "fallback_context": "markdown",
+        "packed_task": pack.task,
+        "task_hash": pack.freshness.get("packed_task_hash") or pack.freshness.get("task_hash") or "",
+        "task_md_hash": pack.freshness.get("task_md_hash", ""),
+        "snapshot_root_hash": pack.freshness.get("snapshot_root_hash", ""),
+        "generated_at": pack.freshness.get("generated_at", ""),
+        "stale_task_context": stale_task,
+        "refresh_required": refresh_required,
+        "mcp_refresh_tool": "agentpack_get_context",
+        "cli_refresh_command": "agentpack pack --task auto",
+        "guard_command": "agentpack guard --agent auto --repair-stale --refresh-context",
+    }
+    return "<!-- agentpack:freshness\n" + json.dumps(fields, indent=2, sort_keys=True) + "\n-->"
 
 
 def _file_section(sf: SelectedFile) -> str:
@@ -77,6 +99,8 @@ def render_claude(pack: ContextPack) -> str:
 
     sections.append("# AgentPack Context for Claude")
     sections.append("")
+    sections.append(_machine_freshness_block(pack))
+    sections.append("")
 
     if pack.stale:
         sections.append("> **Warning:** This context pack may be stale. Run `agentpack pack` to regenerate.")
@@ -84,7 +108,8 @@ def render_claude(pack: ContextPack) -> str:
     if _has_task_stale_warning(pack):
         sections.append(
             "> **STALE TASK CONTEXT:** `.agentpack/task.md` does not match this packed context. "
-            "Refresh with `agentpack pack --task auto` or call `agentpack_pack_context()` before using selected files."
+            "Do not trust selected files until refreshed. Run `agentpack pack --task auto`, "
+            "or call `agentpack_pack_context()` / `agentpack_get_context()` before using this pack."
         )
         sections.append("")
 

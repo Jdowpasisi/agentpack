@@ -1,0 +1,46 @@
+{
+  "name": "agentpack-windsurf-native-skeleton",
+  "displayName": "AgentPack Guard for Windsurf",
+  "description": "Skeleton for native AgentPack guard enforcement in Windsurf-style hosts.",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "agentpack",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:agentpack.guard"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentpack.guard",
+        "title": "AgentPack: Run Guard"
+      }
+    ],
+    "configuration": {
+      "title": "AgentPack Guard",
+      "properties": {
+        "agentpack.guardCommand": {
+          "type": "string",
+          "default": "agentpack guard --agent windsurf --repair-stale --refresh-context",
+          "description": "Command to run before trusting packed AgentPack context."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "package": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.0.0"
+  }
+}

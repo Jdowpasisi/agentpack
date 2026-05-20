@@ -13,6 +13,7 @@ class TestInstallVscodeTasks:
         labels = [t["label"] for t in data["tasks"]]
         assert "AgentPack: Repack context" in labels
         assert "AgentPack: Repack (auto task)" in labels
+        assert "AgentPack: Guard context" in labels
 
     def test_agent_name_in_command(self, tmp_path):
         install_vscode_tasks(tmp_path, agent="windsurf")
@@ -53,6 +54,8 @@ class TestInstallVscodeTasks:
         data = json.loads((tmp_path / ".vscode" / "tasks.json").read_text())
         auto_task = next(t for t in data["tasks"] if t["label"] == "AgentPack: Repack (auto task)")
         assert auto_task["runOptions"]["runOn"] == "folderOpen"
+        assert "agentpack guard" in auto_task["command"]
+        assert "--repair-stale" in auto_task["command"]
 
 
 class TestRemoveVscodeTasks:

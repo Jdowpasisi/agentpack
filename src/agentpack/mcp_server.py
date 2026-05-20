@@ -110,6 +110,10 @@ def _get_context_impl(root: Path) -> str:
         auto_refresh_reason = (
             f"{freshness.reason} (packed: {freshness.packed_task}; current: {freshness.current_task})"
         )
+    elif metadata is None:
+        auto_refresh_reason = "pack metadata missing"
+    elif snapshot is None:
+        auto_refresh_reason = "repo snapshot missing"
     elif metadata and snapshot and metadata.get("snapshot_root_hash") != snapshot.get("root_hash"):
         auto_refresh_reason = "repo snapshot changed"
 

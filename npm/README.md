@@ -25,7 +25,7 @@ AgentPack is a context preparation tool, not a coding agent. It stays local, det
 - **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
 - **Local code intelligence**: extracts roles, domains, entrypoints, definitions, dependencies, env reads, side effects, and external systems using static analysis.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
-- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, and MCP task/repo auto-refresh signals.
+- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, MCP task/repo auto-refresh signals, and a machine-readable `agentpack:freshness` block in markdown fallback artifacts.
 - **Measurable quality**: benchmark expected-file recall, token efficiency, misses, and public smoke suites.
 
 ## What this npm package is
@@ -132,11 +132,19 @@ agentpack stats
 
 ```bash
 agentpack status
+agentpack guard --agent auto --repair-stale --refresh-context
+agentpack migrate --path ~/src --discover --agent all
 agentpack doctor --agent all
 agentpack explain --file path/to/file.py
 agentpack benchmark --sample-fixtures --misses
 agentpack repair --agent all
 ```
+
+`agentpack guard` is the executable pre-edit gate for non-MCP agents. It checks stale context, stale task metadata, repo snapshot drift, and stale installed rule files; with `--repair-stale --refresh-context`, it repairs and refreshes before returning success. `agentpack pack` also self-heals stale AgentPack rule blocks for older installs that still call `pack`.
+
+`agentpack migrate --discover` scans existing repo folders and applies the same integration repair across many repos after an upgrade.
+
+Native host enforcement skeletons and blocked-status stubs live in `native-integrations/` in the source repo. They are marked `guarded`, not `enforced`, until host APIs expose mandatory pre-edit/pre-tool hooks.
 
 ## Optional watch and MCP workflows
 

@@ -79,7 +79,12 @@ def _print_deep_health(root, meta: dict | None) -> None:
     except Exception:
         agent = "generic"
     console.print(f"  Active agent: {agent}")
+    failing = []
     for check in check_agent_integration(root, agent):
         marker = "[green]✓[/]" if check.ok else "[yellow]![/]"
         fix = f" — {check.fix}" if check.fix and not check.ok else ""
         console.print(f"  {marker} {check.label}: {check.detail}{fix}")
+        if not check.ok:
+            failing.append(check)
+    if failing:
+        console.print(f"  [yellow]![/] Guard repair: agentpack guard --agent {agent} --repair-stale --refresh-context")

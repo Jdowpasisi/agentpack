@@ -14,6 +14,7 @@ from agentpack.core import git
 from agentpack.core.ignore import SENSITIVE_PATTERNS
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
 from agentpack.commands._shared import console, _root, _file_hash, _now_iso
+from agentpack.integrations.agents import check_agent_integration, install_agent_integration
 from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
 
 
@@ -59,6 +60,7 @@ def register(app: typer.Typer) -> None:
             workspace=workspace or None,
         ))
         _mark_session_refreshed(_root(), result)
+        _auto_repair_stale_agent_rules(result.pack.agent)
         _print_pack_summary(result)
 
 
@@ -161,6 +163,8 @@ def _print_pack_summary(result: PackResult) -> None:
     console.print(Columns([stats, files_tbl], equal=False, expand=False))
 
     diagnostics = _pack_diagnostics(result)
+    integration_warnings = _agent_integration_warnings(result)
+    diagnostics.extend(integration_warnings)
     if diagnostics:
         diag_text = "\n".join(f"  [yellow]![/] {line}" for line in diagnostics)
         console.print(Panel(
@@ -244,6 +248,44 @@ def _pack_diagnostics(result: PackResult) -> list[str]:
     if summary_cap_excluded:
         diagnostics.append(f"{summary_cap_excluded} summaries excluded by mode cap.")
     return diagnostics[:5]
+
+
+def _agent_integration_warnings(result: PackResult) -> list[str]:
+    agent = result.pack.agent
+    if agent == "generic":
+        return []
+    try:
+        failing = [check for check in check_agent_integration(_root(), agent) if not check.ok]
+    except Exception:
+        return []
+    if not failing:
+        return []
+    return [
+        f"Agent integration needs repair ({agent}); run `agentpack guard --agent {agent} --repair-stale --refresh-context`."
+    ]
+
+
+def _auto_repair_stale_agent_rules(agent: str) -> None:
+    if agent == "generic":
+        return
+    root = _root()
+    try:
+        checks = check_agent_integration(root, agent)
+    except Exception:
+        return
+    stale = [check for check in checks if not check.ok and check.detail.startswith("stale AgentPack")]
+    if not stale:
+        return
+    try:
+        from agentpack.commands.install import _install_slash_command
+
+        install_agent_integration(root, agent, install_slash_command=_install_slash_command)
+        console.print(f"[yellow]Auto-repaired stale AgentPack integration for {agent}.[/]")
+    except Exception as exc:
+        console.print(
+            f"[yellow]Stale AgentPack integration detected for {agent}; "
+            f"run `agentpack guard --agent {agent} --repair-stale --refresh-context`. ({exc})[/]"
+        )
 
 
 def _pack_watch(

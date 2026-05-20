@@ -1,5 +1,6 @@
 from pathlib import Path
 import subprocess
+import json
 from agentpack.application.pack_service import _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import save_pack_metadata, select_files, _selection_priority
@@ -255,6 +256,14 @@ def test_render_includes_freshness_metadata():
     rendered = render_claude(pack)
 
     assert "## Freshness" in rendered
+    assert "<!-- agentpack:freshness" in rendered
+    freshness_json = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
+    freshness = json.loads(freshness_json)
+    assert freshness["active_context"] == "mcp"
+    assert freshness["fallback_context"] == "markdown"
+    assert freshness["snapshot_root_hash"] == "root123"
+    assert freshness["refresh_required"] is False
+    assert freshness["guard_command"] == "agentpack guard --agent auto --repair-stale --refresh-context"
     assert "**Generated:** 2026-05-13T00:00:00+00:00" in rendered
     assert "**Task source:** task.md" in rendered
     assert "**Workspaces:** apps/dashboard, packages/core" in rendered
@@ -284,6 +293,12 @@ def test_render_loud_stale_task_warning():
     rendered = render_claude(pack)
 
     assert "STALE TASK CONTEXT" in rendered
+    freshness_json = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
+    freshness = json.loads(freshness_json)
+    assert freshness["stale_task_context"] is True
+    assert freshness["refresh_required"] is True
+    assert "Do not trust selected files until refreshed" in rendered
+    assert "agentpack_get_context()" in rendered
     assert "agentpack_pack_context()" in rendered
 
 

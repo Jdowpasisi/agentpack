@@ -9,7 +9,11 @@ class TestAntigravityAdapter:
         assert action == "created"
         content = (tmp_path / "GEMINI.md").read_text()
         assert "skills:" in content
-        assert "agentpack pack --task auto" in content
+        assert "agentpack_get_context()" in content
+        assert "agentpack_pack_context" in content
+        assert "agentpack guard --agent antigravity --repair-stale --refresh-context" in content
+        assert "MCP is the active path" in content
+        assert "agentpack:freshness" in content
         assert ".agent/skills/agentpack/SKILL.md" in content
         assert "When the user switches to a different coding task" in content
 

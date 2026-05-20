@@ -245,13 +245,20 @@ def register(app: typer.Typer) -> None:
             console.print(f"  [dim]Auto-detected agent: {agents[0]}[/]")
         for selected in agents:
             console.print(f"  [bold]{selected}[/]")
+            selected_ok = True
             for check in check_agent_integration(root, selected):
                 if check.ok:
                     console.print(f"    [green]✓[/] {check.label}: {check.detail}")
                     continue
                 fix = f" — run: {check.fix}" if check.fix else ""
                 console.print(f"    [red]✗[/] {check.label}: {check.detail}{fix}")
+                selected_ok = False
                 ok = False
+            if not selected_ok:
+                console.print(
+                    f"    [yellow]![/] executable guard repair: "
+                    f"agentpack guard --agent {selected} --repair-stale --refresh-context"
+                )
 
         # --- Release hygiene ---
         console.print("\n[bold]Release hygiene[/]")

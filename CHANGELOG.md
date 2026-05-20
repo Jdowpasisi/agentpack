@@ -8,13 +8,25 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.3.5] — 2026-05-20
+
 ### Added
 - Hybrid task-context auto-refresh: MCP `get_context()` now blocks for a fresh pack when `.agentpack/task.md` differs from the packed task, while hook prompts continue to trigger background repacks.
 - Shared task-freshness helpers and task hashes in pack metadata so stale task state is reported consistently across MCP, status, doctor, and rendered context.
 - MCP `get_context()` also auto-refreshes when the repo snapshot changed, and Claude prompt hooks block once on task switches so first-turn hints are fresh.
+- MCP `get_context()` now refreshes when pack metadata or snapshot state is missing instead of returning cached context with only a stale header.
+- Agent installer rules now prefer MCP as the active context path and treat markdown files as fallback artifacts.
+- Added `agentpack guard`, an executable pre-edit gate that checks context freshness and agent integration health, with optional stale-rule repair and context refresh.
+- Added `agentpack migrate` to scan exact or nested repo paths and repair stale AgentPack integrations across existing repos.
+- Added tracked native enforcement skeletons/stubs for Cursor, Windsurf, Claude, and Codex under `native-integrations/`, plus a machine-readable status index.
+- `agentpack pack` now opportunistically self-heals stale AgentPack rule blocks for the active agent, helping old installs upgrade when they still call `pack`.
 
 ### Changed
 - Rendered context now includes a loud stale-task warning as a last-resort guardrail when static markdown is read after the task changes.
+- Rendered markdown now includes a machine-readable JSON `agentpack:freshness` block with active/fallback context mode, task hashes, snapshot hash, refresh commands, and the guard command.
+- Non-MCP installer rules and VS Code tasks now run `agentpack guard --repair-stale --refresh-context` as the concrete fallback before trusting markdown context.
 - Changed-file selection caps unrelated dirty files when many files are dirty, keeping safety context without letting unrelated edits dominate the pack.
 
 ---

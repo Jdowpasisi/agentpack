@@ -10,9 +10,23 @@ _AGENTPACK_BLOCK = """\
 
 AgentPack MCP server is available. For coding tasks in this repository, call the MCP tool
 before editing files to get task-relevant context without loading the entire codebase.
+Prefer MCP over reading `.agentpack/context*.md` directly because MCP auto-refreshes stale task
+and repo-snapshot context before returning.
+
+```
+mcp__agentpack__get_context()
+```
+
+For a brand-new task, call:
 
 ```
 mcp__agentpack__pack_context(task="<what you're working on>", budget=4000)
+```
+
+Executable fallback guard:
+
+```bash
+agentpack guard --agent claude --repair-stale --refresh-context
 ```
 
 Other tools:

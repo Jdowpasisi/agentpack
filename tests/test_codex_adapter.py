@@ -10,7 +10,11 @@ class TestCodexAdapter:
         assert action == "created"
         content = (tmp_path / "AGENTS.md").read_text()
         assert "agentpack:start" in content
-        assert "agentpack pack --task auto" in content
+        assert "agentpack_get_context()" in content
+        assert "agentpack_pack_context" in content
+        assert "agentpack guard --agent codex --repair-stale --refresh-context" in content
+        assert "MCP is the active path" in content
+        assert "agentpack:freshness" in content
         assert ".agentpack/task.md" in content
         assert ".agentpack/context.md" in content
         assert "When the user switches to a different coding task" in content
@@ -39,7 +43,7 @@ class TestCodexAdapter:
         assert action == "updated"
         content = agents_md.read_text()
         assert "Old text" not in content
-        assert "agentpack pack --task auto" in content
+        assert "agentpack guard --agent codex" in content
 
     def test_patch_codex_hooks_creates_lifecycle_hooks(self, tmp_path):
         adapter = CodexAdapter()

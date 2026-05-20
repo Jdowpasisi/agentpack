@@ -5,6 +5,7 @@ from pathlib import Path
 
 _TASK_LABEL = "AgentPack: Repack context"
 _TASK_LABEL_AUTO = "AgentPack: Repack (auto task)"
+_TASK_LABEL_GUARD = "AgentPack: Guard context"
 
 
 def _agentpack_tasks(agent: str) -> list[dict]:
@@ -20,10 +21,18 @@ def _agentpack_tasks(agent: str) -> list[dict]:
         {
             "label": _TASK_LABEL_AUTO,
             "type": "shell",
-            "command": f"agentpack pack --agent {agent} --task auto --mode balanced",
+            "command": f"agentpack guard --agent {agent} --repair-stale --refresh-context --mode balanced",
             "runOptions": {"runOn": "folderOpen"},
             "group": "none",
             "presentation": {"reveal": "silent", "panel": "shared"},
+            "problemMatcher": [],
+        },
+        {
+            "label": _TASK_LABEL_GUARD,
+            "type": "shell",
+            "command": f"agentpack guard --agent {agent} --repair-stale --refresh-context --mode balanced",
+            "group": "none",
+            "presentation": {"reveal": "always", "panel": "shared"},
             "problemMatcher": [],
         },
     ]
@@ -73,7 +82,7 @@ def remove_vscode_tasks(root: Path) -> str:
     except json.JSONDecodeError:
         return "unchanged"
 
-    labels = {_TASK_LABEL, _TASK_LABEL_AUTO}
+    labels = {_TASK_LABEL, _TASK_LABEL_AUTO, _TASK_LABEL_GUARD}
     before = len(existing.get("tasks", []))
     existing["tasks"] = [t for t in existing.get("tasks", []) if t.get("label") not in labels]
     after = len(existing["tasks"])
