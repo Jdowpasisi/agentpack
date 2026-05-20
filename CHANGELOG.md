@@ -10,6 +10,13 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.4] — 2026-05-20
+
+### Fixed
+- Removed an unused import in `agentpack hook` so the release workflow `ruff check src/ tests/` lint step passes again.
+
+---
+
 ## [0.3.3] — 2026-05-20
 
 ### Added
