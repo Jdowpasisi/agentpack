@@ -1,6 +1,6 @@
 {
   "name": "@vishal2612200/agentpack",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "npm launcher for the Python AgentPack CLI, a local context engine for AI coding agents that ranks relevant files and builds task-focused context packs.",
   "license": "MIT",
   "homepage": "https://github.com/vishal2612200/agentpack#readme",

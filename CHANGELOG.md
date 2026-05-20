@@ -8,6 +8,10 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.3.3] — 2026-05-20
+
 ### Added
 - Native Windows support target for PowerShell plus Git for Windows across the npm wrapper, Git hook launchers, and global shell integration.
 
