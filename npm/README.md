@@ -25,7 +25,7 @@ AgentPack is a context preparation tool, not a coding agent. It stays local, det
 - **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
 - **Local code intelligence**: extracts roles, domains, entrypoints, definitions, dependencies, env reads, side effects, and external systems using static analysis.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
-- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, and stale-context warnings.
+- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, and MCP task/repo auto-refresh signals.
 - **Measurable quality**: benchmark expected-file recall, token efficiency, misses, and public smoke suites.
 
 ## What this npm package is
@@ -109,7 +109,7 @@ AgentPack is best treated as a ranked starting map. It should reduce repeated or
 | Pack time | Seconds on a warm cache; first summarize pass is slower |
 | Recall | Expected files appear near the top; validate with `agentpack benchmark --misses` |
 | Precision | Good enough to reduce exploration; summaries and repo maps may still include noise |
-| Freshness | Stale packs are clearly marked by task, git, and snapshot checks |
+| Freshness | Task or repo-stale MCP reads auto-refresh; static packs are clearly marked by task, git, and snapshot checks |
 
 Use real repo evals instead of trusting compression numbers:
 

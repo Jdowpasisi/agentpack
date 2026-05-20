@@ -15,6 +15,7 @@ from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata, load_pack_metadata
 from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
+from agentpack.core.task_freshness import read_task_md, task_metadata
 from agentpack.core.token_estimator import estimate_tokens
 from agentpack.renderers.markdown import render_generic
 from agentpack.analysis.ranking import (
@@ -851,19 +852,7 @@ def _change_source(root: Path, since: str | None, snapshot_changed: set[str], gi
 
 
 def _task_md_body(root: Path) -> str | None:
-    task_md_path = root / ".agentpack" / "task.md"
-    if not task_md_path.exists():
-        return None
-    try:
-        content = task_md_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    lines = [ln for ln in content.splitlines() if ln.strip() and not ln.startswith("#")]
-    body = lines[0].strip() if lines else ""
-    placeholder = "Write or update the current coding task here."
-    if body and placeholder not in body:
-        return body
-    return None
+    return read_task_md(root)
 
 
 def _build_freshness_metadata(
@@ -885,6 +874,7 @@ def _build_freshness_metadata(
         "task_class_signals": plan.task_class_signals,
         "dirty_files_count": len(dirty),
     }
+    metadata.update(task_metadata(root, request.task))
     if plan.workspace:
         metadata["workspace"] = plan.workspace
     if plan.workspace_roots:
@@ -909,7 +899,7 @@ def _freshness_warnings(root: Path, request: PackRequest, freshness: dict[str, A
     task_md = freshness.get("task_md")
     if task_md and task_md != request.task:
         warnings.append(
-            ".agentpack/task.md differs from the packed task; rerun with --task auto if task.md should win."
+            ".agentpack/task.md differs from the packed task; AgentPack-controlled context reads should auto-refresh, or run `agentpack pack --task auto`."
         )
     if freshness.get("changed_files_source") == "no live changes; ranking used task keywords and history":
         warnings.append("No live changed files were detected; treat selected files as keyword-based hints.")

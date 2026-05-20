@@ -38,7 +38,7 @@ Use AgentPack when a repo is too large to paste and you want faster, more consis
 - **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
 - **Local code intelligence**: extracts roles, domains, entrypoints, definitions, dependencies, env reads, side effects, and external systems using static analysis.
 - **Semantic repo map**: adds a compact module-level map before file context so agents orient faster.
-- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, and stale-context warnings.
+- **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, and MCP auto-refresh signals.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
 - **Local and measurable**: no API calls for scan, summarize, rank, pack, stats, or benchmark; quality is measured with expected-file evals.
 
@@ -149,7 +149,7 @@ AgentPack is best treated as a **ranked starting map**. It should reduce repeate
 | Pack time | Seconds on a warm cache; first summarize pass is slower |
 | Recall | Expected files appear near the top; validate with `agentpack benchmark --misses` |
 | Precision | Good enough to reduce exploration; summaries and repo maps may still include noise |
-| Freshness | Stale packs are clearly marked by task, git, and snapshot checks |
+| Freshness | Task or repo-stale MCP reads auto-refresh; static packs are clearly marked by task, git, and snapshot checks |
 
 Use real repo evals instead of trusting compression numbers:
 
@@ -207,7 +207,7 @@ This is the core reliability loop: pack, measure recall, inspect misses, then tu
 For MCP-capable agents, the preferred workflow is pull-based:
 
 1. Call `start_task(task)` when a new task begins. AgentPack writes `.agentpack/task.md`, packs context, and returns ranked markdown.
-2. Call `get_context()` when you need the latest cached pack; it tells you if the pack is stale.
+2. Call `get_context()` when you need the latest pack. It blocks for one refresh if `.agentpack/task.md` or the repo snapshot changed since the last pack, and otherwise prepends a freshness header.
 3. Call `get_delta_context()` after edits or hook hints to see what changed without loading the full pack.
 4. Call `explain_file(path)` or `get_related_files(path)` when a file looks relevant or suspicious.
 
@@ -326,7 +326,7 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 
 - AgentPack cannot intercept prompts inside IDEs — Cursor/Windsurf rely on rules being followed.
 - Claude wrapper (`agentpack claude`) is the most deterministic integration.
-- If the task changes drastically mid-session, context needs one refresh cycle.
+- If the task changes drastically mid-session, Claude hooks update `.agentpack/task.md` and block once for fresh hints; plain repo edits still use background repack to keep prompts fast.
 - AgentPack-selected files are ranked starting points, not absolute truth.
 
 ---
@@ -842,17 +842,20 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 |---|---|
 | `start_task(task, mode, budget, max_tokens)` | Recommended MCP-first entry point. Writes `.agentpack/task.md`, generates a ranked pack, and returns packed markdown. |
 | `pack_context(task, mode, budget, max_tokens)` | Generate a ranked context pack. If `task` is provided, writes it to `.agentpack/task.md`; if omitted, reads `task.md` or infers from git. |
-| `get_context()` | Return the latest pre-built pack instantly (no repack). Prepends a freshness/staleness header so you know if it's stale. |
+| `get_context()` | Return the latest pack. If `.agentpack/task.md` or the repo snapshot differs from the packed metadata, it auto-refreshes before returning; otherwise it prepends a freshness header. |
 | `refresh()` | Refresh using the current `task.md` or git-inferred task. |
 | `explain_file(path, task)` | Show score, inclusion mode, reasons, symbols, imports, and importers for one file. |
 | `get_related_files(path, depth)` | Return import-graph neighbours and related tests for a file. |
 | `get_delta_context(max_files)` | Return the latest selected-file delta plus top current selected files. Useful for cheap prompt-time refresh checks. |
 | `get_stats()` | Return latest pack stats, savings, selection quality, excluded files, and benchmark-style signals. |
 
-**Staleness detection:** `get_context()` compares the snapshot hash from when the pack was built against the current repo snapshot. If files changed since last pack, it prepends:
+**Staleness detection:** `get_context()` compares the current task file, snapshot hash, and git state against the latest pack metadata. If `.agentpack/task.md` or the repo snapshot changed, it blocks for a fresh pack and prepends:
+
 ```
-> **Stale context** — repo changed since last pack (generated: ...). Run pack_context() to refresh.
+> Context auto-refreshed because .agentpack/task.md differs from the packed task ...
 ```
+
+If auto-refresh fails, it falls back to the cached context with a loud stale warning and asks the agent to call `pack_context()` again.
 
 **Smart truncation:** `start_task()` and `pack_context()` keep headers intact and trim file content blocks to fit the token budget, appending a note about how many files were omitted.
 
@@ -1457,7 +1460,7 @@ src/agentpack/
 - **`integrations/` vs `core/`**: git hooks, shell rc patching, and VS Code tasks are infrastructure concerns — they live in `integrations/`, not `core/`. `core/` is pure domain logic.
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
 - **Agent integration contract is shared**: `integrations/agents.py` defines install, audit, and repair behavior for Claude, Cursor, Windsurf, Codex, Antigravity, and Generic. `install`, `repair`, `doctor --agent all`, and release verification use the same contract.
-- **MCP is the interactive path**: `start_task()` writes task state and returns a fresh pack, while `get_context()`, `get_delta_context()`, `explain_file()`, and `get_related_files()` let agents pull follow-up context on demand.
+- **MCP is the interactive path**: `start_task()` writes task state and returns a fresh pack, while `get_context()` auto-refreshes stale task or repo-snapshot context and `get_delta_context()`, `explain_file()`, and `get_related_files()` let agents pull follow-up context on demand.
 
 ---
 

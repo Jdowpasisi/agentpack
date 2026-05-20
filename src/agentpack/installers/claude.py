@@ -19,7 +19,7 @@ Other tools:
 - `mcp__agentpack__explain_file(path)` — score breakdown + symbols for a file
 - `mcp__agentpack__get_related_files(path)` — import-graph neighbours
 - `mcp__agentpack__get_stats()` — token/saving stats for the latest pack
-- `mcp__agentpack__get_context()` — read the pre-built pack (no repack)
+- `mcp__agentpack__get_context()` — read the latest pack; auto-refreshes when task.md or repo snapshot changed
 - `mcp__agentpack__refresh()` — refresh using current task.md
 
 If MCP is not available, fall back to the CLI:

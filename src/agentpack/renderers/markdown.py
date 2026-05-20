@@ -65,6 +65,13 @@ def _file_section(sf: SelectedFile) -> str:
     return "\n".join(parts)
 
 
+def _has_task_stale_warning(pack: ContextPack) -> bool:
+    warnings = " ".join(pack.freshness_warnings).lower()
+    return ".agentpack/task.md differs" in warnings or (
+        "packed task" in warnings and "task.md" in warnings
+    )
+
+
 def render_claude(pack: ContextPack) -> str:
     sections: list[str] = []
 
@@ -73,6 +80,12 @@ def render_claude(pack: ContextPack) -> str:
 
     if pack.stale:
         sections.append("> **Warning:** This context pack may be stale. Run `agentpack pack` to regenerate.")
+        sections.append("")
+    if _has_task_stale_warning(pack):
+        sections.append(
+            "> **STALE TASK CONTEXT:** `.agentpack/task.md` does not match this packed context. "
+            "Refresh with `agentpack pack --task auto` or call `agentpack_pack_context()` before using selected files."
+        )
         sections.append("")
 
     sections.append("## Task")

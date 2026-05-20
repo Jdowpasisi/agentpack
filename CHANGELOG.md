@@ -8,6 +8,15 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Added
+- Hybrid task-context auto-refresh: MCP `get_context()` now blocks for a fresh pack when `.agentpack/task.md` differs from the packed task, while hook prompts continue to trigger background repacks.
+- Shared task-freshness helpers and task hashes in pack metadata so stale task state is reported consistently across MCP, status, doctor, and rendered context.
+- MCP `get_context()` also auto-refreshes when the repo snapshot changed, and Claude prompt hooks block once on task switches so first-turn hints are fresh.
+
+### Changed
+- Rendered context now includes a loud stale-task warning as a last-resort guardrail when static markdown is read after the task changes.
+- Changed-file selection caps unrelated dirty files when many files are dirty, keeping safety context without letting unrelated edits dominate the pack.
+
 ---
 
 ## [0.3.4] — 2026-05-20

@@ -18,6 +18,7 @@ from agentpack.integrations.global_install import (
 )
 from agentpack.commands._shared import console, _root
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.core.task_freshness import task_freshness
 from agentpack.integrations.agents import SUPPORTED_AGENTS, check_agent_integration, expand_agents
 
 
@@ -126,6 +127,14 @@ def register(app: typer.Typer) -> None:
                 age = time.time() - context_path.stat().st_mtime
                 age_str = f"{int(age // 3600)}h {int((age % 3600) // 60)}m" if age > 3600 else f"{int(age // 60)}m"
                 console.print(f"  [green]✓[/] context pack present (age: {age_str})")
+                task_state = task_freshness(root, load_pack_metadata(root))
+                if task_state.is_stale:
+                    console.print(
+                        "  [yellow]![/] task context stale — "
+                        f"packed: {task_state.packed_task}; current: {task_state.current_task}. "
+                        "MCP get_context auto-refreshes this, or run: agentpack pack --task auto"
+                    )
+                    ok = False
             else:
                 console.print("  [yellow]![/] No context pack yet — write .agentpack/task.md, then run: agentpack pack --task auto")
 

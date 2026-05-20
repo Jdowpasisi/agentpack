@@ -263,6 +263,54 @@ def test_render_includes_freshness_metadata():
     assert "agentpack pack --task auto" in rendered
 
 
+def test_render_loud_stale_task_warning():
+    pack = ContextPack(
+        task="old task",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+        freshness_warnings=[
+            ".agentpack/task.md differs from the packed task; AgentPack-controlled context reads should auto-refresh."
+        ],
+    )
+
+    rendered = render_claude(pack)
+
+    assert "STALE TASK CONTEXT" in rendered
+    assert "agentpack_pack_context()" in rendered
+
+
+def test_select_files_caps_unrelated_changed_files_when_many_dirty():
+    files = [_fi(f"src/noise_{i}.py", tokens=20) for i in range(6)]
+    files.append(_fi("src/auth.py", tokens=20))
+    changed = {fi.path for fi in files}
+    scored = [(fi, 100, ["modified"]) for fi in files[:6]]
+    scored.append((files[-1], 140, ["modified", "symbol keyword match"]))
+
+    selected, receipts = select_files(
+        files=files,
+        scored=scored,
+        changed_paths=changed,
+        summaries={},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=1000,
+    )
+
+    selected_paths = {sf.path for sf in selected}
+    capped = [r for r in receipts if r.reason == "unrelated changed-file safety cap"]
+    assert "src/auth.py" in selected_paths
+    assert len([path for path in selected_paths if "noise" in path]) == 3
+    assert len(capped) == 3
+
+
 def test_save_pack_metadata_persists_freshness(tmp_path):
     (tmp_path / ".agentpack").mkdir()
     save_pack_metadata(
@@ -293,6 +341,7 @@ def test_save_pack_metadata_persists_freshness(tmp_path):
     )
     meta = (tmp_path / ".agentpack" / "pack_metadata.json").read_text()
     assert '"git_sha": "abc123"' in meta
+    assert '"task_hash":' in meta
     assert '"task_source": "task.md"' in meta
     assert '"freshness_warnings": [' in meta
     assert '"selected_files_meta": [' in meta

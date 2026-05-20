@@ -13,6 +13,7 @@ from agentpack.core.models import (
     Symbol,
 )
 from agentpack.core.redactor import redact_secrets
+from agentpack.core.task_freshness import task_hash
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -70,6 +71,7 @@ def save_pack_metadata(
         "generated_at": generated_at,
         "snapshot_root_hash": snapshot_root_hash,
         "task": task,
+        "task_hash": task_hash(task),
         "agent": agent,
         "mode": mode,
         "budget": budget,
@@ -337,6 +339,8 @@ def select_files(
     summaries_used = 0
     kw = keywords or set()
     budget_pressure = budget < 12000 or len(changed_paths) > 5
+    unrelated_changed_cap = 3 if len(changed_paths) > 5 else 0
+    unrelated_changed_used = 0
 
     ordered = sorted(scored, key=lambda item: _selection_priority(item, changed_paths, max_file_tokens), reverse=True)
     for fi, score, reasons in ordered:
@@ -351,6 +355,11 @@ def select_files(
         is_changed = fi.path in changed_paths
         summary_data = summaries.get(fi.path)
         has_task_signal = _has_task_signal(reasons)
+        if is_changed and not has_task_signal and unrelated_changed_cap:
+            if unrelated_changed_used >= unrelated_changed_cap:
+                receipts.append(Receipt(path=fi.path, action="excluded", reason="unrelated changed-file safety cap"))
+                continue
+            unrelated_changed_used += 1
         will_be_summary = not is_changed and not (
             opts["extra_full"] and fi.estimated_tokens <= max_file_tokens
         )

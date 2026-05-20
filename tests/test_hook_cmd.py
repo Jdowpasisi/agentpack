@@ -195,18 +195,38 @@ class TestRunUserPromptSubmit:
         outputs = []
         monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("agentpack.commands.hook_cmd._run_blocking_pack", return_value=(True, "")) as mock_pack, \
+             patch("subprocess.Popen") as mock_popen:
             _run_user_prompt_submit(repo)
 
-        mock_popen.assert_called_once()
-        args = mock_popen.call_args[0][0]
-        assert args[1:4] == ["-m", "agentpack.cli", "pack"]
-        assert "--task" in args
-        assert "auto" in args
+        mock_pack.assert_called_once_with(repo)
+        mock_popen.assert_not_called()
         assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == prompt + "\n"
         ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
-        assert "repacking" in ctx
+        assert "refreshed for current task" in ctx
         assert f"task: {prompt}" in ctx
+
+    def test_task_switch_blocking_refresh_failure_keeps_prompt_context(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "samehash")
+        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
+        (repo / ".agentpack" / "task.md").write_text("migrate DB schema\n")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+        _write_metrics(repo, ["src/old.py"])
+        _write_metadata(repo, task="migrate DB schema")
+
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix login bug"})))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+
+        with patch("agentpack.commands.hook_cmd._run_blocking_pack", return_value=(False, "boom")):
+            _run_user_prompt_submit(repo)
+
+        ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
+        assert "refresh failed" in ctx
+        assert "refresh error: boom" in ctx
+        assert "task: fix login bug" in ctx
 
 
 class TestRunGitAutoRepack:
@@ -322,8 +342,8 @@ class TestTaskSwitchDetection:
     def test_related_task_is_not_switch(self):
         assert not _looks_like_task_switch("fix login flow", "fix login button bug")
 
-    def test_vague_prompt_is_not_switch(self):
-        assert not _looks_like_task_switch("fix login flow", "can you fix these")
+    def test_vague_prompt_with_reference_is_switch(self):
+        assert _looks_like_task_switch("fix login flow", "can you fix these")
 
     def test_min_terms_requires_more_concrete_overlap(self):
         assert not _looks_like_task_switch("fix login flow", "fix dashboard", min_terms=2)
