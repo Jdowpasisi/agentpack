@@ -5,9 +5,9 @@
 [![PyPI core](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.0).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.2).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
-> **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented. Use WSL or install `agentpack-cli` inside a Linux environment.
+> **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
 
 **Local context engine for AI coding agents.**
 
@@ -52,7 +52,7 @@ Requirements:
 
 - Node.js 18+
 - Python 3.10+
-- macOS or Linux
+- macOS, Linux, or Windows with PowerShell plus Git for Windows
 
 ## First project
 
@@ -156,7 +156,7 @@ Use the explicit `pipx` binary path above for `watch` and `mcp` so those command
 
 ## Python selection
 
-By default, the wrapper tries `python3` and then `python`. To force a specific interpreter:
+By default, the wrapper tries the Windows `py -3` launcher on `win32`, then `python3`, then `python`. To force a specific interpreter:
 
 ```bash
 AGENTPACK_PYTHON=/opt/homebrew/bin/python3 agentpack --version
@@ -188,7 +188,7 @@ To force a clean reinstall of the Python CLI for this npm package version, remov
 
 `agentpack npm wrapper: Python >=3.10 is required.`
 
-Install Python 3.10+ or set `AGENTPACK_PYTHON=/path/to/python3`.
+Install Python 3.10+ or set `AGENTPACK_PYTHON=/path/to/python3` (or `python.exe` on Windows).
 
 `failed to install agentpack-cli==<version>`
 

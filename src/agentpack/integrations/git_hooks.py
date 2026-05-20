@@ -3,6 +3,8 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
+from agentpack.integrations.platform import cli_module_argv, shell_join
+
 # Hooks that indicate the working tree changed and the pack may be stale.
 _HOOK_EVENTS = ("post-commit", "post-merge", "post-checkout")
 
@@ -10,14 +12,9 @@ _AGENTPACK_MARKER = "# agentpack:auto-repack"
 
 
 def _hook_script(agent: str) -> str:
-    # Use --agent auto so detection runs at hook time, not install time.
-    # The agent arg is kept for callers that want an explicit override.
     effective = agent if agent not in ("auto", "") else "auto"
-    return (
-        f"{_AGENTPACK_MARKER}\n"
-        f"agentpack pack --agent {effective} --task auto --mode balanced "
-        f">/dev/null 2>&1 &\n"
-    )
+    command = shell_join(cli_module_argv("hook", "--event", "GitAutoRepack", "--agent", effective))
+    return f"{_AGENTPACK_MARKER}\n{command}\n"
 
 
 def install_git_hooks(root: Path, agent: str) -> dict[str, str]:

@@ -8,6 +8,14 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Added
+- Native Windows support target for PowerShell plus Git for Windows across the npm wrapper, Git hook launchers, and global shell integration.
+
+### Changed
+- Repo-local and global Git hooks now delegate to cross-platform Python launchers instead of POSIX-only background shell snippets.
+- npm wrapper no longer blocks `win32`, prefers the Windows `py -3` launcher, and uses Windows cache locations when appropriate.
+- README and npm docs now describe Windows as a supported platform with scoped expectations.
+
 ---
 
 ## [0.3.2] — 2026-05-20

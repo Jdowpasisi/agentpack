@@ -5,6 +5,14 @@ import re
 import stat
 from pathlib import Path
 
+from agentpack.integrations.platform import (
+    cli_module_argv,
+    is_windows,
+    powershell_command,
+    powershell_start_process,
+    shell_join,
+)
+
 # ---------------------------------------------------------------------------
 # Git template hooks — copied into .git/hooks/ on every git init / git clone
 # ---------------------------------------------------------------------------
@@ -12,28 +20,22 @@ from pathlib import Path
 _GIT_TEMPLATE_DIR = Path.home() / ".git-templates"
 _AGENTPACK_MARKER = "# agentpack:global"
 
-_REPACK_CMD = """\
-  ( agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
-    _ap_pid=$! ; ( sleep 30 && kill $_ap_pid 2>/dev/null ) &
-  )"""
+_REPACK_CMD = shell_join(cli_module_argv("hook", "--event", "GitAutoRepack", "--agent", "auto"))
 
 _POST_CHECKOUT_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
-# Repack only if this repo has already been opted in to agentpack.
-[ -f .agentpack/config.toml ] && """ + _REPACK_CMD.strip() + "\n"
+""" + _REPACK_CMD.strip() + "\n"
 
 _POST_COMMIT_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
-# Repack only if this repo has already been opted in to agentpack.
-[ -f .agentpack/config.toml ] && """ + _REPACK_CMD.strip() + "\n"
+""" + _REPACK_CMD.strip() + "\n"
 
 _POST_MERGE_SCRIPT = """\
 #!/bin/sh
 # agentpack:global
-# Repack only if this repo has already been opted in to agentpack.
-[ -f .agentpack/config.toml ] && """ + _REPACK_CMD.strip() + "\n"
+""" + _REPACK_CMD.strip() + "\n"
 
 _HOOK_SCRIPTS = {
     "post-checkout": _POST_CHECKOUT_SCRIPT,
@@ -172,6 +174,38 @@ if [[ "$PROMPT_COMMAND" != *"_agentpack_chpwd"* ]]; then
 fi
 # agentpack:chpwd:end"""
 
+_POWERSHELL_STATUS = powershell_command(cli_module_argv("status"))
+_POWERSHELL_SESSION_START = powershell_start_process(cli_module_argv("session", "start", "--silent"))
+_POWERSHELL_PACK = powershell_start_process(cli_module_argv("pack", "--task", "auto", "--mode", "balanced"))
+
+_POWERSHELL_HOOK = f"""\
+# agentpack:chpwd:start
+function global:Invoke-AgentPackChpwd {{
+  if (Test-Path ".agentpack/config.toml") {{
+    if (-not (Test-Path ".agentpack/context.md") -and -not (Test-Path ".agentpack/session.json")) {{
+      {_POWERSHELL_SESSION_START}
+    }} else {{
+      {_POWERSHELL_STATUS} *> $null
+      if ($LASTEXITCODE -ne 0) {{
+        {_POWERSHELL_PACK}
+      }}
+    }}
+  }}
+}}
+if (-not (Get-Command __agentpack_original_prompt -ErrorAction SilentlyContinue)) {{
+  Set-Item -Path Function:\\__agentpack_original_prompt -Value $function:prompt
+}}
+function global:prompt {{
+  Invoke-AgentPackChpwd
+  if (Get-Command __agentpack_original_prompt -ErrorAction SilentlyContinue) {{
+    & __agentpack_original_prompt
+  }} else {{
+    "PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) "
+  }}
+}}
+Invoke-AgentPackChpwd
+# agentpack:chpwd:end"""
+
 _BLOCK_RE = re.compile(
     r"# agentpack:chpwd:start.*?# agentpack:chpwd:end\n?",
     re.DOTALL,
@@ -179,6 +213,11 @@ _BLOCK_RE = re.compile(
 
 
 def _detect_rc_file() -> Path | None:
+    if is_windows():
+        home = Path.home()
+        modern = home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+        legacy = home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1"
+        return modern if modern.exists() or not legacy.exists() else legacy
     shell = os.environ.get("SHELL", "")
     if "zsh" in shell:
         return Path.home() / ".zshrc"
@@ -195,7 +234,10 @@ def install_shell_hook(rc_file: Path | None = None, dry_run: bool = False) -> tu
     if target is None:
         return "skipped (unknown shell)", None
 
-    shell_hook = _ZSH_HOOK if "zsh" in str(target) else _BASH_HOOK
+    if target.suffix.lower() == ".ps1" or is_windows():
+        shell_hook = _POWERSHELL_HOOK
+    else:
+        shell_hook = _ZSH_HOOK if "zsh" in str(target) else _BASH_HOOK
 
     if target.exists():
         content = target.read_text()

@@ -35,7 +35,8 @@ function fail(message, code = 1) {
 }
 
 function pythonVersion(python) {
-  const result = run(python, [
+  const result = run(python.command, [
+    ...python.args,
     "-c",
     "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
   ]);
@@ -47,15 +48,16 @@ function pythonVersion(python) {
 
 function findPython() {
   const candidates = [
-    process.env.AGENTPACK_PYTHON,
-    "python3",
-    "python",
+    process.env.AGENTPACK_PYTHON ? { command: process.env.AGENTPACK_PYTHON, args: [] } : null,
+    process.platform === "win32" ? { command: "py", args: ["-3"] } : null,
+    { command: "python3", args: [] },
+    { command: "python", args: [] },
   ].filter(Boolean);
 
   for (const candidate of candidates) {
     const version = pythonVersion(candidate);
     if (version && compareVersions(version, "3.10") >= 0) {
-      return { command: candidate, version };
+      return { ...candidate, version };
     }
   }
   return null;
@@ -65,7 +67,9 @@ function cacheRoot() {
   if (process.env.AGENTPACK_NPM_CACHE_DIR) {
     return process.env.AGENTPACK_NPM_CACHE_DIR;
   }
-  const base = process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache");
+  const base = process.platform === "win32"
+    ? (process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"))
+    : (process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"));
   return path.join(base, "agentpack-npm", PACKAGE_VERSION);
 }
 
@@ -80,12 +84,6 @@ function venvPaths(root) {
   };
 }
 
-function ensureSupportedPlatform() {
-  if (process.platform === "win32") {
-    fail("Windows is not supported yet. Please use macOS/Linux or install agentpack-cli directly in WSL.");
-  }
-}
-
 function installOrUpdateVenv(systemPython, paths) {
   const marker = fs.existsSync(paths.marker) ? fs.readFileSync(paths.marker, "utf8").trim() : "";
   if (marker === PACKAGE_VERSION && fs.existsSync(paths.agentpack)) {
@@ -94,7 +92,7 @@ function installOrUpdateVenv(systemPython, paths) {
 
   fs.mkdirSync(path.dirname(paths.marker), { recursive: true });
 
-  let result = run(systemPython, ["-m", "venv", paths.venv], { stdio: "inherit" });
+  let result = run(systemPython.command, [...systemPython.args, "-m", "venv", paths.venv], { stdio: "inherit" });
   if (result.status !== 0) {
     fail(`failed to create Python virtual environment at ${paths.venv}`);
   }
@@ -126,11 +124,9 @@ function main(argv = process.argv.slice(2)) {
     return;
   }
 
-  ensureSupportedPlatform();
-
   const python = findPython();
   if (!python) {
-    fail("Python >=3.10 is required. Install Python, or set AGENTPACK_PYTHON=/path/to/python.");
+    fail("Python >=3.10 is required. Install Python, set AGENTPACK_PYTHON=/path/to/python, or use the Windows py launcher.");
   }
 
   installOrUpdateVenv(python.command, paths);

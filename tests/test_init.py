@@ -199,6 +199,7 @@ def test_init_installs_agent_integrations(tmp_path, monkeypatch, agent, expected
         content = hook.read_text(encoding="utf-8")
         assert "agentpack:auto-repack" in content
         assert "--agent auto" in content
+        assert "GitAutoRepack" in content
 
 
 def test_init_auto_installs_codex_integration_when_codex_env(tmp_path, monkeypatch) -> None:

@@ -9,7 +9,7 @@
 
 > **Status: alpha (v0.3.2).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
-> **Platform note:** macOS and Linux are fully supported. Windows support is not yet implemented (git hooks use POSIX shell; the Claude Code session hooks use `python3`/`rm -f`). Contributions welcome.
+> **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 
 **Local context engine for AI coding agents.**
 
@@ -545,7 +545,7 @@ agentpack global-install --agent antigravity   # Antigravity
 
 What it does:
 - **Git template hooks** (`~/.git-templates/hooks/`) — git copies these into every repo on `git init` / `git clone`. On `post-commit`, `post-merge`, `post-checkout`: silently repacks **only if `.agentpack/config.toml` exists** — no-op in repos that haven't opted in.
-- **Shell cd hook** (`~/.zshrc` or `~/.bashrc`) — on `cd`, repacks if stale **only in opted-in repos**. Never touches repos without `.agentpack/config.toml`. Never auto-inits.
+- **Shell cd hook** (`~/.zshrc`, `~/.bashrc`, or the PowerShell profile on Windows) — on `cd` or prompt refresh, repacks if stale **only in opted-in repos**. Never touches repos without `.agentpack/config.toml`. Never auto-inits.
 - **Agent config** — same agent-specific files that `agentpack init --agent <x>` or `agentpack install --agent <x>` writes for the current project.
 
 All changes are idempotent, reversible, and non-destructive. Existing hooks and rc files are appended to, never overwritten. Repos you haven't explicitly run `agentpack init` in are never touched.
@@ -1474,7 +1474,7 @@ src/agentpack/
 
 ## Known limitations
 
-- **Windows**: not supported. Git hooks use POSIX shell (`#!/bin/sh`, `>/dev/null 2>&1 &`). The Claude Code session hooks use `python3` and `rm -f`. Contributions welcome.
+- **Windows**: supported with PowerShell plus Git for Windows. AgentPack installs cross-platform Git hook launchers and a PowerShell profile hook for opted-in repos. `cmd.exe` is not a first-class workflow yet.
 - **Monorepos**: workspace-aware ranking supports npm/pnpm, Cargo, and `go.work` layouts. `--workspace` creates filtered per-workspace outputs. Package dependency hints currently come from npm/pnpm `package.json`; Cargo/Go workspace membership is detected, but package-manager dependency edges for Cargo/Go are not yet modeled.
 - **Public benchmark proof**: `benchmarks/public-repos.toml` is a curated smoke suite over real public commits, and `benchmarks/results/2026-05-15-public.md` records the current proof run. Treat it as a floor, not a leaderboard; expand cases before broad external claims.
 - **Symbol extraction**: Python (AST, full) and JavaScript/TypeScript (regex, arrow functions + classes) are well-supported. Go, Rust, Java, Kotlin have import graph traversal but no symbol extraction — they fall back to file-level summaries.
@@ -1546,7 +1546,7 @@ For npm publish, configure GitHub secret `NPM_TOKEN`. The token must publish to 
 Good contribution areas:
 
 - More real-world benchmark fixtures and public repo eval cases
-- Windows support for hooks and session integrations
+- Better Windows ergonomics beyond the supported PowerShell + Git for Windows path
 - Better symbol extraction for Go, Rust, Java, and Kotlin
 - More precise import/dependency resolution for framework-heavy repos
 - Ranking regressions with `expected_files` cases that reproduce misses

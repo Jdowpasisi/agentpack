@@ -154,6 +154,7 @@ def register(app: typer.Typer) -> None:
                 "context.claude.md" in cmd
                 or ".context_injected" in cmd
                 or (".mcp_reminded" in cmd and "python3" in cmd)
+                or ("agentpack pack" in cmd and "GitAutoRepack" not in cmd)
                 for cmd in all_cmds
             )
 

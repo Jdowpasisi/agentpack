@@ -36,3 +36,15 @@ test("dry run reports bootstrap target without installing Python package", () =>
   assert.equal(payload.pypiPackage, `agentpack-cli==${packageJson.version}`);
   assert.match(payload.venv, /venv$/);
 });
+
+test("venvPaths uses Windows layout on win32", () => {
+  const original = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "win32" });
+  try {
+    const paths = launcher.venvPaths("C:\\cache\\agentpack");
+    assert.match(paths.python, /Scripts[\\/]+python\.exe$/);
+    assert.match(paths.agentpack, /Scripts[\\/]+agentpack\.exe$/);
+  } finally {
+    Object.defineProperty(process, "platform", original);
+  }
+});

@@ -11,6 +11,7 @@ import typer
 from agentpack.commands._shared import _root
 from agentpack.core import git as _git
 from agentpack.core.config import load_config
+from agentpack.integrations.platform import cli_module_argv, detached_popen
 
 _TASK_FILE = ".agentpack/task.md"
 _TASK_FILE_DEFAULT_MARKER = "Write or update the current coding task here."
@@ -55,6 +56,7 @@ def register(app: typer.Typer) -> None:
     @app.command(name="hook")
     def hook(
         event: str = typer.Option("UserPromptSubmit", "--event", help="Hook event name."),
+        agent: str = typer.Option("auto", "--agent", help="Agent name for git auto-repack hooks."),
     ) -> None:
         """Run as a Claude Code hook. Reads stdin (JSON), emits additionalContext."""
         root = _root()
@@ -62,6 +64,8 @@ def register(app: typer.Typer) -> None:
             _run_user_prompt_submit(root)
         elif event == "SessionStart":
             _run_session_start(root)
+        elif event == "GitAutoRepack":
+            _run_git_auto_repack(root, agent)
         else:
             sys.exit(0)
 
@@ -266,6 +270,16 @@ def _run_session_start(root: Path) -> None:
     # No output needed — SessionStart hooks don't inject additionalContext
 
 
+def _run_git_auto_repack(root: Path, agent: str) -> None:
+    config_path = root / ".agentpack" / "config.toml"
+    if not config_path.exists():
+        return
+    detached_popen(
+        cli_module_argv("pack", "--agent", agent, "--task", "auto", "--mode", "balanced"),
+        cwd=root,
+    )
+
+
 def _run_user_prompt_submit(root: Path) -> None:
     snap_sentinel = root / ".agentpack" / ".mcp_reminded"
 
@@ -311,10 +325,9 @@ def _run_user_prompt_submit(root: Path) -> None:
                 _write_task_md(root, task)
             except Exception:
                 pass
-        subprocess.Popen(
-            ["agentpack", "pack", "--task", "auto", "--mode", "balanced", "--since", "HEAD~1"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        detached_popen(
+            cli_module_argv("pack", "--task", "auto", "--mode", "balanced", "--since", "HEAD~1"),
+            cwd=root,
         )
         try:
             snap_sentinel.write_text(current_hash or "1")

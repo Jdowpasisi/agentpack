@@ -17,7 +17,8 @@ class TestInstallGitHooks:
         for event in _HOOK_EVENTS:
             hook = root / ".git" / "hooks" / event
             assert hook.exists()
-            assert "agentpack pack" in hook.read_text()
+            assert "agentpack.cli" in hook.read_text()
+            assert "GitAutoRepack" in hook.read_text()
             assert "cursor" in hook.read_text()
 
     def test_hooks_are_executable(self, tmp_path):
@@ -43,7 +44,7 @@ class TestInstallGitHooks:
         assert results["post-commit"] == "appended"
         content = hook.read_text()
         assert "existing hook" in content
-        assert "agentpack pack" in content
+        assert "GitAutoRepack" in content
 
     def test_returns_empty_if_no_git_dir(self, tmp_path):
         results = install_git_hooks(tmp_path, agent="cursor")
@@ -54,6 +55,7 @@ class TestInstallGitHooks:
         install_git_hooks(root, agent="codex")
         hook = root / ".git" / "hooks" / "post-commit"
         assert "--agent codex" in hook.read_text()
+        assert "agentpack.cli" in hook.read_text()
 
 
 class TestRemoveGitHooks:
