@@ -10,6 +10,14 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.8] — 2026-05-23
+
+### Fixed
+- `agentpack init --force` now backs up an existing `.agentignore` consistently even when the synced ignore content is already up to date, removing environment-dependent release test behavior.
+- Added a focused regression test for the unchanged-content backup path so CI and local runs exercise the same force-mode semantics.
+
+---
+
 ## [0.3.7] — 2026-05-23
 
 ### Fixed

@@ -7,7 +7,12 @@ import pytest
 from typer.testing import CliRunner
 
 from agentpack.cli import app
-from agentpack.commands.init import _patch_agentignore, _patch_repo_gitignore, _repo_gitignore_block
+from agentpack.commands.init import (
+    InitResult,
+    _patch_agentignore,
+    _patch_repo_gitignore,
+    _repo_gitignore_block,
+)
 
 
 def test_repo_gitignore_block_ignores_generated_artifacts() -> None:
@@ -126,6 +131,21 @@ def test_patch_agentignore_updates_import_block_idempotently(tmp_path: Path, mon
     assert second == first
 
 
+def test_patch_agentignore_force_backs_up_even_when_content_is_unchanged(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("agentpack.core.ignore._git_config_excludesfile", lambda: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    content = "custom-rule/\n"
+    (tmp_path / ".agentignore").write_text(content, encoding="utf-8")
+    backups: list[InitResult] = []
+
+    action, status = _patch_agentignore(tmp_path, force=True, backups=backups)
+
+    assert action == "unchanged"
+    assert status.action == "unchanged"
+    assert (tmp_path / ".agentignore.bak").read_text(encoding="utf-8") == content
+    assert backups and backups[0].path == ".agentignore.bak"
+
+
 def test_init_writes_repo_gitignore_block(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
@@ -215,7 +235,6 @@ def test_init_force_backs_up_existing_files(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".vscode").mkdir()
-    (tmp_path / ".gitignore").write_text(".serverless/\n", encoding="utf-8")
     (tmp_path / ".agentpack" / "config.toml").write_text("old config\n", encoding="utf-8")
     (tmp_path / ".agentignore").write_text("old ignore\n", encoding="utf-8")
     (tmp_path / "GEMINI.md").write_text("old gemini\n", encoding="utf-8")

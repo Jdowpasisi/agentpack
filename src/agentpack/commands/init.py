@@ -158,11 +158,11 @@ def _patch_agentignore(
     backups: list[InitResult] | None = None,
 ) -> tuple[str, AgentIgnoreSyncStatus]:
     status = agentignore_sync_status(root)
-    if status.action == "unchanged":
-        return "unchanged", status
     if force and status.path.exists() and backups is not None:
         backup = _backup_file(status.path)
         backups.append(InitResult(str(backup.relative_to(root)), "created"))
+    if status.action == "unchanged":
+        return "unchanged", status
     status.path.parent.mkdir(parents=True, exist_ok=True)
     status.path.write_text(status.desired_content, encoding="utf-8")
     action = "created" if status.action == "create" else "updated"
