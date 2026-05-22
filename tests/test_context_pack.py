@@ -179,6 +179,45 @@ def test_summary_cap_limits_unchanged_summaries():
     assert any(r.reason == "summary cap reached" for r in receipts)
 
 
+def test_weak_signal_candidates_are_capped_and_compressed_to_summary():
+    files = [_fi(f"file{i}.py", tokens=1500) for i in range(3)]
+    summaries = {
+        fi.path: {
+            "summary": f"Summary {i}",
+            "imports": [f"pkg{i}"],
+            "symbols": [{
+                "name": f"Service{i}",
+                "kind": "class",
+                "start_line": 1,
+                "end_line": 10,
+                "signature": f"class Service{i}:",
+            }],
+        }
+        for i, fi in enumerate(files)
+    }
+    scored = [
+        (fi, 180.0 - i, ["filename keyword match", "broad-task weak-signal dampening"])
+        for i, fi in enumerate(files)
+    ]
+
+    selected, receipts = select_files(
+        files=files,
+        scored=scored,
+        changed_paths=set(),
+        summaries=summaries,
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=5,
+        max_weak_signal_files=1,
+    )
+
+    assert [sf.path for sf in selected] == ["file0.py"]
+    assert selected[0].include_mode == "summary"
+    assert "weak-signal file compressed to summary" in selected[0].reasons
+    assert any(r.reason == "weak-signal cap reached" for r in receipts)
+
+
 def test_selection_priority_lifts_paired_tests() -> None:
     src = _fi("src/types.py", tokens=1000)
     test = _fi("tests/test_types.py", tokens=1000)

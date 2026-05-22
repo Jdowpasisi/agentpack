@@ -9,6 +9,7 @@ from agentpack.commands import (
     explain,
     guard,
     hook_cmd,
+    ignore_cmd,
     init,
     install,
     mcp_cmd,
@@ -45,6 +46,7 @@ def _main(
 
 for mod in [
     init,
+    ignore_cmd,
     scan,
     diff,
     status,

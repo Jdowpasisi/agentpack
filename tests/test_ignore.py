@@ -26,6 +26,19 @@ def test_lock_file_ignored():
     assert is_ignored(spec, "package-lock.json")
 
 
+def test_generated_output_dirs_ignored():
+    spec = spec_from_text(DEFAULT_AGENTIGNORE)
+    assert is_ignored(spec, ".serverless/meta.json")
+    assert is_ignored(spec, "backend/.serverless/serverless-state.json")
+    assert is_ignored(spec, "tmp/report.txt")
+    assert is_ignored(spec, "temp/cache.json")
+
+
+def test_snapshot_file_ignored():
+    spec = spec_from_text(DEFAULT_AGENTIGNORE)
+    assert is_ignored(spec, "tests/render/output.snap")
+
+
 def test_env_file_ignored():
     spec = spec_from_text(DEFAULT_AGENTIGNORE)
     assert is_ignored(spec, ".env")

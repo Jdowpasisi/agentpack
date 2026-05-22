@@ -73,7 +73,9 @@ agentpack init --agent codex
 agentpack init --agent antigravity
 ```
 
-`agentpack init` creates local `.agentpack/` state and installs the selected integration when supported. `agentpack pack` reads `.agentpack/task.md`, ranks relevant files, and writes the adapter-specific context output.
+`agentpack init` creates local `.agentpack/` state, installs the selected integration when supported, seeds `.agentignore` with safe defaults, and imports obvious generated/noisy rules from git ignore sources. `agentpack pack` reads `.agentpack/task.md`, ranks relevant files, and writes the adapter-specific context output.
+
+Keep task text concrete. Name feature, route, service, or file path. Broad repo-meta tasks such as `improve context pack quality` or `fix stats noise` can pull README or tool internals by keyword.
 
 For a guided setup:
 
@@ -123,10 +125,14 @@ agentpack benchmark --public-repos --prove-targets --misses --public-table
 ## Daily workflow
 
 ```bash
-printf '%s\n' "describe the task you are about to work on" > .agentpack/task.md
+printf '%s\n' "fix billing webhook retry handling in app/api/billing/route.ts" > .agentpack/task.md
 agentpack pack
 agentpack stats
 ```
+
+If results look noisy, tighten task text first, then add repo-specific generated paths to `.agentignore` or run `agentpack ignore sync`.
+
+`agentpack ignore sync` refreshes imported generated/noisy rules from the root `.gitignore`, nested `.gitignore` files, `.git/info/exclude`, and your global git ignore while leaving your manual `.agentignore` entries alone.
 
 ## Useful commands
 

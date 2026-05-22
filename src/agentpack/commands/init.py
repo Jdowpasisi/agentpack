@@ -8,7 +8,11 @@ from typing import Optional
 import typer
 
 from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE
-from agentpack.core.ignore import DEFAULT_AGENTIGNORE
+from agentpack.core.ignore import (
+    AgentIgnoreSyncStatus,
+    agentignore_sync_status,
+    format_import_summary,
+)
 from agentpack.commands._shared import console, _root
 from agentpack.integrations.agents import check_agent_integration, install_agent_integration
 from agentpack.session.state import load_session, create_session, SESSION_FILE, TASK_FILE
@@ -147,6 +151,24 @@ def _patch_repo_gitignore(root: Path, share_cache: bool = False, agent: str = "g
     return "updated"
 
 
+def _patch_agentignore(
+    root: Path,
+    *,
+    force: bool = False,
+    backups: list[InitResult] | None = None,
+) -> tuple[str, AgentIgnoreSyncStatus]:
+    status = agentignore_sync_status(root)
+    if status.action == "unchanged":
+        return "unchanged", status
+    if force and status.path.exists() and backups is not None:
+        backup = _backup_file(status.path)
+        backups.append(InitResult(str(backup.relative_to(root)), "created"))
+    status.path.parent.mkdir(parents=True, exist_ok=True)
+    status.path.write_text(status.desired_content, encoding="utf-8")
+    action = "created" if status.action == "create" else "updated"
+    return action, agentignore_sync_status(root)
+
+
 def _install_agent_integration(root, agent: str) -> dict[str, str]:
     """Install repo-local agent integration files after `agentpack init`."""
     return install_agent_integration(root, agent)
@@ -222,6 +244,7 @@ def _planned_action(path: Path, expected: str | None = None) -> str:
 
 def _print_dry_run(root: Path, agent: str, share_cache: bool, mode: str | None, budget: int) -> None:
     console.print("[bold yellow]Dry run — no files will be changed.[/]\n")
+    ignore_status = agentignore_sync_status(root)
     items = [
         InitResult(".agentpack/", "ensure"),
         InitResult(".agentpack/snapshots/", "ensure"),
@@ -229,7 +252,7 @@ def _print_dry_run(root: Path, agent: str, share_cache: bool, mode: str | None, 
         InitResult(".agentpack/.gitignore", _planned_action(root / ".agentpack" / ".gitignore")),
         InitResult(".gitignore", _planned_action(root / ".gitignore")),
         InitResult(".agentpack/config.toml", _planned_action(root / ".agentpack" / "config.toml")),
-        InitResult(".agentignore", _planned_action(root / ".agentignore", DEFAULT_AGENTIGNORE)),
+        InitResult(".agentignore", ignore_status.action),
         InitResult(SESSION_FILE, _planned_action(root / SESSION_FILE)),
         InitResult(TASK_FILE, _planned_action(root / TASK_FILE)),
     ]
@@ -240,6 +263,8 @@ def _print_dry_run(root: Path, agent: str, share_cache: bool, mode: str | None, 
     console.print(f"  Mode: {mode or DEFAULT_CONFIG.context.default_mode}")
     console.print(f"  Budget: {budget or DEFAULT_CONFIG.context.default_budget:,}")
     console.print(f"  Share cache: {'yes' if share_cache else 'no'}")
+    if ignore_status.imported_rules:
+        console.print(f"  {format_import_summary(ignore_status)}")
 
 
 def _print_init_summary(title: str, results: list[InitResult]) -> None:
@@ -369,12 +394,8 @@ def register(app: typer.Typer) -> None:
         else:
             results.append(InitResult(".agentpack/config.toml", "unchanged"))
 
-        ignore_path = root / ".agentignore"
-        if not ignore_path.exists() or force:
-            action = _write_text(root, ignore_path, DEFAULT_AGENTIGNORE, force=force, backups=backups)
-            results.append(InitResult(".agentignore", action))
-        else:
-            results.append(InitResult(".agentignore", "unchanged"))
+        ignore_action, ignore_status = _patch_agentignore(root, force=force, backups=backups)
+        results.append(InitResult(".agentignore", ignore_action))
 
         # Bootstrap session so `agentpack watch` works immediately — no separate `session start` needed
         from agentpack.core.config import load_config
@@ -402,6 +423,8 @@ def register(app: typer.Typer) -> None:
         if backups:
             _print_init_summary("Backups", backups)
         _print_init_summary("Init Summary", results)
+        if ignore_status.imported_rules:
+            console.print(f"  [dim]{format_import_summary(ignore_status)}[/]")
         if health_check:
             _print_health(root, resolved_agent)
         console.print(f"\n[bold green]AgentPack initialized.[/] [dim]agent={resolved_agent} mode={resolved_mode}[/]")

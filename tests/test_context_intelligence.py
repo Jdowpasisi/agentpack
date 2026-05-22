@@ -9,6 +9,7 @@ from agentpack.application.pack_service import (
     _apply_no_live_precision_guard,
     _compute_delta_summary,
     _filter_co_changed_paths,
+    _guarded_weak_signal_cap,
     _guarded_summary_cap,
     _guarded_summary_score_floor,
 )
@@ -156,6 +157,32 @@ def test_history_penalties_downrank_previous_noise(tmp_path):
     assert "history noise penalty" in adjusted[0][2][-1]
 
 
+def test_history_penalties_suppress_repeat_noise_for_broad_tasks(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join('{"selection_noise_paths":["src/noisy.py"]}' for _ in range(4)),
+        encoding="utf-8",
+    )
+    noisy = _fi(tmp_path, "src/noisy.py")
+    strong = _fi(tmp_path, "src/strong.py")
+
+    adjusted = _apply_history_penalties(
+        tmp_path,
+        [
+            (noisy, 100.0, ["filename keyword match"]),
+            (strong, 100.0, ["filename keyword match", "content keyword match (2)"]),
+        ],
+        changed_paths=set(),
+        generic_ratio=0.6,
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in adjusted}
+    assert scores["src/noisy.py"][0] == 0.0
+    assert "repeat noise path suppressed" in scores["src/noisy.py"][1]
+    assert scores["src/strong.py"][0] > 0.0
+
+
 def test_cochange_filter_requires_repetition_and_skips_noisy_paths(tmp_path):
     metrics_dir = tmp_path / ".agentpack"
     metrics_dir.mkdir()
@@ -204,6 +231,25 @@ def test_summary_precision_guard_tightens_noisy_summaries(tmp_path):
     assert no_live_cap == -1
 
 
+def test_weak_signal_cap_tightens_for_broad_no_live_low_precision_runs(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join('{"selection_token_precision":0.05}' for _ in range(3)),
+        encoding="utf-8",
+    )
+
+    cap = _guarded_weak_signal_cap(
+        tmp_path,
+        "balanced",
+        0.6,
+        no_live_changes=True,
+        effective_budget=10000,
+    )
+
+    assert cap == 1
+
+
 def test_no_live_precision_guard_dampens_filename_only_matches(tmp_path):
     filename_only = _fi(tmp_path, "src/release.py")
     corroborated = _fi(tmp_path, "src/auth.py")
@@ -218,8 +264,29 @@ def test_no_live_precision_guard_dampens_filename_only_matches(tmp_path):
 
     scores = {fi.path: (score, reasons) for fi, score, reasons in adjusted}
     assert scores["src/release.py"][0] < 40
-    assert "no-live filename-only dampening" in scores["src/release.py"][1]
+    assert any(
+        reason in {"no-live filename-only dampening", "broad-task weak-signal dampening"}
+        for reason in scores["src/release.py"][1]
+    )
     assert scores["src/auth.py"][0] == 90.0
+
+
+def test_no_live_precision_guard_hits_broad_task_meta_matches_harder(tmp_path):
+    generic = _fi(tmp_path, "src/__init__.py")
+    specific = _fi(tmp_path, "src/auth/session.py")
+
+    adjusted = _apply_no_live_precision_guard(
+        [
+            (generic, 120.0, ["filename keyword match", "matched role keyword: init"]),
+            (specific, 110.0, ["filename keyword match", "content keyword match (2)"]),
+        ],
+        generic_ratio=0.7,
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in adjusted}
+    assert scores["src/__init__.py"][0] < 30
+    assert "broad-task weak-signal dampening" in scores["src/__init__.py"][1]
+    assert scores["src/auth/session.py"][0] == 110.0
 
 
 def test_offline_summary_includes_richer_fields(tmp_path):

@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.5).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.6).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 
@@ -109,7 +109,19 @@ printf '%s\n' "fix auth token expiry" > .agentpack/task.md
 agentpack pack
 ```
 
-This creates `.agentpack/` state, installs the requested agent integration, generates a ranked context pack, and writes the adapter output for that agent. For active local work, keep context fresh with:
+This creates `.agentpack/` state, installs the requested agent integration, seeds `.agentignore` with safe defaults, imports obvious generated/noisy rules from git ignore sources, generates a ranked context pack, and writes the adapter output for that agent.
+
+Task text matters. Good task text names the concrete feature, route, service, or file you are about to change. Bad task text uses repo-meta words like `improve context`, `pack quality`, `stats`, or `ignore`, which can pull README or tool internals by keyword.
+
+```bash
+# good
+printf '%s\n' "fix billing webhook retry handling in app/api/billing/route.ts" > .agentpack/task.md
+
+# too broad
+printf '%s\n' "improve context pack quality from stats" > .agentpack/task.md
+```
+
+For active local work, keep context fresh with:
 
 ```bash
 agentpack watch
@@ -201,6 +213,23 @@ agentpack explain --task "fix billing webhook" --budget-plan
 `benchmark --misses` reports each expected file that was not selected, including whether it was ignored, scored too low, excluded by summary floor, cut by budget, or absent from the scan. `explain --file` shows the exact score signals for one file. `explain --budget-plan` shows how the token budget was spent across full, diff, symbols, skeleton, and summary modes.
 
 This is the core reliability loop: pack, measure recall, inspect misses, then tune task wording, `.agentignore`, or scoring weights.
+
+If top includes look noisy:
+
+1. Rewrite `.agentpack/task.md` with concrete domain nouns, entrypoints, or filenames.
+2. Re-pack and re-check `agentpack stats`.
+3. If generated output still dominates, add that path to `.agentignore` or run `agentpack ignore sync`.
+4. Use `agentpack explain --file <path>` on repeat offenders before changing scoring.
+
+`.agentignore` is for AgentPack ranking noise, not general git hygiene. `agentpack init` seeds it with safe defaults and imports obvious generated/noisy entries from the root `.gitignore`, nested `.gitignore` files, `.git/info/exclude`, and your global git ignore when they look safe to carry over. You should still add repo-specific outputs such as deploy artifacts, exports, or generated SDK folders when they are not useful context.
+
+When ignore sources change later, re-sync with:
+
+```bash
+agentpack ignore sync
+agentpack ignore sync --dry-run
+agentpack ignore sync --check
+```
 
 ## MCP-First Workflow
 
@@ -814,6 +843,20 @@ agentpack quickstart --task "fix auth token expiry" --write
 ```
 
 `quickstart` does not guess at magic. It checks whether `.agentpack/config.toml`, `.agentpack/task.md`, and context packs exist, then prints the next few commands. With `--write`, it writes the supplied task into `.agentpack/task.md`.
+
+---
+
+### `agentpack ignore sync`
+
+Refresh imported generated/noisy rules inside `.agentignore` without touching your manual entries.
+
+```bash
+agentpack ignore sync
+agentpack ignore sync --dry-run
+agentpack ignore sync --check
+```
+
+Use this after editing `.gitignore`, nested workspace ignores, or `.git/info/exclude`. `doctor` also warns when the imported `.agentignore` block is stale.
 
 ---
 

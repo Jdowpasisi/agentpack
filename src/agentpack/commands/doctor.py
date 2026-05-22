@@ -18,6 +18,7 @@ from agentpack.integrations.global_install import (
 )
 from agentpack.commands._shared import console, _root
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.core.ignore import agentignore_sync_status, format_import_summary
 from agentpack.core.task_freshness import task_freshness
 from agentpack.integrations.agents import SUPPORTED_AGENTS, check_agent_integration, expand_agents
 
@@ -121,6 +122,12 @@ def register(app: typer.Typer) -> None:
             console.print(f"  [yellow]![/] Not initialized in {root} — run: agentpack init")
         else:
             console.print("  [green]✓[/] .agentpack/config.toml present")
+            for finding in _agentignore_sync_findings(root):
+                if finding.startswith("synced:"):
+                    console.print(f"  [green]✓[/] {finding.split(':', 1)[1].strip()}")
+                else:
+                    console.print(f"  [yellow]![/] {finding}")
+                    ok = False
             context_path = _latest_context_path(root)
             if context_path.exists():
                 import time
@@ -403,6 +410,17 @@ def _publish_secret_findings(root: Path, env: Mapping[str, str] | None = None) -
             "npm publish will fail until GitHub secret NPM_TOKEN exists."
         )
     return findings
+
+
+def _agentignore_sync_findings(root: Path) -> list[str]:
+    status = agentignore_sync_status(root)
+    if status.action == "create":
+        return ["missing .agentignore; run `agentpack init` or `agentpack ignore sync`."]
+    if status.is_stale:
+        return ["imported .agentignore rules are stale; run `agentpack ignore sync`."]
+    if status.imported_rules:
+        return [f"synced: {format_import_summary(status)}"]
+    return ["synced: .agentignore present; no imported generated/noisy rules detected."]
 
 
 def _print_summary(ok: bool) -> None:

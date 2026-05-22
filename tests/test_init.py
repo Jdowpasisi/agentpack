@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from agentpack.cli import app
-from agentpack.commands.init import _patch_repo_gitignore, _repo_gitignore_block
+from agentpack.commands.init import _patch_agentignore, _patch_repo_gitignore, _repo_gitignore_block
 
 
 def test_repo_gitignore_block_ignores_generated_artifacts() -> None:
@@ -75,6 +76,56 @@ def test_patch_repo_gitignore_updates_existing_block_for_share_cache(tmp_path) -
     assert content.count("# agentpack:start") == 1
 
 
+def test_patch_agentignore_imports_safe_root_gitignore_rules(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("agentpack.core.ignore._git_config_excludesfile", lambda: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / ".gitignore").write_text(
+        "\n".join(
+            [
+                "dist/",
+                "backend/.serverless/",
+                "*.snap",
+                "!dist/keep.txt",
+                "docs/",
+                "src/generated/",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    action, status = _patch_agentignore(tmp_path)
+    assert action == "created"
+    assert status.imported_rules
+    content = (tmp_path / ".agentignore").read_text(encoding="utf-8")
+
+    assert "dist/" in content
+    assert "backend/.serverless/" in content
+    assert "*.snap" in content
+    assert "!dist/keep.txt" not in content
+    assert "\ndocs/\n" not in content
+    assert "src/generated/" in content
+    assert "# agentpack:imported-gitignore:start" in content
+
+
+def test_patch_agentignore_updates_import_block_idempotently(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("agentpack.core.ignore._git_config_excludesfile", lambda: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / ".gitignore").write_text("backend/.serverless/\n", encoding="utf-8")
+    (tmp_path / ".agentignore").write_text("custom-rule/\n", encoding="utf-8")
+
+    action, _status = _patch_agentignore(tmp_path)
+    assert action == "updated"
+    first = (tmp_path / ".agentignore").read_text(encoding="utf-8")
+    assert "custom-rule/" in first
+    assert "backend/.serverless/" in first
+
+    action, _status = _patch_agentignore(tmp_path)
+    assert action == "unchanged"
+    second = (tmp_path / ".agentignore").read_text(encoding="utf-8")
+    assert second == first
+
+
 def test_init_writes_repo_gitignore_block(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
@@ -119,6 +170,22 @@ def test_init_share_cache_unignores_cache(tmp_path, monkeypatch) -> None:
     assert "!.agentpack/cache/" in repo_lines
     assert "!.agentpack/cache/**" in repo_lines
     assert "cache/" not in agentpack_lines
+
+
+def test_init_imports_safe_gitignore_rules_into_agentignore(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("agentpack.core.ignore._git_config_excludesfile", lambda: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / ".gitignore").write_text("dist/\ndocs/\nbackend/.serverless/\n", encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["init", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    content = (tmp_path / ".agentignore").read_text(encoding="utf-8")
+    assert "dist/" in content
+    assert "backend/.serverless/" in content
+    assert "\ndocs/\n" not in content
 
 
 def test_init_dry_run_does_not_write_files(tmp_path, monkeypatch) -> None:

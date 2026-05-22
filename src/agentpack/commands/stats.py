@@ -346,6 +346,7 @@ def _noise_diagnostics(
             diagnostics.append("Latest pack is mostly summaries; use minimal mode or a narrower task for edit work.")
         if filename_matches / len(visible_top) >= 0.6:
             diagnostics.append("Top files mostly matched by filename; task terms may be broad.")
+            diagnostics.append("Rewrite `.agentpack/task.md` with concrete file, route, service, or symptom words.")
 
     if accuracy_rows:
         avg_precision = sum(r["selection_precision"] for r in accuracy_rows) / len(accuracy_rows)
@@ -380,9 +381,9 @@ def _noise_diagnostics(
             first_path = noisy[0][0]
             diagnostics.append(
                 f"Inspect top noisy path: `agentpack explain --file {first_path} --task auto`; "
-                "add generated/vendor paths to `.agentignore` or tighten task wording if it is not useful."
+                "add generated/vendor paths to `.agentignore`, run `agentpack ignore sync`, or tighten task wording if it is not useful."
             )
-    return diagnostics[:8]
+    return diagnostics[:9]
 
 
 def _top_files_from_metadata(meta: dict) -> list[tuple[str, str, str]]:

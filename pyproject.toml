@@ -1,11 +1,11 @@
 [project]
 name = "agentpack-cli"
-version = "0.3.5"
+version = "0.3.6"
 description = "Local context engine for AI coding agents that ranks relevant files and builds task-focused context packs."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-keywords = ["ai-coding-agents", "developer-tools", "repo-analysis", "context-engine", "context-packing", "prompt-context", "mcp", "ci", "claude-code", "codex", "cursor", "windsurf", "antigravity", "ai", "llm", "context", "packing", "claude"]
+keywords = ["ai-coding-agents", "developer-tools", "repo-analysis", "context-engine", "context-packing", "prompt-context", "mcp", "ci", "codex", "cursor", "windsurf", "antigravity", "ai", "llm", "context", "packing"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",

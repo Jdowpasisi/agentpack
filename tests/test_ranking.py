@@ -48,6 +48,7 @@ def test_generic_task_terms_are_downweighted():
     assert weights["fix"] < weights["auth"]
     assert weights["impl"] < weights["auth"]
     assert generic_task_term_ratio("fix release implementation task") >= 0.75
+    assert generic_task_term_ratio("improve context pack quality from stats") >= 0.8
 
 
 def test_generic_terms_do_not_dominate_concrete_file_matches():

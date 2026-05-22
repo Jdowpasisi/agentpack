@@ -10,6 +10,20 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.6] — 2026-05-22
+
+### Added
+- Added `agentpack ignore sync`, a shared `.agentignore` sync path that imports safe noisy rules from root and nested `.gitignore` files, `.git/info/exclude`, and the configured global Git ignore file.
+- `agentpack doctor` now warns when the imported `.agentignore` block is stale, and `init` now prints imported ignore-rule summaries while reusing the same sync engine.
+- Expanded `.agentignore` defaults for common generated noise such as Serverless, caches, temp directories, and snapshot artifacts.
+
+### Changed
+- Broad no-live-change packs now cap weak filename/meta-only matches, compress them to summaries, and suppress repeat noisy paths more aggressively when recent metrics already proved them unhelpful.
+- Pack and stats guidance now push users toward concrete task wording and `agentpack ignore sync` when recent precision metrics show noisy context selection.
+- Published package metadata no longer includes Claude-specific keywords in Python or npm package manifests.
+
+---
+
 ## [0.3.5] — 2026-05-20
 
 ### Added

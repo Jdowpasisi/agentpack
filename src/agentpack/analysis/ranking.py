@@ -21,10 +21,12 @@ _GENERIC_TASK_TERMS = {
     "add", "added", "change", "changed", "changes", "clean", "cleanup",
     "code", "commit", "context", "debug", "dev", "development", "doc",
     "docs", "eval", "evals", "feature", "fix", "freshness", "general",
-    "impl", "implement", "implementation", "improve", "issue", "metric", "metrics",
-    "noise", "noisy", "package", "pack", "packs", "release", "repo",
-    "source", "sync", "task", "tasks", "test", "tests", "update", "use",
-    "useful", "usefulness", "version", "workflow", "workflows",
+    "gap", "gaps", "generic", "impl", "implement", "implementation", "improve",
+    "issue", "metric", "metrics", "noise", "noisy", "package", "pack", "packs",
+    "quality", "release", "remaining", "repo", "root", "rule", "rules",
+    "source", "stat", "stats", "sync", "task", "tasks", "test", "tests",
+    "text", "update", "use", "useful", "usefulness", "version", "visibility",
+    "workflow", "workflows", "wording",
 }
 
 _CONCEPT_MAP: dict[str, frozenset[str]] = {

@@ -223,7 +223,12 @@ class FileRanker:
         scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
         if root is not None:
-            scored = _apply_history_penalties(root, scored, changes.all_changed)
+            scored = _apply_history_penalties(
+                root,
+                scored,
+                changes.all_changed,
+                generic_ratio=generic_ratio,
+            )
         return RankResult(
             keywords=keywords,
             generic_ratio=generic_ratio,
@@ -319,6 +324,13 @@ class PackPlanner:
             max_summary_files=_guarded_summary_cap(
                 root,
                 cfg,
+                request.mode,
+                rank_result.generic_ratio,
+                no_live_changes=not changes.all_changed,
+                effective_budget=effective_budget,
+            ),
+            max_weak_signal_files=_guarded_weak_signal_cap(
+                root,
                 request.mode,
                 rank_result.generic_ratio,
                 no_live_changes=not changes.all_changed,
@@ -581,6 +593,7 @@ def _apply_history_penalties(
     scored: list[tuple[Any, float, list[str]]],
     changed_paths: set[str],
     *,
+    generic_ratio: float = 0.0,
     window: int = 20,
 ) -> list[tuple[Any, float, list[str]]]:
     """Downrank paths that recent packs proved noisy for later edits."""
@@ -597,7 +610,11 @@ def _apply_history_penalties(
         if count <= 0:
             adjusted.append((fi, score, reasons))
             continue
-        penalty = min(25.0, count * 4.0)
+        has_strong = any(reason.startswith(_NO_LIVE_STRONG_SIGNALS) for reason in reasons)
+        if generic_ratio >= 0.35 and count >= 4 and not has_strong:
+            adjusted.append((fi, 0.0, [*reasons, "repeat noise path suppressed"]))
+            continue
+        penalty = min(45.0, count * 6.0 + max(0, count - 2) * 4.0)
         adjusted.append((fi, max(0.0, score - penalty), [*reasons, f"history noise penalty -{penalty:.0f}"]))
     return adjusted
 
@@ -649,10 +666,7 @@ _NO_LIVE_STRONG_SIGNALS = (
     "content keyword match",
     "matched entrypoint",
     "matched external system",
-    "matched role keyword",
     "matched domain",
-    "matched ranking keyword",
-    "matched define",
     "matched env read",
     "matched side effect",
     "direct dependency",
@@ -662,6 +676,11 @@ _NO_LIVE_STRONG_SIGNALS = (
     "config file",
     "knowledge/architecture doc",
     "historically co-changed",
+)
+_NO_LIVE_META_ONLY_SIGNALS = (
+    "matched role keyword",
+    "matched ranking keyword",
+    "matched define",
 )
 
 
@@ -676,19 +695,22 @@ def _apply_no_live_precision_guard(
     filename-only hits, and avoid letting broad task words fan out across repo.
     """
     adjusted: list[tuple[Any, float, list[str]]] = []
-    broad_task = generic_ratio >= 0.35
+    broad_task = generic_ratio >= 0.3
     for fi, score, reasons in scored:
         has_filename = any(reason.startswith("filename keyword match") for reason in reasons)
         has_strong = any(reason.startswith(_NO_LIVE_STRONG_SIGNALS) for reason in reasons)
+        has_meta_only = any(reason.startswith(_NO_LIVE_META_ONLY_SIGNALS) for reason in reasons)
+        if broad_task and has_filename and not has_strong:
+            damped = min(score, max(0.0, score * 0.2))
+            adjusted.append((fi, damped, [*reasons, "broad-task weak-signal dampening"]))
+            continue
         if has_filename and not has_strong:
             damped = min(score, max(0.0, score * 0.35))
             adjusted.append((fi, damped, [*reasons, "no-live filename-only dampening"]))
             continue
-        if broad_task and has_filename and not any(
-            reason.startswith(("symbol keyword match", "content keyword match", "historically co-changed"))
-            for reason in reasons
-        ):
-            adjusted.append((fi, max(0.0, score - 30), [*reasons, "broad-task filename dampening"]))
+        if broad_task and has_meta_only and not has_strong:
+            damped = max(0.0, score * 0.45 - 15)
+            adjusted.append((fi, damped, [*reasons, "broad-task meta-summary dampening"]))
             continue
         adjusted.append((fi, score, reasons))
     return adjusted
@@ -811,6 +833,57 @@ def _guarded_summary_cap(
     if cap <= 0:
         return strict_cap
     return min(cap, strict_cap)
+
+
+def _recent_token_precision(root: Path, window: int = 10) -> tuple[float, int]:
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if not metrics_path.exists():
+        return 1.0, 0
+    values: list[float] = []
+    try:
+        lines = metrics_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 1.0, 0
+    for line in reversed(lines):
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        value = rec.get("selection_token_precision")
+        if isinstance(value, int | float):
+            values.append(float(value))
+            if len(values) >= window:
+                break
+    if not values:
+        return 1.0, 0
+    return sum(values) / len(values), len(values)
+
+
+def _guarded_weak_signal_cap(
+    root: Path,
+    mode: str,
+    generic_ratio: float,
+    *,
+    no_live_changes: bool = False,
+    effective_budget: int = 0,
+) -> int:
+    if not no_live_changes:
+        return 0
+    if generic_ratio >= 0.5:
+        base = {"minimal": 0, "balanced": 1, "deep": 2}.get(mode, 1)
+    elif generic_ratio >= 0.35:
+        base = {"minimal": 1, "balanced": 2, "deep": 3}.get(mode, 2)
+    else:
+        base = {"minimal": 2, "balanced": 4, "deep": 6}.get(mode, 3)
+    avg_precision, rows = _recent_token_precision(root)
+    if rows >= 3:
+        if avg_precision <= 0.1:
+            base = min(base, 0 if mode == "minimal" else 1)
+        elif avg_precision <= 0.2:
+            base = min(base, 1 if mode != "deep" else 2)
+    if effective_budget and effective_budget <= 2500:
+        base = min(base, 1)
+    return max(0, base)
 
 
 def _recent_summary_token_precision(root: Path, window: int = 10) -> tuple[float, int]:
