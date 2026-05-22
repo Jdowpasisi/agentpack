@@ -215,6 +215,7 @@ def test_init_force_backs_up_existing_files(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".gitignore").write_text(".serverless/\n", encoding="utf-8")
     (tmp_path / ".agentpack" / "config.toml").write_text("old config\n", encoding="utf-8")
     (tmp_path / ".agentignore").write_text("old ignore\n", encoding="utf-8")
     (tmp_path / "GEMINI.md").write_text("old gemini\n", encoding="utf-8")

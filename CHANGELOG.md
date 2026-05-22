@@ -10,6 +10,14 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.7] — 2026-05-23
+
+### Fixed
+- Made the `agentpack init --force` backup regression test deterministic by seeding a repo-local `.gitignore`, avoiding environment-dependent `.agentignore` import behavior in release CI.
+- Recovery release after the failed PyPI-only `0.3.6` publish workflow, keeping npm and PyPI version lines aligned again.
+
+---
+
 ## [0.3.6] — 2026-05-22
 
 ### Added
