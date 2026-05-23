@@ -56,6 +56,7 @@ def save_pack_metadata(
     agent: str,
     mode: str,
     budget: int,
+    requested_mode: str | None = None,
     token_estimate: int = 0,
     freshness: dict[str, Any] | None = None,
     freshness_warnings: list[str] | None = None,
@@ -74,6 +75,7 @@ def save_pack_metadata(
         "task_hash": task_hash(task),
         "agent": agent,
         "mode": mode,
+        "requested_mode": requested_mode or mode,
         "budget": budget,
         "token_estimate": token_estimate,
         "selected_files_meta": selected_files or [],
@@ -326,9 +328,23 @@ _WEAK_SIGNAL_REASONS = {
     "broad-task meta-summary dampening",
 }
 
+_STRICT_SUMMARY_SUPPORT_PREFIXES = (
+    "direct dependency of changed file",
+    "reverse dependency",
+    "recall neighbor",
+    "historically co-changed",
+    "has related tests",
+    "test for",
+    "workspace match",
+)
+
 
 def _is_weak_signal_candidate(reasons: list[str]) -> bool:
     return any(reason in _WEAK_SIGNAL_REASONS for reason in reasons)
+
+
+def _has_strict_summary_support(reasons: list[str]) -> bool:
+    return any(reason.startswith(_STRICT_SUMMARY_SUPPORT_PREFIXES) for reason in reasons)
 
 
 def select_files(
@@ -343,6 +359,7 @@ def select_files(
     min_summary_score: float = 0,
     max_summary_files: int = 0,
     max_weak_signal_files: int = 0,
+    strict_summary_selection: bool = False,
 ) -> tuple[list[SelectedFile], list[Receipt]]:
     opts = _MODE_WEIGHTS[mode]
     selected: list[SelectedFile] = []
@@ -483,6 +500,10 @@ def select_files(
 
         if mode_str == "summary" and max_summary_files < 0:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="summaries disabled by precision guard"))
+            continue
+
+        if strict_summary_selection and mode_str == "summary" and not is_changed and not _has_strict_summary_support(reasons):
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="summary needs stronger support signal"))
             continue
 
         if mode_str == "summary" and max_summary_files > 0 and summaries_used >= max_summary_files:

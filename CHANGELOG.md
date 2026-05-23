@@ -10,6 +10,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.9] — 2026-05-23
+
+### Added
+- Added `agentpack global-repair-hooks` to refresh `~/.git-templates/hooks/`, reassert the global `init.templateDir`, and repair the current repo's `.git/hooks/` after an upgrade.
+
+### Fixed
+- Global git template hook installs now update stale marker-managed hooks instead of leaving legacy shell snippets in place.
+- AgentPack-managed git template hooks now end with `exit 0`, so non-AgentPack repos and fresh clones succeed cleanly even when the hook runner decides no repack is needed.
+- README and npm README now document the repaired `GitAutoRepack` path and the follow-up repair command for older copied hooks.
+
+---
+
 ## [0.3.8] — 2026-05-23
 
 ### Fixed

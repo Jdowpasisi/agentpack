@@ -244,6 +244,38 @@ def test_negative_summary_cap_disables_summaries():
     assert any(r.reason == "summaries disabled by precision guard" for r in receipts)
 
 
+def test_strict_summary_selection_requires_support_signal():
+    fi = _fi("file.py")
+    selected, receipts = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["filename keyword match"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Noisy summary.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+    assert selected == []
+    assert any(r.reason == "summary needs stronger support signal" for r in receipts)
+
+
+def test_strict_summary_selection_keeps_supported_summary():
+    fi = _fi("file.py")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["filename keyword match", "direct dependency of changed file"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Supported summary.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+    assert len(selected) == 1
+    assert selected[0].include_mode == "summary"
+
+
 def test_excluded_ignored_files():
     fi = FileInfo(
         path="node_modules/x.js",

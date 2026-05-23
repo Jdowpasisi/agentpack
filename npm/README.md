@@ -5,7 +5,7 @@
 [![PyPI core](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.4).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.9).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
 
@@ -143,12 +143,15 @@ agentpack migrate --path ~/src --discover --agent all
 agentpack doctor --agent all
 agentpack explain --file path/to/file.py
 agentpack benchmark --sample-fixtures --misses
+agentpack global-repair-hooks
 agentpack repair --agent all
 ```
 
 `agentpack guard` is the executable pre-edit gate for non-MCP agents. It checks stale context, stale task metadata, repo snapshot drift, and stale installed rule files; with `--repair-stale --refresh-context`, it repairs and refreshes before returning success. `agentpack pack` also self-heals stale AgentPack rule blocks for older installs that still call `pack`.
 
 `agentpack migrate --discover` scans existing repo folders and applies the same integration repair across many repos after an upgrade.
+
+`agentpack global-repair-hooks` refreshes `~/.git-templates/hooks/`, reasserts `git config --global init.templateDir`, and repairs the current repo's `.git/hooks/` so older copied hooks switch over to the safe `GitAutoRepack` runner.
 
 Native host enforcement skeletons and blocked-status stubs live in `native-integrations/` in the source repo. They are marked `guarded`, not `enforced`, until host APIs expose mandatory pre-edit/pre-tool hooks.
 

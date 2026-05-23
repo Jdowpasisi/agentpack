@@ -22,26 +22,66 @@ _AGENTPACK_MARKER = "# agentpack:global"
 
 _REPACK_CMD = shell_join(cli_module_argv("hook", "--event", "GitAutoRepack", "--agent", "auto"))
 
-_POST_CHECKOUT_SCRIPT = """\
-#!/bin/sh
-# agentpack:global
-""" + _REPACK_CMD.strip() + "\n"
+_HOOK_BODY = f"""\
+{_AGENTPACK_MARKER}
+{_REPACK_CMD.strip()}
+exit 0
+"""
 
-_POST_COMMIT_SCRIPT = """\
-#!/bin/sh
-# agentpack:global
-""" + _REPACK_CMD.strip() + "\n"
+_POST_CHECKOUT_SCRIPT = "#!/bin/sh\n" + _HOOK_BODY
 
-_POST_MERGE_SCRIPT = """\
-#!/bin/sh
-# agentpack:global
-""" + _REPACK_CMD.strip() + "\n"
+_POST_COMMIT_SCRIPT = "#!/bin/sh\n" + _HOOK_BODY
+
+_POST_MERGE_SCRIPT = "#!/bin/sh\n" + _HOOK_BODY
 
 _HOOK_SCRIPTS = {
     "post-checkout": _POST_CHECKOUT_SCRIPT,
     "post-commit": _POST_COMMIT_SCRIPT,
     "post-merge": _POST_MERGE_SCRIPT,
 }
+
+
+def _agentpack_block_bounds(lines: list[str]) -> tuple[int, int] | None:
+    marker_index = next((i for i, line in enumerate(lines) if _AGENTPACK_MARKER in line), None)
+    if marker_index is None:
+        return None
+    start = marker_index
+    if marker_index > 0 and lines[marker_index - 1].strip().startswith("#!/"):
+        start = marker_index - 1
+    end = marker_index + 1
+    while end < len(lines):
+        stripped = lines[end].strip()
+        if (
+            not stripped
+            or stripped == "exit 0"
+            or stripped.startswith("# Repack only")
+            or "GitAutoRepack" in stripped
+            or stripped.startswith("agentpack ")
+            or stripped.startswith("[ -f .agentpack/config.toml ]")
+        ):
+            end += 1
+            continue
+        break
+    return start, end
+
+
+def _replace_agentpack_block(content: str, script: str) -> str:
+    lines = content.splitlines(keepends=True)
+    bounds = _agentpack_block_bounds(lines)
+    if bounds is None:
+        return content
+    start, end = bounds
+    replacement = script.splitlines(keepends=True)
+    return "".join([*lines[:start], *replacement, *lines[end:]])
+
+
+def _remove_agentpack_block(content: str) -> str:
+    lines = content.splitlines(keepends=True)
+    bounds = _agentpack_block_bounds(lines)
+    if bounds is None:
+        return content
+    start, end = bounds
+    return "".join([*lines[:start], *lines[end:]])
 
 
 def install_git_template_hooks(dry_run: bool = False) -> dict[str, str]:
@@ -60,12 +100,18 @@ def install_git_template_hooks(dry_run: bool = False) -> dict[str, str]:
         if hook_path.exists():
             content = hook_path.read_text()
             if _AGENTPACK_MARKER in content:
-                results[name] = "unchanged"
+                updated = _replace_agentpack_block(content, script)
+                if updated != content:
+                    results[name] = "would-update" if dry_run else "updated"
+                    if not dry_run:
+                        hook_path.write_text(updated)
+                else:
+                    results[name] = "unchanged"
                 continue
             results[name] = "would-append" if dry_run else "appended"
             if not dry_run:
                 sep = "" if content.endswith("\n") else "\n"
-                hook_path.write_text(content + sep + script)
+                hook_path.write_text(content + sep + _HOOK_BODY)
         else:
             results[name] = "would-create" if dry_run else "created"
             if not dry_run:
@@ -103,26 +149,7 @@ def remove_git_template_hooks() -> dict[str, str]:
         if _AGENTPACK_MARKER not in content:
             results[name] = "unchanged"
             continue
-        # Remove agentpack block (shebang + marker + agentpack lines)
-        lines = content.splitlines(keepends=True)
-        new_lines: list[str] = []
-        skip = False
-        for line in lines:
-            if _AGENTPACK_MARKER in line:
-                skip = True
-                # Also remove the preceding shebang if it was the only line before marker
-                if new_lines and new_lines[-1].strip().startswith("#!/"):
-                    prev = "".join(new_lines[:-1])
-                    if not prev.strip():
-                        new_lines.pop()
-                continue
-            if skip:
-                if line.startswith("agentpack ") or line.strip() == "":
-                    continue
-                skip = False
-            new_lines.append(line)
-
-        new_content = "".join(new_lines).strip()
+        new_content = _remove_agentpack_block(content).strip()
         if new_content in ("", "#!/bin/sh", "#!/bin/bash"):
             hook_path.unlink()
             results[name] = "removed"

@@ -90,6 +90,15 @@ def test_case_insensitive_matching() -> None:
 
 def test_noise_report_names_generic_terms() -> None:
     plan = SimpleNamespace(
+        keyword_plan=SimpleNamespace(
+            term_stats={
+                "pack": {"weight": 0.25, "rarity": 0.1, "kind": "generic", "good_runs": 0, "bad_runs": 2},
+                "stats": {"weight": 0.25, "rarity": 0.2, "kind": "generic", "good_runs": 0, "bad_runs": 2},
+            },
+            phrase_stats={
+                "pack stats": {"weight": 0.35, "rarity": 0.3, "kind": "phrase", "good_runs": 0, "bad_runs": 1},
+            },
+        ),
         selected=[
             SimpleNamespace(include_mode="summary", reasons=["filename keyword match"]),
             SimpleNamespace(include_mode="summary", reasons=["filename keyword match"]),
@@ -105,8 +114,32 @@ def test_noise_report_names_generic_terms() -> None:
     assert "generic terms:" in report
     assert "pack" in report
     assert "stats" in report
+    assert "ambiguous terms:" in report
     assert "excluded by summary cap: 1" in report
     assert "Try `--mode minimal`" in report
+    assert "Rewrite example:" in report
+
+
+def test_print_term_weights_renders_tables(capsys) -> None:
+    from agentpack.commands.explain import _print_term_weights
+
+    plan = SimpleNamespace(
+        keyword_plan=SimpleNamespace(
+            term_stats={
+                "signup": {"weight": 1.2, "rarity": 0.8, "kind": "positive", "good_runs": 2, "bad_runs": 0},
+            },
+            phrase_stats={
+                "signup gate": {"weight": 1.3, "rarity": 0.9, "kind": "positive", "good_runs": 2, "bad_runs": 0},
+            },
+        )
+    )
+
+    _print_term_weights(plan)
+
+    out = capsys.readouterr().out
+    assert "Task term weights" in out
+    assert "Task phrase weights" in out
+    assert "signup gate" in out
 
 
 def test_budget_plan_prints_modes_and_value(capsys) -> None:

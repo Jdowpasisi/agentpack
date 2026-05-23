@@ -1,10 +1,15 @@
 from pathlib import Path
 from agentpack.analysis.ranking import (
+    ambiguous_task_terms,
+    build_keyword_plan,
     boost_cross_layer_related,
+    concrete_task_terms,
     extract_keywords,
     extract_keyword_weights,
     generic_task_term_ratio,
+    persist_keyword_plan_stats,
     score_files,
+    suggest_task_rewrite,
 )
 from agentpack.core.models import FileInfo
 
@@ -49,6 +54,111 @@ def test_generic_task_terms_are_downweighted():
     assert weights["impl"] < weights["auth"]
     assert generic_task_term_ratio("fix release implementation task") >= 0.75
     assert generic_task_term_ratio("improve context pack quality from stats") >= 0.8
+
+
+def test_ambiguous_task_terms_are_softened_but_preserved():
+    weights = extract_keyword_weights("public analysis seo preview")
+    assert weights["analysis"] < weights["seo"]
+    assert weights["public"] < weights["seo"]
+    assert ambiguous_task_terms("public analysis seo preview") == ["analysis", "preview", "public"]
+    assert concrete_task_terms("public analysis seo preview") == ["seo"]
+
+
+def test_task_rewrite_hint_prefers_scope_and_concrete_terms():
+    hint = suggest_task_rewrite("Implement cost-safe public SEO tools with deterministic previews and signup-gated AI analysis")
+    assert "frontend page/component work only" in hint
+    assert "seo" in hint
+    assert "no backend service or analysis changes" in hint
+
+
+def test_keyword_plan_uses_repo_rarity_to_lift_concrete_terms():
+    files = [
+        _fi("src/common/preview_card.py"),
+        _fi("src/common/preview_modal.py"),
+        _fi("src/common/preview_shell.py"),
+        _fi("src/seo/landing_tool.py"),
+    ]
+    plan = build_keyword_plan("preview seo", files=files)
+    assert plan.weights["seo"] > plan.weights["preview"]
+    assert plan.rarity["seo"] > plan.rarity["preview"]
+
+
+def test_keyword_plan_learns_ambiguous_terms_from_noisy_history(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join([
+            '{"task":"public preview analysis flow","selection_token_precision":0.1,"selection_noise_paths":["src/noisy.py"]}',
+            '{"task":"public preview analysis page","selection_token_precision":0.12,"selection_noise_paths":["src/noisy.py"]}',
+            '{"task":"seo landing page","selection_token_precision":0.6,"selection_noise_paths":[]}',
+        ]),
+        encoding="utf-8",
+    )
+    plan = build_keyword_plan("public preview analysis seo", root=tmp_path)
+    assert "preview" in plan.learned_ambiguous_terms
+    assert plan.weights["preview"] <= 0.55
+
+
+def test_keyword_plan_learns_positive_terms_and_phrases(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join([
+            '{"task":"signup gate preview","selection_token_precision":0.62,"selection_noise_paths":[]}',
+            '{"task":"signup gate flow","selection_token_precision":0.58,"selection_noise_paths":[]}',
+            '{"task":"preview analysis page","selection_token_precision":0.1,"selection_noise_paths":["src/noisy.py"]}',
+        ]),
+        encoding="utf-8",
+    )
+    plan = build_keyword_plan("signup gate preview", root=tmp_path)
+    assert "signup" in plan.learned_positive_terms
+    assert "signup gate" in plan.learned_positive_phrases
+    assert plan.phrase_weights["signup gate"] > plan.phrase_weights["gate preview"]
+
+
+def test_keyword_plan_workspace_weights_can_exceed_global_for_local_rarity():
+    files = [
+        _fi("apps/web/src/signup_gate.tsx"),
+        _fi("apps/web/src/preview_card.tsx"),
+        _fi("apps/api/src/signup_worker.ts"),
+        _fi("apps/api/src/preview_job.ts"),
+    ]
+    plan = build_keyword_plan(
+        "signup preview",
+        files=files,
+        workspace_roots=["apps/web", "apps/api"],
+    )
+    assert plan.workspace_weights["apps/web"]["signup"] >= plan.weights["signup"]
+
+
+def test_keyword_plan_persists_term_stats(tmp_path):
+    plan = build_keyword_plan("signup gate preview")
+    out = persist_keyword_plan_stats(tmp_path, "signup gate preview", plan)
+    text = out.read_text(encoding="utf-8")
+    assert '"task": "signup gate preview"' in text
+    assert '"terms"' in text
+    assert '"phrases"' in text
+
+
+def test_ambiguous_terms_restore_only_with_corroboration():
+    weak = _fi("src/analysis.py")
+    weak.content = "def helper():\n    return 1\n"
+    strong = _fi("src/services/analysis_service.py")
+    strong.content = "def analysis():\n    return analysis_result\nanalysis_result = analysis()\n"
+    strong.language = "python"
+
+    plan = build_keyword_plan("analysis", files=[weak, strong])
+    scored = score_files(
+        [weak, strong],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=plan,
+    )
+    reasons = {fi.path: rs for fi, _score, rs in scored}
+    assert any(reason.startswith("ambiguous term cap") for reason in reasons["src/analysis.py"])
+    assert any(reason.startswith("ambiguous term restored by corroboration") for reason in reasons["src/services/analysis_service.py"])
 
 
 def test_generic_terms_do_not_dominate_concrete_file_matches():

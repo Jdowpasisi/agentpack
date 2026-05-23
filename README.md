@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.8).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.9).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 
@@ -568,6 +568,7 @@ Command map:
 | `agentpack monitor` | Review recent pack runs and quality signals |
 | `agentpack scan` | Inspect packable, ignored, binary, and largest files |
 | `agentpack global-install` | Install opt-in global hooks for initialized repos |
+| `agentpack global-repair-hooks` | Repair stale global template hooks and current repo git hooks |
 
 ### `agentpack global-install`
 
@@ -583,7 +584,7 @@ agentpack global-install --agent antigravity   # Antigravity
 ```
 
 What it does:
-- **Git template hooks** (`~/.git-templates/hooks/`) — git copies these into every repo on `git init` / `git clone`. On `post-commit`, `post-merge`, `post-checkout`: silently repacks **only if `.agentpack/config.toml` exists** — no-op in repos that haven't opted in.
+- **Git template hooks** (`~/.git-templates/hooks/`) — git copies these into every repo on `git init` / `git clone`. On `post-commit`, `post-merge`, `post-checkout` they call AgentPack's cross-platform `GitAutoRepack` hook runner and always exit cleanly. Repacking still happens only in opted-in repos; fresh clones without `.agentpack/config.toml` remain a safe no-op.
 - **Shell cd hook** (`~/.zshrc`, `~/.bashrc`, or the PowerShell profile on Windows) — on `cd` or prompt refresh, repacks if stale **only in opted-in repos**. Never touches repos without `.agentpack/config.toml`. Never auto-inits.
 - **Agent config** — same agent-specific files that `agentpack init --agent <x>` or `agentpack install --agent <x>` writes for the current project.
 
@@ -604,6 +605,27 @@ Preview before committing:
 ```bash
 agentpack global-install --dry-run
 ```
+
+If you installed an older AgentPack build and want to refresh copied git hooks after an upgrade, run:
+
+```bash
+agentpack global-repair-hooks
+```
+
+That repairs `~/.git-templates/hooks/`, reasserts `git config --global init.templateDir`, and updates the current repo's `.git/hooks/` to the safe `GitAutoRepack` path.
+
+### `agentpack global-repair-hooks`
+
+Refresh AgentPack's global git template hooks and the current repo's local git hooks after an upgrade.
+
+```bash
+agentpack global-repair-hooks
+```
+
+Use this when:
+- old template hooks were copied before the `GitAutoRepack` runner existed
+- a stale hook script still shells out directly instead of calling `agentpack hook`
+- you want new clones and the current repo to pick up the latest non-destructive hook behavior immediately
 
 ---
 

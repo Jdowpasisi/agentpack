@@ -12,6 +12,7 @@ from rich import box
 
 from agentpack.core import git
 from agentpack.core.ignore import SENSITIVE_PATTERNS
+from agentpack.analysis.ranking import suggest_task_rewrite
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
 from agentpack.commands._shared import console, _root, _file_hash, _now_iso
 from agentpack.integrations.agents import check_agent_integration, install_agent_integration
@@ -234,10 +235,14 @@ def _pack_diagnostics(result: PackResult) -> list[str]:
         if len(part) >= 3
     ]
     generic_ratio = float((result.pack.freshness or {}).get("generic_task_ratio") or 0.0)
+    mode_warning = (result.pack.freshness or {}).get("mode_warning")
     if len(task_words) <= 3:
         diagnostics.append("Task is very short; add subsystem, file, or symptom words for better precision.")
     if generic_ratio >= 0.5:
         diagnostics.append("Task terms are broad/generic; name concrete file, route, service, or symptom words.")
+        diagnostics.append(f"Rewrite example: `{suggest_task_rewrite(result.pack.task)}`.")
+    if mode_warning:
+        diagnostics.append(str(mode_warning))
     if not result.changed_files:
         diagnostics.append("No changed files detected; pack relies mostly on task keywords and cached summaries.")
     if selected and not strong_live_signal and filename_matches / len(selected) >= 0.6:

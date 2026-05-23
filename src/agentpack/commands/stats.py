@@ -16,6 +16,7 @@ from agentpack.core.scanner import scan
 from agentpack.core.snapshot import build_snapshot
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.application.pack_service import AdapterRegistry
+from agentpack.analysis.ranking import suggest_task_rewrite
 from agentpack.commands._shared import console, _root
 from agentpack.session.state import SessionState
 
@@ -160,7 +161,7 @@ def register(app: typer.Typer) -> None:
 
         # --- Selection accuracy (last 10 runs) ---
         accuracy_rows = _load_accuracy_rows(metrics_path, n=10)
-        noise_diagnostics = _noise_diagnostics(top_files, accuracy_rows)
+        noise_diagnostics = _noise_diagnostics(top_files, accuracy_rows, task=(meta or {}).get("task"))
         if noise_diagnostics:
             console.print()
             console.print(_advice_panel("Pack quality advice", noise_diagnostics))
@@ -332,6 +333,7 @@ def _freshness_diagnostics(
 def _noise_diagnostics(
     top_files: list[tuple[str, str, str]],
     accuracy_rows: list[dict],
+    task: str | None = None,
 ) -> list[str]:
     diagnostics: list[str] = []
     if top_files:
@@ -347,6 +349,8 @@ def _noise_diagnostics(
         if filename_matches / len(visible_top) >= 0.6:
             diagnostics.append("Top files mostly matched by filename; task terms may be broad.")
             diagnostics.append("Rewrite `.agentpack/task.md` with concrete file, route, service, or symptom words.")
+            if task:
+                diagnostics.append(f"Rewrite example: `{suggest_task_rewrite(task)}`.")
 
     if accuracy_rows:
         avg_precision = sum(r["selection_precision"] for r in accuracy_rows) / len(accuracy_rows)
@@ -383,7 +387,7 @@ def _noise_diagnostics(
                 f"Inspect top noisy path: `agentpack explain --file {first_path} --task auto`; "
                 "add generated/vendor paths to `.agentignore`, run `agentpack ignore sync`, or tighten task wording if it is not useful."
             )
-    return diagnostics[:9]
+    return diagnostics[:10]
 
 
 def _top_files_from_metadata(meta: dict) -> list[tuple[str, str, str]]:

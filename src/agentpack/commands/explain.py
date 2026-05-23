@@ -4,13 +4,33 @@ import re
 from typing import Optional
 
 import typer
+from rich.table import Table
 
 from agentpack.application.pack_service import PackPlanner, PackRequest
 from agentpack.core.context_pack import select_files
 from agentpack.commands._shared import console, _root
 from agentpack.commands.pack import _resolve_task
 from agentpack.core.config import load_config, ScoringWeights
-from agentpack.analysis.ranking import extract_keyword_weights, generic_task_term_ratio, _GENERIC_TASK_TERMS
+from agentpack.analysis.ranking import (
+    ambiguous_task_terms,
+    build_keyword_plan,
+    extract_keyword_weights,
+    generic_task_term_ratio,
+    suggest_task_rewrite,
+    _GENERIC_TASK_TERMS,
+)
+
+_SUPPORT_SIGNAL_PREFIXES = (
+    "modified",
+    "staged",
+    "direct dependency of changed file",
+    "reverse dependency",
+    "recall neighbor",
+    "historically co-changed",
+    "has related tests",
+    "test for",
+    "workspace match",
+)
 
 
 def _resolve_signal_weight(reason: str, weights: ScoringWeights) -> float:
@@ -109,13 +129,38 @@ def _print_file_detail(
     if symbol_names:
         console.print()
         console.print(f"  [bold]symbols:[/] {', '.join(symbol_names)}")
+    support_signals = [reason for reason in reasons if reason.startswith(_SUPPORT_SIGNAL_PREFIXES)]
+    if not support_signals and any(
+        reason in {
+            "broad-task weak-signal dampening",
+            "broad-task meta-summary dampening",
+            "frontend-scope backend dampening",
+            "frontend-scope backend suppression",
+            "backend-scope frontend dampening",
+            "backend-scope frontend suppression",
+        }
+        for reason in reasons
+    ):
+        console.print()
+        console.print("  [bold]note:[/] weak semantic match only; no changed-file adjacency or dependency support signal")
+    ambiguity = [reason for reason in reasons if reason.startswith(("ambiguous term cap", "ambiguous term restored by corroboration"))]
+    if ambiguity:
+        console.print()
+        for line in ambiguity:
+            console.print(f"  [bold]ambiguity:[/] {line}")
     console.print()
 
 
 def _noise_report(task: str, plan: object) -> list[str]:
-    keyword_weights = extract_keyword_weights(task)
-    generic_terms = sorted(term for term in keyword_weights if term in _GENERIC_TASK_TERMS)
-    specific_terms = sorted(term for term in keyword_weights if term not in _GENERIC_TASK_TERMS)
+    keyword_plan = getattr(plan, "keyword_plan", None) or build_keyword_plan(task)
+    keyword_weights = keyword_plan.weights if hasattr(keyword_plan, "weights") else extract_keyword_weights(task)
+    generic_terms = list(getattr(keyword_plan, "generic_terms", ())) or sorted(term for term in keyword_weights if term in _GENERIC_TASK_TERMS)
+    ambiguous_terms = list(getattr(keyword_plan, "ambiguous_terms", ())) or ambiguous_task_terms(task)
+    learned_ambiguous = list(getattr(keyword_plan, "learned_ambiguous_terms", ()))
+    specific_terms = sorted(
+        term for term in keyword_weights
+        if term not in _GENERIC_TASK_TERMS and term not in set(ambiguous_terms)
+    )
     selected = list(plan.selected)  # type: ignore[attr-defined]
     summary_count = sum(1 for sf in selected if sf.include_mode == "summary")
     filename_count = sum(1 for sf in selected if "filename keyword match" in sf.reasons)
@@ -123,18 +168,22 @@ def _noise_report(task: str, plan: object) -> list[str]:
     excluded = [r for r in plan.receipts if r.action == "excluded"]  # type: ignore[attr-defined]
     summary_cap = sum(1 for r in excluded if r.reason == "summary cap reached")
     score_floor = sum(1 for r in excluded if r.reason == "summary score below floor")
+    strict_support = sum(1 for r in excluded if r.reason == "summary needs stronger support signal")
 
     lines = [
         "## Pack noise report",
         "",
         f"- generic task ratio: {generic_task_term_ratio(task):.0%}",
         f"- generic terms: {', '.join(generic_terms) if generic_terms else '(none)'}",
+        f"- ambiguous terms: {', '.join(ambiguous_terms) if ambiguous_terms else '(none)'}",
+        f"- learned ambiguous terms: {', '.join(learned_ambiguous) if learned_ambiguous else '(none)'}",
         f"- specific terms: {', '.join(specific_terms) if specific_terms else '(none)'}",
         f"- selected summaries: {summary_count}/{len(selected)}",
         f"- filename-match selections: {filename_count}/{len(selected)}",
         f"- symbol-match selections: {symbol_count}/{len(selected)}",
         f"- excluded by summary cap: {summary_cap}",
         f"- excluded by weak summary score: {score_floor}",
+        f"- excluded by strict summary support: {strict_support}",
         "",
         "### Sharpen task wording",
         "",
@@ -148,12 +197,64 @@ def _noise_report(task: str, plan: object) -> list[str]:
         lines.append("- Try `--mode minimal` for edit work, or add exact module/file names.")
     if filename_count and selected and filename_count / len(selected) >= 0.6:
         lines.append("- Filename matches dominate; add behavior words that appear inside target files.")
+    if ambiguous_terms or generic_terms:
+        lines.append(f"- Rewrite example: `{suggest_task_rewrite(task)}`.")
     return lines
 
 
 def _print_noise_report(task: str, plan: object) -> None:
     for line in _noise_report(task, plan):
         console.print(line)
+
+
+def _print_term_weights(plan: object) -> None:
+    keyword_plan = getattr(plan, "keyword_plan", None)
+    if keyword_plan is None:
+        return
+    term_table = Table(title="Task term weights", show_header=True)
+    term_table.add_column("term", style="cyan")
+    term_table.add_column("weight", justify="right")
+    term_table.add_column("rarity", justify="right")
+    term_table.add_column("kind")
+    term_table.add_column("good", justify="right")
+    term_table.add_column("bad", justify="right")
+    for term, info in sorted(
+        keyword_plan.term_stats.items(),
+        key=lambda item: (-float(item[1].get("weight", 0.0)), item[0]),
+    )[:20]:
+        term_table.add_row(
+            term,
+            f"{float(info.get('weight', 0.0)):.2f}",
+            f"{float(info.get('rarity', 0.0)):.2f}",
+            str(info.get("kind", "")),
+            str(int(info.get("good_runs", 0))),
+            str(int(info.get("bad_runs", 0))),
+        )
+    console.print()
+    console.print(term_table)
+
+    if getattr(keyword_plan, "phrase_stats", None):
+        phrase_table = Table(title="Task phrase weights", show_header=True)
+        phrase_table.add_column("phrase", style="cyan")
+        phrase_table.add_column("weight", justify="right")
+        phrase_table.add_column("rarity", justify="right")
+        phrase_table.add_column("kind")
+        phrase_table.add_column("good", justify="right")
+        phrase_table.add_column("bad", justify="right")
+        for phrase, info in sorted(
+            keyword_plan.phrase_stats.items(),
+            key=lambda item: (-float(item[1].get("weight", 0.0)), item[0]),
+        )[:12]:
+            phrase_table.add_row(
+                phrase,
+                f"{float(info.get('weight', 0.0)):.2f}",
+                f"{float(info.get('rarity', 0.0)):.2f}",
+                str(info.get("kind", "")),
+                str(int(info.get("good_runs", 0))),
+                str(int(info.get("bad_runs", 0))),
+            )
+        console.print()
+        console.print(phrase_table)
 
 
 def _print_budget_plan(plan: object) -> None:
@@ -278,6 +379,7 @@ def register(app: typer.Typer) -> None:
         if why_noisy:
             console.print(f"\n[bold]Task:[/] [cyan]{resolved_task}[/]  [dim]mode={mode}  budget={plan.budget:,}[/]\n")
             _print_noise_report(resolved_task, plan)
+            _print_term_weights(plan)
             console.print()
             return
 

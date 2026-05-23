@@ -6,6 +6,7 @@ import typer
 
 from agentpack.commands._shared import console, _root
 from agentpack.integrations.agents import SUPPORTED_AGENTS, install_agent_integration, resolve_agent
+from agentpack.integrations.git_hooks import install_git_hooks
 from agentpack.integrations.global_install import (
     configure_git_template_dir,
     install_git_template_hooks,
@@ -70,6 +71,24 @@ def _print_dry_run_agent(agent: str) -> None:
         console.print("\n[dim]Would patch: GEMINI.md, VS Code task, git hooks[/]")
     elif agent == "generic":
         console.print("\n[dim]Would not patch agent files; generic has no agent-specific hooks[/]")
+
+
+def _print_global_template_results(results: dict[str, str], *, dry_run: bool = False) -> None:
+    for name, action in results.items():
+        if action != "unchanged":
+            prefix = "[dim]" if dry_run else "[green]"
+            console.print(f"{prefix}~/.git-templates/hooks/{name} {action}.[/]")
+
+
+def _print_repo_hook_results(results: dict[str, str]) -> None:
+    if not results:
+        console.print("[dim]No local .git/hooks directory found in the current repo.[/]")
+        return
+    for name, action in results.items():
+        if action != "unchanged":
+            console.print(f"[green].git/hooks/{name} {action}.[/]")
+    if all(action == "unchanged" for action in results.values()):
+        console.print("[dim]Local repo git hooks already current.[/]")
 
 
 def register(app: typer.Typer) -> None:
@@ -140,10 +159,7 @@ def register(app: typer.Typer) -> None:
         if git_template:
             console.print("\n[bold]Git template hooks:[/]" if dry_run else "\n[bold]Setting up git template hooks...[/]")
             hook_results = install_git_template_hooks(dry_run=dry_run)
-            for name, action in hook_results.items():
-                if action != "unchanged":
-                    prefix = "[dim]" if dry_run else "[green]"
-                    console.print(f"{prefix}~/.git-templates/hooks/{name} {action}.[/]")
+            _print_global_template_results(hook_results, dry_run=dry_run)
             git_cfg_action = configure_git_template_dir(dry_run=dry_run)
             if dry_run:
                 console.print(f"[dim]git config --global init.templateDir {git_cfg_action}.[/]")
@@ -216,6 +232,28 @@ def register(app: typer.Typer) -> None:
         console.print("\n[bold green]Global uninstall complete.[/]")
         console.print("  Per-project [dim].agentpack/[/] directories are untouched.")
         console.print("  To remove from a specific repo: delete [dim].agentpack/[/] and remove agent config.")
+
+    @app.command(name="global-repair-hooks")
+    def global_repair_hooks_cmd() -> None:
+        """Repair global git template hooks and current repo local git hooks."""
+        root = _root()
+
+        console.print("[bold]Repairing global git template hooks...[/]")
+        template_results = install_git_template_hooks()
+        _print_global_template_results(template_results)
+        git_cfg_action = configure_git_template_dir(dry_run=False)
+        console.print(f"[green]git config --global init.templateDir {git_cfg_action}.[/]")
+        if all(action == "unchanged" for action in template_results.values()):
+            console.print("[dim]Global git template hooks already current.[/]")
+
+        console.print("\n[bold]Repairing current repo git hooks...[/]")
+        repo_results = install_git_hooks(root, agent="auto")
+        _print_repo_hook_results(repo_results)
+
+        console.print("\n[bold green]Hook repair complete.[/]")
+        console.print("  New clones will use repaired template hooks.")
+        if repo_results:
+            console.print("  Current repo hooks now delegate through AgentPack's safe GitAutoRepack path.")
 
 
 def _install_slash_command(root: Path, global_install: bool) -> str:

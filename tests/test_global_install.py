@@ -30,6 +30,7 @@ class TestGitTemplateHooks:
             assert _AGENTPACK_MARKER in content
             assert "GitAutoRepack" in content
             assert "agentpack.cli" in content
+            assert content.rstrip().endswith("exit 0")
 
     def test_hooks_are_executable(self, tmp_path, monkeypatch):
         import agentpack.integrations.global_install as gi
@@ -46,6 +47,28 @@ class TestGitTemplateHooks:
         results2 = install_git_template_hooks()
         assert all(v == "unchanged" for v in results2.values())
 
+    def test_updates_legacy_marker_hooks(self, tmp_path, monkeypatch):
+        import agentpack.integrations.global_install as gi
+        gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
+        hooks_dir = tmp_path / ".git-templates" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        legacy = """#!/bin/sh
+# agentpack:global
+# Repack only if this repo has already been opted in to agentpack.
+[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+"""
+        for name in _HOOK_SCRIPTS:
+            (hooks_dir / name).write_text(legacy)
+
+        results = install_git_template_hooks()
+
+        assert all(action == "updated" for action in results.values())
+        for name in _HOOK_SCRIPTS:
+            content = (hooks_dir / name).read_text()
+            assert "[ -f .agentpack/config.toml ]" not in content
+            assert "GitAutoRepack" in content
+            assert content.rstrip().endswith("exit 0")
+
     def test_appends_to_existing_hook(self, tmp_path, monkeypatch):
         import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
@@ -60,6 +83,7 @@ class TestGitTemplateHooks:
         content = hook.read_text()
         assert "existing" in content
         assert _AGENTPACK_MARKER in content
+        assert "exit 0" in content
 
     def test_remove_cleans_hooks(self, tmp_path, monkeypatch):
         import agentpack.integrations.global_install as gi
@@ -84,6 +108,7 @@ class TestGitTemplateHooks:
         assert hook.exists()
         assert "keep me" in hook.read_text()
         assert _AGENTPACK_MARKER not in hook.read_text()
+        assert "GitAutoRepack" not in hook.read_text()
 
 
 # ---------------------------------------------------------------------------

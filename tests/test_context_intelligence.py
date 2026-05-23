@@ -7,8 +7,11 @@ from agentpack.analysis.task_classifier import classify_task
 from agentpack.application.pack_service import (
     _apply_history_penalties,
     _apply_no_live_precision_guard,
+    _apply_scope_penalties,
     _compute_delta_summary,
     _filter_co_changed_paths,
+    _resolve_effective_mode,
+    _strict_summary_selection,
     _guarded_weak_signal_cap,
     _guarded_summary_cap,
     _guarded_summary_score_floor,
@@ -183,6 +186,26 @@ def test_history_penalties_suppress_repeat_noise_for_broad_tasks(tmp_path):
     assert scores["src/strong.py"][0] > 0.0
 
 
+def test_history_penalties_suppress_repeat_weak_noise_even_without_broad_task(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join('{"selection_noise_paths":["src/noisy.py"]}' for _ in range(6)),
+        encoding="utf-8",
+    )
+    noisy = _fi(tmp_path, "src/noisy.py")
+
+    adjusted = _apply_history_penalties(
+        tmp_path,
+        [(noisy, 100.0, ["filename keyword match", "matched role keyword: helper"])],
+        changed_paths=set(),
+        generic_ratio=0.1,
+    )
+
+    assert adjusted[0][1] == 0.0
+    assert "repeat weak-noise path suppressed" in adjusted[0][2]
+
+
 def test_cochange_filter_requires_repetition_and_skips_noisy_paths(tmp_path):
     metrics_dir = tmp_path / ".agentpack"
     metrics_dir.mkdir()
@@ -248,6 +271,59 @@ def test_weak_signal_cap_tightens_for_broad_no_live_low_precision_runs(tmp_path)
     )
 
     assert cap == 1
+
+
+def test_effective_mode_auto_tightens_balanced_to_minimal_for_no_live_noise(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join([
+            '{"selection_token_precision":0.12,"selection_token_precision_summary":0.0}',
+            '{"selection_token_precision":0.10,"selection_token_precision_summary":0.0}',
+            '{"selection_token_precision":0.08,"selection_token_precision_summary":0.0}',
+        ]),
+        encoding="utf-8",
+    )
+
+    mode, warning = _resolve_effective_mode(
+        tmp_path,
+        "balanced",
+        0.45,
+        no_live_changes=True,
+    )
+
+    assert mode == "minimal"
+    assert warning is not None
+
+
+def test_scope_penalties_suppress_backend_leak_for_frontend_only_task(tmp_path):
+    frontend = _fi(tmp_path, "src/app/page.tsx")
+    backend = _fi(tmp_path, "backend/src/services/analysis_job.py")
+
+    adjusted = _apply_scope_penalties(
+        [
+            (frontend, 120.0, ["modified", "content keyword match (3)"]),
+            (backend, 110.0, ["filename keyword match", "symbol keyword match"]),
+        ],
+        "frontend public seo preview signup flow",
+        {"src/app/page.tsx"},
+        generic_ratio=0.4,
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in adjusted}
+    assert scores["backend/src/services/analysis_job.py"][0] == 0.0
+    assert "frontend-scope backend suppression" in scores["backend/src/services/analysis_job.py"][1]
+
+
+def test_strict_summary_selection_enabled_for_dead_summary_precision(tmp_path):
+    metrics_dir = tmp_path / ".agentpack"
+    metrics_dir.mkdir()
+    (metrics_dir / "metrics.jsonl").write_text(
+        "\n".join('{"selection_token_precision_summary":0.0}' for _ in range(3)),
+        encoding="utf-8",
+    )
+
+    assert _strict_summary_selection(tmp_path) is True
 
 
 def test_no_live_precision_guard_dampens_filename_only_matches(tmp_path):
