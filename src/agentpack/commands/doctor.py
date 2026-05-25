@@ -18,6 +18,8 @@ from agentpack.integrations.global_install import (
 )
 from agentpack.commands._shared import console, _root
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.core.ignore import agentignore_sync_status, format_import_summary
+from agentpack.core.task_freshness import task_freshness
 from agentpack.integrations.agents import SUPPORTED_AGENTS, check_agent_integration, expand_agents
 
 
@@ -120,12 +122,26 @@ def register(app: typer.Typer) -> None:
             console.print(f"  [yellow]![/] Not initialized in {root} — run: agentpack init")
         else:
             console.print("  [green]✓[/] .agentpack/config.toml present")
+            for finding in _agentignore_sync_findings(root):
+                if finding.startswith("synced:"):
+                    console.print(f"  [green]✓[/] {finding.split(':', 1)[1].strip()}")
+                else:
+                    console.print(f"  [yellow]![/] {finding}")
+                    ok = False
             context_path = _latest_context_path(root)
             if context_path.exists():
                 import time
                 age = time.time() - context_path.stat().st_mtime
                 age_str = f"{int(age // 3600)}h {int((age % 3600) // 60)}m" if age > 3600 else f"{int(age // 60)}m"
                 console.print(f"  [green]✓[/] context pack present (age: {age_str})")
+                task_state = task_freshness(root, load_pack_metadata(root))
+                if task_state.is_stale:
+                    console.print(
+                        "  [yellow]![/] task context stale — "
+                        f"packed: {task_state.packed_task}; current: {task_state.current_task}. "
+                        "MCP get_context auto-refreshes this, or run: agentpack pack --task auto"
+                    )
+                    ok = False
             else:
                 console.print("  [yellow]![/] No context pack yet — write .agentpack/task.md, then run: agentpack pack --task auto")
 
@@ -154,6 +170,7 @@ def register(app: typer.Typer) -> None:
                 "context.claude.md" in cmd
                 or ".context_injected" in cmd
                 or (".mcp_reminded" in cmd and "python3" in cmd)
+                or ("agentpack pack" in cmd and "GitAutoRepack" not in cmd)
                 for cmd in all_cmds
             )
 
@@ -235,13 +252,20 @@ def register(app: typer.Typer) -> None:
             console.print(f"  [dim]Auto-detected agent: {agents[0]}[/]")
         for selected in agents:
             console.print(f"  [bold]{selected}[/]")
+            selected_ok = True
             for check in check_agent_integration(root, selected):
                 if check.ok:
                     console.print(f"    [green]✓[/] {check.label}: {check.detail}")
                     continue
                 fix = f" — run: {check.fix}" if check.fix else ""
                 console.print(f"    [red]✗[/] {check.label}: {check.detail}{fix}")
+                selected_ok = False
                 ok = False
+            if not selected_ok:
+                console.print(
+                    f"    [yellow]![/] executable guard repair: "
+                    f"agentpack guard --agent {selected} --repair-stale --refresh-context"
+                )
 
         # --- Release hygiene ---
         console.print("\n[bold]Release hygiene[/]")
@@ -386,6 +410,17 @@ def _publish_secret_findings(root: Path, env: Mapping[str, str] | None = None) -
             "npm publish will fail until GitHub secret NPM_TOKEN exists."
         )
     return findings
+
+
+def _agentignore_sync_findings(root: Path) -> list[str]:
+    status = agentignore_sync_status(root)
+    if status.action == "create":
+        return ["missing .agentignore; run `agentpack init` or `agentpack ignore sync`."]
+    if status.is_stale:
+        return ["imported .agentignore rules are stale; run `agentpack ignore sync`."]
+    if status.imported_rules:
+        return [f"synced: {format_import_summary(status)}"]
+    return ["synced: .agentignore present; no imported generated/noisy rules detected."]
 
 
 def _print_summary(ok: bool) -> None:

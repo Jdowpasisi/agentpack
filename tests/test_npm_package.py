@@ -32,6 +32,7 @@ def test_npm_launcher_pins_matching_pypi_package() -> None:
     assert f'const PACKAGE_VERSION = "{package["version"]}"' in launcher
     assert "agentpack-cli==" in launcher
     assert '"agentpack": "bin/agentpack.js"' in (ROOT / "npm" / "package.json").read_text(encoding="utf-8")
+    assert "Windows is not supported yet" not in launcher
 
 
 def test_npm_publish_workflow_preflights_scope_access() -> None:

@@ -16,7 +16,7 @@ Or register in Claude Code settings:
 Tools exposed:
     start_task          — write task.md and return a fresh context pack
     pack_context        — generate/refresh a context pack for a task
-    get_context         — read the latest context pack (no repack)
+    get_context         — read latest context pack; auto-refreshes when task.md changed
     refresh             — refresh using the current task.md
     explain_file        — show score breakdown + symbols for a specific file
     get_related_files   — return import-graph neighbours of a file
@@ -30,6 +30,8 @@ import sys
 from pathlib import Path
 
 from agentpack.core import git
+from agentpack.core.context_pack import load_pack_metadata
+from agentpack.core.task_freshness import read_task_md, task_freshness, write_task_md
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -80,7 +82,7 @@ def _truncate_to_budget(text: str, max_tokens: int = 20000) -> str:
 
 
 def _get_context_impl(root: Path) -> str:
-    """Read the latest pre-built context pack from root, with staleness header."""
+    """Read the latest context pack, blocking to refresh when task.md changed."""
     pack_path = None
     for candidate in (
         root / ".agentpack" / "context.claude.md",
@@ -92,17 +94,7 @@ def _get_context_impl(root: Path) -> str:
     if pack_path is None:
         return ""
 
-    content = pack_path.read_text(encoding="utf-8")
-
-    metadata_path = root / ".agentpack" / "pack_metadata.json"
     snapshot_path = root / ".agentpack" / "snapshots" / "latest.json"
-
-    metadata = None
-    if metadata_path.exists():
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        except Exception:
-            metadata = None
 
     snapshot = None
     if snapshot_path.exists():
@@ -110,6 +102,34 @@ def _get_context_impl(root: Path) -> str:
             snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
         except Exception:
             snapshot = None
+
+    metadata = load_pack_metadata(root)
+    freshness = task_freshness(root, metadata)
+    auto_refresh_reason = ""
+    if freshness.is_stale and freshness.current_task:
+        auto_refresh_reason = (
+            f"{freshness.reason} (packed: {freshness.packed_task}; current: {freshness.current_task})"
+        )
+    elif metadata is None:
+        auto_refresh_reason = "pack metadata missing"
+    elif snapshot is None:
+        auto_refresh_reason = "repo snapshot missing"
+    elif metadata and snapshot and metadata.get("snapshot_root_hash") != snapshot.get("root_hash"):
+        auto_refresh_reason = "repo snapshot changed"
+
+    if auto_refresh_reason:
+        try:
+            refreshed = _pack_context_impl(root, task="", max_tokens=20000)
+            return f"> Context auto-refreshed because {auto_refresh_reason}.\n\n{refreshed}"
+        except Exception as exc:
+            content = pack_path.read_text(encoding="utf-8")
+            return (
+                f"> **Stale context** — {auto_refresh_reason}, but auto-refresh failed: {exc}. "
+                "Run pack_context() to retry.\n\n"
+                f"{content}"
+            )
+
+    content = pack_path.read_text(encoding="utf-8")
 
     generated_at = metadata.get("generated_at", "unknown") if metadata else "unknown"
     token_estimate = metadata.get("token_estimate", 0) if metadata else 0
@@ -139,24 +159,11 @@ def _get_context_impl(root: Path) -> str:
 
 
 def _task_md_body(root: Path) -> str | None:
-    path = root / ".agentpack" / "task.md"
-    if not path.exists():
-        return None
-    try:
-        content = path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    lines = [line for line in content.splitlines() if line.strip() and not line.startswith("#")]
-    body = lines[0].strip() if lines else ""
-    if body and "Write or update the current coding task here." not in body:
-        return body
-    return None
+    return read_task_md(root)
 
 
 def _write_task_md(root: Path, task: str) -> None:
-    task_path = root / ".agentpack" / "task.md"
-    task_path.parent.mkdir(parents=True, exist_ok=True)
-    task_path.write_text(task.strip() + "\n", encoding="utf-8")
+    write_task_md(root, task)
 
 
 def _resolve_mcp_task(root: Path, task: str = "") -> str:
@@ -463,9 +470,9 @@ def serve() -> None:
 
     @mcp.tool()
     def get_context() -> str:
-        """Return the latest pre-built context pack without repacking.
+        """Return the latest context pack, auto-refreshing when task.md changed.
 
-        Fast — just reads the cached file. Use pack_context() to regenerate.
+        Fast for fresh packs. Blocks for one refresh if the current task differs from the packed task.
         Returns empty string if no pack exists yet.
         """
         return _get_context_impl(_repo_root())

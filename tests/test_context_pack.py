@@ -1,5 +1,6 @@
 from pathlib import Path
 import subprocess
+import json
 from agentpack.application.pack_service import _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import save_pack_metadata, select_files, _selection_priority
@@ -178,6 +179,45 @@ def test_summary_cap_limits_unchanged_summaries():
     assert any(r.reason == "summary cap reached" for r in receipts)
 
 
+def test_weak_signal_candidates_are_capped_and_compressed_to_summary():
+    files = [_fi(f"file{i}.py", tokens=1500) for i in range(3)]
+    summaries = {
+        fi.path: {
+            "summary": f"Summary {i}",
+            "imports": [f"pkg{i}"],
+            "symbols": [{
+                "name": f"Service{i}",
+                "kind": "class",
+                "start_line": 1,
+                "end_line": 10,
+                "signature": f"class Service{i}:",
+            }],
+        }
+        for i, fi in enumerate(files)
+    }
+    scored = [
+        (fi, 180.0 - i, ["filename keyword match", "broad-task weak-signal dampening"])
+        for i, fi in enumerate(files)
+    ]
+
+    selected, receipts = select_files(
+        files=files,
+        scored=scored,
+        changed_paths=set(),
+        summaries=summaries,
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=5,
+        max_weak_signal_files=1,
+    )
+
+    assert [sf.path for sf in selected] == ["file0.py"]
+    assert selected[0].include_mode == "summary"
+    assert "weak-signal file compressed to summary" in selected[0].reasons
+    assert any(r.reason == "weak-signal cap reached" for r in receipts)
+
+
 def test_selection_priority_lifts_paired_tests() -> None:
     src = _fi("src/types.py", tokens=1000)
     test = _fi("tests/test_types.py", tokens=1000)
@@ -202,6 +242,38 @@ def test_negative_summary_cap_disables_summaries():
     )
     assert selected == []
     assert any(r.reason == "summaries disabled by precision guard" for r in receipts)
+
+
+def test_strict_summary_selection_requires_support_signal():
+    fi = _fi("file.py")
+    selected, receipts = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["filename keyword match"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Noisy summary.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+    assert selected == []
+    assert any(r.reason == "summary needs stronger support signal" for r in receipts)
+
+
+def test_strict_summary_selection_keeps_supported_summary():
+    fi = _fi("file.py")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["filename keyword match", "direct dependency of changed file"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Supported summary.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+    assert len(selected) == 1
+    assert selected[0].include_mode == "summary"
 
 
 def test_excluded_ignored_files():
@@ -255,12 +327,74 @@ def test_render_includes_freshness_metadata():
     rendered = render_claude(pack)
 
     assert "## Freshness" in rendered
+    assert "<!-- agentpack:freshness" in rendered
+    freshness_json = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
+    freshness = json.loads(freshness_json)
+    assert freshness["active_context"] == "mcp"
+    assert freshness["fallback_context"] == "markdown"
+    assert freshness["snapshot_root_hash"] == "root123"
+    assert freshness["refresh_required"] is False
+    assert freshness["guard_command"] == "agentpack guard --agent auto --repair-stale --refresh-context"
     assert "**Generated:** 2026-05-13T00:00:00+00:00" in rendered
     assert "**Task source:** task.md" in rendered
     assert "**Workspaces:** apps/dashboard, packages/core" in rendered
     assert "Refresh recommended" in rendered
     assert "If this pack's task does not match the user's current task" in rendered
     assert "agentpack pack --task auto" in rendered
+
+
+def test_render_loud_stale_task_warning():
+    pack = ContextPack(
+        task="old task",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+        freshness_warnings=[
+            ".agentpack/task.md differs from the packed task; AgentPack-controlled context reads should auto-refresh."
+        ],
+    )
+
+    rendered = render_claude(pack)
+
+    assert "STALE TASK CONTEXT" in rendered
+    freshness_json = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
+    freshness = json.loads(freshness_json)
+    assert freshness["stale_task_context"] is True
+    assert freshness["refresh_required"] is True
+    assert "Do not trust selected files until refreshed" in rendered
+    assert "agentpack_get_context()" in rendered
+    assert "agentpack_pack_context()" in rendered
+
+
+def test_select_files_caps_unrelated_changed_files_when_many_dirty():
+    files = [_fi(f"src/noise_{i}.py", tokens=20) for i in range(6)]
+    files.append(_fi("src/auth.py", tokens=20))
+    changed = {fi.path for fi in files}
+    scored = [(fi, 100, ["modified"]) for fi in files[:6]]
+    scored.append((files[-1], 140, ["modified", "symbol keyword match"]))
+
+    selected, receipts = select_files(
+        files=files,
+        scored=scored,
+        changed_paths=changed,
+        summaries={},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=1000,
+    )
+
+    selected_paths = {sf.path for sf in selected}
+    capped = [r for r in receipts if r.reason == "unrelated changed-file safety cap"]
+    assert "src/auth.py" in selected_paths
+    assert len([path for path in selected_paths if "noise" in path]) == 3
+    assert len(capped) == 3
 
 
 def test_save_pack_metadata_persists_freshness(tmp_path):
@@ -293,6 +427,7 @@ def test_save_pack_metadata_persists_freshness(tmp_path):
     )
     meta = (tmp_path / ".agentpack" / "pack_metadata.json").read_text()
     assert '"git_sha": "abc123"' in meta
+    assert '"task_hash":' in meta
     assert '"task_source": "task.md"' in meta
     assert '"freshness_warnings": [' in meta
     assert '"selected_files_meta": [' in meta

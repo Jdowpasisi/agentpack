@@ -52,6 +52,40 @@ def test_repair_all_installs_every_agent_integration(tmp_path, monkeypatch) -> N
         _assert_agent_ready(tmp_path, agent, strict_git=False)
 
 
+@pytest.mark.parametrize(
+    ("agent", "rel", "marker"),
+    [
+        ("claude", "CLAUDE.md", "Prefer MCP"),
+        ("cursor", ".cursorrules", "MCP is the active path"),
+        ("windsurf", ".windsurfrules", "MCP is the active path"),
+        ("codex", "AGENTS.md", "MCP is the active path"),
+        ("antigravity", "GEMINI.md", "MCP is the active path"),
+    ],
+)
+def test_repair_updates_stale_agent_rule_blocks(tmp_path, monkeypatch, agent, rel, marker) -> None:
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    path = tmp_path / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "<!-- agentpack:start -->\n"
+        "Old AgentPack instructions: run agentpack pack --task auto and read context.md\n"
+        "<!-- agentpack:end -->\n",
+        encoding="utf-8",
+    )
+    stale_checks = check_agent_integration(tmp_path, agent)
+    assert any(not check.ok and "stale AgentPack" in check.detail for check in stale_checks)
+
+    result = CliRunner().invoke(app, ["repair", "--agent", agent])
+
+    assert result.exit_code == 0, result.output
+    content = path.read_text(encoding="utf-8")
+    assert marker in content
+    if agent != "claude":
+        assert "agentpack:freshness" in content
+    assert all(check.ok for check in check_agent_integration(tmp_path, agent))
+
+
 def test_doctor_agent_all_reports_missing_integrations(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)

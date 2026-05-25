@@ -39,6 +39,7 @@ class SummaryConfig(BaseModel):
 class HooksConfig(BaseModel):
     task_switch_detection: bool = True
     task_switch_min_terms: int = 1
+    blocking_task_refresh: bool = True
 
 
 class AgentConfig(BaseModel):
@@ -124,6 +125,8 @@ schema_version = 2
 # update .agentpack/task.md, and repack even if files did not change.
 task_switch_detection = true
 task_switch_min_terms = 1
+# Block once on task switches so the first prompt sees fresh top-file hints.
+blocking_task_refresh = true
 
 [scoring]
 # Scoring weights — higher wins budget allocation.

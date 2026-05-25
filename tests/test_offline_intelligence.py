@@ -168,6 +168,25 @@ def test_summary_cache_schema_version_invalidates_old_default(tmp_path: Path) ->
     assert load_summary(tmp_path, "src/foo.py", "abc", schema_version=1) is not None
 
 
+def test_summary_includes_naming_signals_and_keywords(tmp_path: Path) -> None:
+    src = _write(
+        tmp_path,
+        "auth/otp.py",
+        "def verify_otp(code):\n"
+        "    return code\n"
+        "\n"
+        "def handle():\n"
+        "    return None\n",
+    )
+
+    summary = summarize("auth/otp.py", src, "python", "h1")
+
+    assert any("verify_otp" in item for item in summary.naming_signals)
+    assert any("handle" in item for item in summary.naming_signals)
+    assert "verify" in summary.naming_keywords
+    assert "otp" in summary.naming_keywords
+
+
 def test_old_summary_json_loads_with_safe_defaults(tmp_path: Path) -> None:
     cache_dir = tmp_path / ".agentpack" / "cache"
     cache_dir.mkdir(parents=True)

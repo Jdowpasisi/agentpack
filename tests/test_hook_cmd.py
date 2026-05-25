@@ -11,6 +11,7 @@ from agentpack.commands.hook_cmd import (
     _load_top_files,
     _load_pack_task,
     _current_root_hash,
+    _run_git_auto_repack,
     _run_user_prompt_submit,
     _looks_like_coding_prompt,
     _looks_like_task_switch,
@@ -43,14 +44,17 @@ def _write_metadata(repo: Path, task: str = "fix login") -> None:
 
 
 class TestMcpInstalled:
-    def test_local_mcp_json(self, repo: Path) -> None:
+    def test_local_mcp_json(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {"command": "agentpack", "args": ["mcp"]}}}))
         assert _mcp_installed(repo) is True
 
-    def test_no_mcp(self, repo: Path) -> None:
+    def test_no_mcp(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         assert _mcp_installed(repo) is False
 
-    def test_mcp_json_no_agentpack_entry(self, repo: Path) -> None:
+    def test_mcp_json_no_agentpack_entry(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": {}}}))
         assert _mcp_installed(repo) is False
 
@@ -97,6 +101,7 @@ class TestRunUserPromptSubmit:
         return json.loads(outputs[0])
 
     def test_mcp_installed_hint_format(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
         _write_metrics(repo, ["src/a.py", "src/b.py"])
         _write_metadata(repo, task="fix login")
@@ -110,6 +115,7 @@ class TestRunUserPromptSubmit:
         assert len(ctx) < 1000  # tiny hint, not full injection
 
     def test_no_mcp_capped_fallback(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
         _write_metrics(repo, ["src/a.py", "src/b.py"])
         _write_metadata(repo, task="fix login")
@@ -122,6 +128,7 @@ class TestRunUserPromptSubmit:
         assert "agentpack install" in ctx  # nudge toward MCP
 
     def test_hard_cap_enforced(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
         # Many files to potentially produce long output
         paths = [f"src/module_{i}/very_long_filename_{i}.py" for i in range(50)]
@@ -133,6 +140,7 @@ class TestRunUserPromptSubmit:
         assert len(ctx) <= 3000
 
     def test_repo_changed_triggers_repack(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "newhash")
         # Sentinel has old hash
         (repo / ".agentpack" / ".mcp_reminded").write_text("oldhash")
@@ -148,11 +156,13 @@ class TestRunUserPromptSubmit:
 
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
+        assert args[1:4] == ["-m", "agentpack.cli", "pack"]
+        assert "--task" in args
         assert "pack" in args
-        assert args[:4] == ["agentpack", "pack", "--task", "auto"]
         assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix login bug\n"
 
     def test_repo_unchanged_no_repack(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "samehash")
         (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
@@ -171,6 +181,7 @@ class TestRunUserPromptSubmit:
         mock_popen.assert_not_called()
 
     def test_task_switch_updates_task_md_and_repacks(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "samehash")
         (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
         (repo / ".agentpack" / "task.md").write_text("add production-grade Kundali generation API\n")
@@ -184,19 +195,61 @@ class TestRunUserPromptSubmit:
         outputs = []
         monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("agentpack.commands.hook_cmd._run_blocking_pack", return_value=(True, "")) as mock_pack, \
+             patch("subprocess.Popen") as mock_popen:
             _run_user_prompt_submit(repo)
+
+        mock_pack.assert_called_once_with(repo)
+        mock_popen.assert_not_called()
+        assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == prompt + "\n"
+        ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
+        assert "refreshed for current task" in ctx
+        assert f"task: {prompt}" in ctx
+
+    def test_task_switch_blocking_refresh_failure_keeps_prompt_context(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "samehash")
+        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
+        (repo / ".agentpack" / "task.md").write_text("migrate DB schema\n")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+        _write_metrics(repo, ["src/old.py"])
+        _write_metadata(repo, task="migrate DB schema")
+
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix login bug"})))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+
+        with patch("agentpack.commands.hook_cmd._run_blocking_pack", return_value=(False, "boom")):
+            _run_user_prompt_submit(repo)
+
+        ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
+        assert "refresh failed" in ctx
+        assert "refresh error: boom" in ctx
+        assert "task: fix login bug" in ctx
+
+
+class TestRunGitAutoRepack:
+    def test_skips_uninitialized_repo(self, tmp_path, monkeypatch) -> None:
+        with patch("subprocess.Popen") as mock_popen:
+            _run_git_auto_repack(tmp_path, "auto")
+        mock_popen.assert_not_called()
+
+    def test_spawns_pack_for_initialized_repo(self, tmp_path, monkeypatch) -> None:
+        (tmp_path / ".agentpack").mkdir()
+        (tmp_path / ".agentpack" / "config.toml").write_text("[project]\n", encoding="utf-8")
+
+        with patch("subprocess.Popen") as mock_popen:
+            _run_git_auto_repack(tmp_path, "codex")
 
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
-        assert args[:3] == ["agentpack", "pack", "--task"]
-        assert args[3] == "auto"
-        assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == prompt + "\n"
-        ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
-        assert "repacking" in ctx
-        assert f"task: {prompt}" in ctx
+        assert args[1:4] == ["-m", "agentpack.cli", "pack"]
+        assert "--agent" in args
+        assert "codex" in args
 
     def test_task_switch_can_be_disabled_in_config(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "samehash")
         (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
         (repo / ".agentpack" / "task.md").write_text("add production-grade Kundali generation API\n")
@@ -289,8 +342,8 @@ class TestTaskSwitchDetection:
     def test_related_task_is_not_switch(self):
         assert not _looks_like_task_switch("fix login flow", "fix login button bug")
 
-    def test_vague_prompt_is_not_switch(self):
-        assert not _looks_like_task_switch("fix login flow", "can you fix these")
+    def test_vague_prompt_with_reference_is_switch(self):
+        assert _looks_like_task_switch("fix login flow", "can you fix these")
 
     def test_min_terms_requires_more_concrete_overlap(self):
         assert not _looks_like_task_switch("fix login flow", "fix dashboard", min_terms=2)

@@ -13,6 +13,7 @@ from agentpack.core.models import (
     Symbol,
 )
 from agentpack.core.redactor import redact_secrets
+from agentpack.core.task_freshness import task_hash
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -55,6 +56,7 @@ def save_pack_metadata(
     agent: str,
     mode: str,
     budget: int,
+    requested_mode: str | None = None,
     token_estimate: int = 0,
     freshness: dict[str, Any] | None = None,
     freshness_warnings: list[str] | None = None,
@@ -70,8 +72,10 @@ def save_pack_metadata(
         "generated_at": generated_at,
         "snapshot_root_hash": snapshot_root_hash,
         "task": task,
+        "task_hash": task_hash(task),
         "agent": agent,
         "mode": mode,
+        "requested_mode": requested_mode or mode,
         "budget": budget,
         "token_estimate": token_estimate,
         "selected_files_meta": selected_files or [],
@@ -318,6 +322,31 @@ def _selection_priority(
     return changed_priority, signal_priority, score + role_bonus + value_bonus, score
 
 
+_WEAK_SIGNAL_REASONS = {
+    "broad-task weak-signal dampening",
+    "no-live filename-only dampening",
+    "broad-task meta-summary dampening",
+}
+
+_STRICT_SUMMARY_SUPPORT_PREFIXES = (
+    "direct dependency of changed file",
+    "reverse dependency",
+    "recall neighbor",
+    "historically co-changed",
+    "has related tests",
+    "test for",
+    "workspace match",
+)
+
+
+def _is_weak_signal_candidate(reasons: list[str]) -> bool:
+    return any(reason in _WEAK_SIGNAL_REASONS for reason in reasons)
+
+
+def _has_strict_summary_support(reasons: list[str]) -> bool:
+    return any(reason.startswith(_STRICT_SUMMARY_SUPPORT_PREFIXES) for reason in reasons)
+
+
 def select_files(
     files: list[FileInfo],
     scored: list[tuple[FileInfo, float, list[str]]],
@@ -329,6 +358,8 @@ def select_files(
     keywords: set[str] | None = None,
     min_summary_score: float = 0,
     max_summary_files: int = 0,
+    max_weak_signal_files: int = 0,
+    strict_summary_selection: bool = False,
 ) -> tuple[list[SelectedFile], list[Receipt]]:
     opts = _MODE_WEIGHTS[mode]
     selected: list[SelectedFile] = []
@@ -337,6 +368,9 @@ def select_files(
     summaries_used = 0
     kw = keywords or set()
     budget_pressure = budget < 12000 or len(changed_paths) > 5
+    unrelated_changed_cap = 3 if len(changed_paths) > 5 else 0
+    unrelated_changed_used = 0
+    weak_signal_used = 0
 
     ordered = sorted(scored, key=lambda item: _selection_priority(item, changed_paths, max_file_tokens), reverse=True)
     for fi, score, reasons in ordered:
@@ -351,6 +385,15 @@ def select_files(
         is_changed = fi.path in changed_paths
         summary_data = summaries.get(fi.path)
         has_task_signal = _has_task_signal(reasons)
+        weak_signal_only = not is_changed and _is_weak_signal_candidate(reasons)
+        if is_changed and not has_task_signal and unrelated_changed_cap:
+            if unrelated_changed_used >= unrelated_changed_cap:
+                receipts.append(Receipt(path=fi.path, action="excluded", reason="unrelated changed-file safety cap"))
+                continue
+            unrelated_changed_used += 1
+        if weak_signal_only and max_weak_signal_files >= 0 and weak_signal_used >= max_weak_signal_files:
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="weak-signal cap reached"))
+            continue
         will_be_summary = not is_changed and not (
             opts["extra_full"] and fi.estimated_tokens <= max_file_tokens
         )
@@ -421,6 +464,14 @@ def select_files(
                 fi.abs_path.read_text(errors="replace") if fi.abs_path.exists() else None
             )
             tok = fi.estimated_tokens
+        elif weak_signal_only and summary_data:
+            mode_str = "summary"
+            tok = _summary_tokens(summary_data, min(fi.estimated_tokens, 200))
+            reasons = reasons + ["weak-signal file compressed to summary"]
+        elif weak_signal_only:
+            mode_str = "summary"
+            tok = min(fi.estimated_tokens, 200)
+            reasons = reasons + ["weak-signal file compressed to summary"]
         elif summary_data and skeleton and score >= 160 and mode != "minimal":
             mode_str = "skeleton"
             content = skeleton
@@ -451,6 +502,10 @@ def select_files(
             receipts.append(Receipt(path=fi.path, action="excluded", reason="summaries disabled by precision guard"))
             continue
 
+        if strict_summary_selection and mode_str == "summary" and not is_changed and not _has_strict_summary_support(reasons):
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="summary needs stronger support signal"))
+            continue
+
         if mode_str == "summary" and max_summary_files > 0 and summaries_used >= max_summary_files:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="summary cap reached"))
             continue
@@ -462,6 +517,8 @@ def select_files(
         tokens_used += tok
         if mode_str == "summary":
             summaries_used += 1
+        if weak_signal_only:
+            weak_signal_used += 1
 
         # Build symbol list
         syms: list[Symbol] = []

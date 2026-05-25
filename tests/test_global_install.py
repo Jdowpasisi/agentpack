@@ -9,6 +9,7 @@ from agentpack.integrations.global_install import (
     _AGENTPACK_MARKER,
     _SHELL_MARKER_START,
     _SHELL_MARKER_END,
+    _detect_rc_file,
 )
 
 
@@ -27,9 +28,9 @@ class TestGitTemplateHooks:
             assert hook.exists(), f"{name} not created"
             content = hook.read_text()
             assert _AGENTPACK_MARKER in content
-            assert "agentpack" in content
-            # Must guard on opted-in repos only
-            assert ".agentpack/config.toml" in content
+            assert "GitAutoRepack" in content
+            assert "agentpack.cli" in content
+            assert content.rstrip().endswith("exit 0")
 
     def test_hooks_are_executable(self, tmp_path, monkeypatch):
         import agentpack.integrations.global_install as gi
@@ -46,6 +47,28 @@ class TestGitTemplateHooks:
         results2 = install_git_template_hooks()
         assert all(v == "unchanged" for v in results2.values())
 
+    def test_updates_legacy_marker_hooks(self, tmp_path, monkeypatch):
+        import agentpack.integrations.global_install as gi
+        gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
+        hooks_dir = tmp_path / ".git-templates" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        legacy = """#!/bin/sh
+# agentpack:global
+# Repack only if this repo has already been opted in to agentpack.
+[ -f .agentpack/config.toml ] && agentpack pack --task auto --mode balanced >/dev/null 2>&1 &
+"""
+        for name in _HOOK_SCRIPTS:
+            (hooks_dir / name).write_text(legacy)
+
+        results = install_git_template_hooks()
+
+        assert all(action == "updated" for action in results.values())
+        for name in _HOOK_SCRIPTS:
+            content = (hooks_dir / name).read_text()
+            assert "[ -f .agentpack/config.toml ]" not in content
+            assert "GitAutoRepack" in content
+            assert content.rstrip().endswith("exit 0")
+
     def test_appends_to_existing_hook(self, tmp_path, monkeypatch):
         import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
@@ -60,6 +83,7 @@ class TestGitTemplateHooks:
         content = hook.read_text()
         assert "existing" in content
         assert _AGENTPACK_MARKER in content
+        assert "exit 0" in content
 
     def test_remove_cleans_hooks(self, tmp_path, monkeypatch):
         import agentpack.integrations.global_install as gi
@@ -84,6 +108,7 @@ class TestGitTemplateHooks:
         assert hook.exists()
         assert "keep me" in hook.read_text()
         assert _AGENTPACK_MARKER not in hook.read_text()
+        assert "GitAutoRepack" not in hook.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -161,18 +186,35 @@ class TestShellHook:
         assert body_lines == [], f"Shell hook body auto-inits without opt-in check: {body_lines}"
 
     def test_git_hooks_guard_on_config_toml(self, tmp_path):
-        """Git template hooks must exit silently for repos that haven't opted in."""
+        """Git template hooks must delegate opt-in checks to the Python hook runner."""
         import agentpack.integrations.global_install as gi
         gi._GIT_TEMPLATE_DIR = tmp_path / ".git-templates"
         install_git_template_hooks()
         for name in _HOOK_SCRIPTS:
             content = (tmp_path / ".git-templates" / "hooks" / name).read_text()
-            assert ".agentpack/config.toml" in content
-            body_lines = [
-                line for line in content.splitlines()
-                if not line.strip().startswith("#") and "agentpack init" in line
-            ]
-            assert body_lines == [], f"{name} auto-inits without opt-in check: {body_lines}"
+            assert "GitAutoRepack" in content
+            assert ".agentpack/config.toml" not in content
+
+    def test_detect_rc_file_prefers_powershell_on_windows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("agentpack.integrations.global_install.is_windows", lambda: True)
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+        path = _detect_rc_file()
+
+        assert path == tmp_path / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1"
+
+    def test_install_shell_hook_writes_powershell_profile(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("agentpack.integrations.global_install.is_windows", lambda: True)
+        profile = tmp_path / "Microsoft.PowerShell_profile.ps1"
+
+        action, path = install_shell_hook(profile)
+
+        assert action in ("created", "appended")
+        assert path == profile
+        content = profile.read_text()
+        assert "Invoke-AgentPackChpwd" in content
+        assert "Start-Process -WindowStyle Hidden" in content
+        assert ".agentpack/config.toml" in content
 
 
 # ---------------------------------------------------------------------------

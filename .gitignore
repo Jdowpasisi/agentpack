@@ -12,6 +12,8 @@ env/
 
 # agentpack:start
 # AgentPack generated context/cache (safe to ignore)
+.agentpack/*
+!.agentpack/config.toml
 .agentpack/cache/
 .agentpack/snapshots/
 .agentpack/context*
@@ -23,9 +25,11 @@ env/
 .agentpack/session.json
 .agentpack/task.md
 .agentpack/benchmark_results.jsonl
+.agentignore
 .agent/skills/agentpack/
+.vscode/tasks.json
+GEMINI.md
 # agentpack:end
-
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

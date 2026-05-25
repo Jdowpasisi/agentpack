@@ -125,17 +125,20 @@ def test_get_context_fresh_when_hashes_match(tmp_path):
     assert "# pack content" in result
 
 
-def test_get_context_stale_when_hashes_differ(tmp_path):
+def test_get_context_auto_refreshes_when_hashes_differ(tmp_path):
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "context.claude.md").write_text("# pack content")
     _write_metadata(tmp_path, root_hash="abc123")
     _write_snapshot(tmp_path, root_hash="def456")
 
-    result = _get_context_impl(tmp_path)
-    assert "Stale context" in result
+    with patch("agentpack.mcp_server._pack_context_impl", return_value="# refreshed") as mock_pack:
+        result = _get_context_impl(tmp_path)
+
+    mock_pack.assert_called_once_with(tmp_path, task="", max_tokens=20000)
+    assert "Context auto-refreshed because repo snapshot changed" in result
 
 
-def test_get_context_stale_when_task_md_differs(tmp_path):
+def test_get_context_auto_refreshes_when_task_md_differs(tmp_path):
     from agentpack.mcp_server import _get_context_impl
 
     (tmp_path / ".agentpack").mkdir()
@@ -151,29 +154,81 @@ def test_get_context_stale_when_task_md_differs(tmp_path):
     snap_dir.mkdir()
     (snap_dir / "latest.json").write_text(json.dumps({"root_hash": "abc123"}))
 
-    result = _get_context_impl(tmp_path)
+    with patch("agentpack.mcp_server._pack_context_impl", return_value="# fresh context") as mock_pack:
+        result = _get_context_impl(tmp_path)
 
-    assert "Stale context" in result
-    assert ".agentpack/task.md differs" in result
-    assert "pack_context()" in result
+    mock_pack.assert_called_once_with(tmp_path, task="", max_tokens=20000)
+    assert "Context auto-refreshed" in result
+    assert ".agentpack/task.md differs from the packed task" in result
+    assert "# fresh context" in result
 
 
-def test_get_context_stale_when_no_metadata(tmp_path):
+def test_get_context_falls_back_when_task_auto_refresh_fails(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "context.md").write_text("# old context")
+    (tmp_path / ".agentpack" / "task.md").write_text("fix current task\n")
+    (tmp_path / ".agentpack" / "pack_metadata.json").write_text(json.dumps({
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "snapshot_root_hash": "abc123",
+        "task": "fix old task",
+        "token_estimate": 100,
+    }))
+    snap_dir = tmp_path / ".agentpack" / "snapshots"
+    snap_dir.mkdir()
+    (snap_dir / "latest.json").write_text(json.dumps({"root_hash": "abc123"}))
+
+    with patch("agentpack.mcp_server._pack_context_impl", side_effect=RuntimeError("boom")):
+        result = _get_context_impl(tmp_path)
+
+    assert "auto-refresh failed: boom" in result
+    assert "Run pack_context() to retry" in result
+    assert "# old context" in result
+
+
+def test_get_context_auto_refreshes_when_snapshot_differs(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "context.md").write_text("# old context")
+    (tmp_path / ".agentpack" / "task.md").write_text("fix auth\n")
+    (tmp_path / ".agentpack" / "pack_metadata.json").write_text(json.dumps({
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "snapshot_root_hash": "old",
+        "task": "fix auth",
+        "token_estimate": 100,
+    }))
+    snap_dir = tmp_path / ".agentpack" / "snapshots"
+    snap_dir.mkdir()
+    (snap_dir / "latest.json").write_text(json.dumps({"root_hash": "new"}))
+
+    with patch("agentpack.mcp_server._pack_context_impl", return_value="# refreshed") as mock_pack:
+        result = _get_context_impl(tmp_path)
+
+    mock_pack.assert_called_once_with(tmp_path, task="", max_tokens=20000)
+    assert "Context auto-refreshed because repo snapshot changed" in result
+    assert "# refreshed" in result
+
+
+def test_get_context_auto_refreshes_when_no_metadata(tmp_path):
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "context.claude.md").write_text("# pack content")
     _write_snapshot(tmp_path, root_hash="abc123")
 
-    result = _get_context_impl(tmp_path)
-    assert "Stale context" in result
+    with patch("agentpack.mcp_server._pack_context_impl", return_value="# refreshed") as mock_pack:
+        result = _get_context_impl(tmp_path)
+
+    mock_pack.assert_called_once_with(tmp_path, task="", max_tokens=20000)
+    assert "Context auto-refreshed because pack metadata missing" in result
 
 
-def test_get_context_stale_when_no_snapshot(tmp_path):
+def test_get_context_auto_refreshes_when_no_snapshot(tmp_path):
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "context.claude.md").write_text("# pack content")
     _write_metadata(tmp_path, root_hash="abc123")
 
-    result = _get_context_impl(tmp_path)
-    assert "Stale context" in result
+    with patch("agentpack.mcp_server._pack_context_impl", return_value="# refreshed") as mock_pack:
+        result = _get_context_impl(tmp_path)
+
+    mock_pack.assert_called_once_with(tmp_path, task="", max_tokens=20000)
+    assert "Context auto-refreshed because repo snapshot missing" in result
 
 
 def test_resolve_mcp_task_writes_task_md(tmp_path):

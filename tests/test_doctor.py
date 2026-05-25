@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agentpack.commands.doctor import (
+    _agentignore_sync_findings,
     _latest_context_path,
     _publish_secret_findings,
     _release_hygiene_findings,
@@ -74,3 +75,32 @@ def test_latest_context_path_uses_metadata_path(tmp_path: Path) -> None:
     )
 
     assert _latest_context_path(tmp_path) == agentpack_dir / "context.md"
+
+
+def test_agentignore_sync_findings_warn_when_import_block_stale(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("backend/.serverless/\n", encoding="utf-8")
+    (tmp_path / ".agentignore").write_text("custom/\n", encoding="utf-8")
+
+    findings = _agentignore_sync_findings(tmp_path)
+
+    assert findings == ["imported .agentignore rules are stale; run `agentpack ignore sync`."]
+
+
+def test_agentignore_sync_findings_report_synced_imports(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("agentpack.core.ignore._git_config_excludesfile", lambda: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / ".gitignore").write_text("backend/.serverless/\n", encoding="utf-8")
+    status = tmp_path / ".agentignore"
+    status.write_text(
+        "custom/\n\n"
+        "# agentpack:imported-gitignore:start\n"
+        "# Imported from git ignore sources because these look like generated/noisy paths\n"
+        "backend/.serverless/\n"
+        "# agentpack:imported-gitignore:end\n",
+        encoding="utf-8",
+    )
+
+    findings = _agentignore_sync_findings(tmp_path)
+
+    assert findings
+    assert findings[0].startswith("synced: Imported 1 generated/noisy rules")

@@ -41,6 +41,10 @@ def test_patch_creates_claude_md(tmp_path):
     assert (tmp_path / "CLAUDE.md").exists()
     content = (tmp_path / "CLAUDE.md").read_text()
     assert "agentpack:start" in content
+    assert "mcp__agentpack__get_context()" in content
+    assert "mcp__agentpack__pack_context" in content
+    assert "agentpack guard --agent claude --repair-stale --refresh-context" in content
+    assert "Prefer MCP" in content
 
 
 def test_patch_appends_to_existing(tmp_path):
@@ -63,6 +67,7 @@ def test_patch_updates_existing_block(tmp_path):
     content = claude_md.read_text()
     assert "# Project" in content
     assert "Old content" not in content
+    assert "mcp__agentpack__get_context()" in content
 
 
 def test_patch_idempotent(tmp_path):

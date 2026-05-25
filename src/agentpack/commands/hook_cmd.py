@@ -11,9 +11,9 @@ import typer
 from agentpack.commands._shared import _root
 from agentpack.core import git as _git
 from agentpack.core.config import load_config
+from agentpack.core.task_freshness import read_task_md, write_task_md
+from agentpack.integrations.platform import cli_module_argv, detached_popen
 
-_TASK_FILE = ".agentpack/task.md"
-_TASK_FILE_DEFAULT_MARKER = "Write or update the current coding task here."
 _CODING_PROMPT_RE = re.compile(
     r"(?:fix|add|refactor|impl|implement|update|write|debug|test|build|migrate|remove|delete|rename|optimize)\b",
     re.IGNORECASE,
@@ -49,12 +49,26 @@ _TASK_STOPWORDS = {
     "write",
     "you",
 }
+_VAGUE_TASK_REFERENCES = {
+    "all",
+    "everything",
+    "gap",
+    "gaps",
+    "issue",
+    "issues",
+    "it",
+    "that",
+    "these",
+    "this",
+    "those",
+}
 
 
 def register(app: typer.Typer) -> None:
     @app.command(name="hook")
     def hook(
         event: str = typer.Option("UserPromptSubmit", "--event", help="Hook event name."),
+        agent: str = typer.Option("auto", "--agent", help="Agent name for git auto-repack hooks."),
     ) -> None:
         """Run as a Claude Code hook. Reads stdin (JSON), emits additionalContext."""
         root = _root()
@@ -62,6 +76,8 @@ def register(app: typer.Typer) -> None:
             _run_user_prompt_submit(root)
         elif event == "SessionStart":
             _run_session_start(root)
+        elif event == "GitAutoRepack":
+            _run_git_auto_repack(root, agent)
         else:
             sys.exit(0)
 
@@ -92,19 +108,7 @@ def _mcp_installed(root: Path) -> bool:
 
 def _load_task_md(root: Path) -> str:
     """Return task.md content if user has written a real task (not the default placeholder)."""
-    task_path = root / _TASK_FILE
-    if not task_path.exists():
-        return ""
-    try:
-        content = task_path.read_text(encoding="utf-8").strip()
-        # Strip markdown heading
-        lines = [ln for ln in content.splitlines() if not ln.startswith("#")]
-        body = "\n".join(lines).strip()
-        if not body or _TASK_FILE_DEFAULT_MARKER in body:
-            return ""
-        return body[:200]
-    except Exception:
-        return ""
+    return (read_task_md(root) or "")[:200]
 
 
 def _looks_like_coding_prompt(prompt: str) -> bool:
@@ -119,7 +123,7 @@ def _prompt_task(prompt: str) -> str:
     if not prompt or not _looks_like_coding_prompt(prompt):
         return ""
     task = " ".join(prompt.strip().split())[:200]
-    if not _task_terms(task):
+    if not _task_terms(task) and not _has_vague_task_reference(task):
         return ""
     return task
 
@@ -142,16 +146,24 @@ def _looks_like_task_switch(current_task: str, prompt: str, min_terms: int = 1) 
         return False
     current_terms = _task_terms(current_task)
     prompt_terms = _task_terms(prompt_task)
+    if current_terms and not prompt_terms and _has_vague_task_reference(prompt_task):
+        return True
     required_terms = max(1, min_terms)
     if len(current_terms) < required_terms or len(prompt_terms) < required_terms:
         return False
     return bool(current_terms and prompt_terms and current_terms.isdisjoint(prompt_terms))
 
 
+def _has_vague_task_reference(prompt: str) -> bool:
+    prompt_words = {
+        raw.lower()
+        for raw in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]*", prompt)
+    }
+    return bool(prompt_words & _VAGUE_TASK_REFERENCES)
+
+
 def _write_task_md(root: Path, task: str) -> None:
-    task_path = root / _TASK_FILE
-    task_path.parent.mkdir(parents=True, exist_ok=True)
-    task_path.write_text(task.strip() + "\n", encoding="utf-8")
+    write_task_md(root, task)
 
 
 def _resolve_task(
@@ -266,6 +278,32 @@ def _run_session_start(root: Path) -> None:
     # No output needed — SessionStart hooks don't inject additionalContext
 
 
+def _run_git_auto_repack(root: Path, agent: str) -> None:
+    config_path = root / ".agentpack" / "config.toml"
+    if not config_path.exists():
+        return
+    detached_popen(
+        cli_module_argv("pack", "--agent", agent, "--task", "auto", "--mode", "balanced"),
+        cwd=root,
+    )
+
+
+def _run_blocking_pack(root: Path) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            cli_module_argv("pack", "--task", "auto", "--mode", "balanced"),
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    output = (result.stderr or result.stdout or "").strip().splitlines()
+    detail = output[-1][:180] if output else ""
+    return result.returncode == 0, detail
+
+
 def _run_user_prompt_submit(root: Path) -> None:
     snap_sentinel = root / ".agentpack" / ".mcp_reminded"
 
@@ -304,6 +342,11 @@ def _run_user_prompt_submit(root: Path) -> None:
     pack_task_changed = bool(task != "auto" and packed_task and packed_task != task)
 
     should_repack = repo_changed or task_switched or pack_task_changed
+    blocking_refresh = bool(
+        cfg.hooks.blocking_task_refresh and (task_switched or pack_task_changed)
+    )
+    refresh_state = "fresh"
+    refresh_error = ""
 
     if should_repack:
         if task != "auto":
@@ -311,11 +354,16 @@ def _run_user_prompt_submit(root: Path) -> None:
                 _write_task_md(root, task)
             except Exception:
                 pass
-        subprocess.Popen(
-            ["agentpack", "pack", "--task", "auto", "--mode", "balanced", "--since", "HEAD~1"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        if blocking_refresh:
+            ok, detail = _run_blocking_pack(root)
+            refresh_state = "refreshed" if ok else "refresh failed"
+            refresh_error = detail
+        else:
+            detached_popen(
+                cli_module_argv("pack", "--task", "auto", "--mode", "balanced", "--since", "HEAD~1"),
+                cwd=root,
+            )
+            refresh_state = "repacking"
         try:
             snap_sentinel.write_text(current_hash or "1")
         except Exception:
@@ -330,12 +378,20 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
                 for h in hints
             )
-            status_note = "(repacking — call pack_context for fresh results)" if should_repack else "(index fresh)"
+            if refresh_state == "refreshed":
+                status_note = "(refreshed for current task)"
+            elif refresh_state == "refresh failed":
+                status_note = "(refresh failed — call pack_context to retry)"
+            elif refresh_state == "repacking":
+                status_note = "(repacking — call pack_context for fresh results)"
+            else:
+                status_note = "(index fresh)"
             current_task = _load_task_md(root) or _infer_live_task(root)
             delta = _load_delta_summary(root)
             msg = (
                 f"AgentPack {status_note}\n"
                 f"task: {current_task}\n"
+                + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
                 f"top files:\n{files_lines}\n"
@@ -355,10 +411,18 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
                 for h in hints
             )
-            changed_note = " (repacking in background)" if should_repack else ""
+            if refresh_state == "refreshed":
+                changed_note = " (refreshed)"
+            elif refresh_state == "refresh failed":
+                changed_note = " (refresh failed)"
+            elif refresh_state == "repacking":
+                changed_note = " (repacking in background)"
+            else:
+                changed_note = ""
             msg = (
                 f"AgentPack context{changed_note}\n"
                 f"task: {current_task}\n"
+                + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
                 f"top files:\n{files_lines}\n\n"

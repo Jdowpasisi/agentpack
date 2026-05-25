@@ -49,6 +49,7 @@ def _build_tuning_suggestions(root: Path, *, include_benchmark: bool = True) -> 
     suggestions: list[TuningSuggestion] = []
     metrics = _load_jsonl(root / ".agentpack" / "metrics.jsonl")
     benchmark = _load_jsonl(root / ".agentpack" / "benchmark_results.jsonl") if include_benchmark else []
+    eval_results = _load_jsonl(root / ".agentpack" / "eval_results.jsonl")
 
     accuracy_rows = [row for row in metrics if "selection_recall" in row][-10:]
     if accuracy_rows:
@@ -106,6 +107,29 @@ def _build_tuning_suggestions(root: Path, *, include_benchmark: bool = True) -> 
                 else:
                     suggestion = "Use `agentpack explain --omitted --task <task>` to inspect the miss."
                 suggestions.append(TuningSuggestion("benchmark misses", f"{count} miss(es): {status}", suggestion))
+
+    if eval_results:
+        class_counts: dict[str, int] = {}
+        check_counts: dict[str, int] = {}
+        for row in eval_results[-20:]:
+            if row.get("passed") is False:
+                failure_class = str(row.get("failure_class") or "unknown")
+                class_counts[failure_class] = class_counts.get(failure_class, 0) + 1
+                for check in row.get("failed_checks", []) or []:
+                    if isinstance(check, str):
+                        check_counts[check] = check_counts.get(check, 0) + 1
+        for failure_class, count in sorted(class_counts.items(), key=lambda item: (-item[1], item[0]))[:4]:
+            suggestions.append(TuningSuggestion(
+                "eval failures",
+                f"{count} failure(s): {failure_class}",
+                "Use `agentpack eval --report` and inspect the failing deterministic checks before changing prompts or scoring.",
+            ))
+        for check, count in sorted(check_counts.items(), key=lambda item: (-item[1], item[0]))[:3]:
+            suggestions.append(TuningSuggestion(
+                "eval checks",
+                f"{count} failure(s): {check}",
+                "Strengthen or narrow this harness check if it is flaky; fix the agent workflow if it is deterministic.",
+            ))
 
     return suggestions
 

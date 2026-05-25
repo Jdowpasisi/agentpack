@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,11 +16,13 @@ from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata, load_pack_metadata
 from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
+from agentpack.core.task_freshness import read_task_md, task_metadata
 from agentpack.core.token_estimator import estimate_tokens
 from agentpack.renderers.markdown import render_generic
 from agentpack.analysis.ranking import (
+    build_keyword_plan,
+    persist_keyword_plan_stats,
     score_files,
-    extract_keyword_weights,
     enrich_keyword_weights_from_files,
     boost_paired_tests,
     boost_cross_layer_related,
@@ -79,6 +82,7 @@ class ChangeSet:
 class RankResult:
     """Result of keyword extraction and file scoring."""
     keywords: set[str]
+    keyword_plan: Any
     generic_ratio: float
     task_class: str
     task_class_confidence: float
@@ -90,6 +94,7 @@ class RankResult:
 class PackPlan:
     """Shared planning output used by both pack and explain."""
     task: str
+    requested_mode: str
     mode: str
     budget: int
     scan_result: ScanResult
@@ -99,6 +104,7 @@ class PackPlan:
     git_staged: set[str]
     recently_modified: list[str]
     keywords: set[str]
+    keyword_plan: Any
     generic_task_ratio: float
     task_class: str
     task_class_confidence: float
@@ -112,6 +118,7 @@ class PackPlan:
     selected: list[SelectedFile]
     receipts: list[Receipt]
     phase_times: dict[str, float]
+    mode_warning: str | None = None
     current_snap: dict[str, Any] = field(default_factory=dict)
 
 
@@ -175,8 +182,16 @@ class FileRanker:
         workspace_dependency_edges: dict[str, set[str]] | None = None,
     ) -> RankResult:
         from agentpack.core import git as _git
-        keyword_weights = extract_keyword_weights(task)
+        keyword_plan = build_keyword_plan(
+            task,
+            files=packable,
+            summaries=summaries or {},
+            root=root,
+            workspace_roots=workspace_roots,
+        )
+        keyword_weights = dict(keyword_plan.weights)
         keyword_weights = enrich_keyword_weights_from_files(keyword_weights, changes.all_changed, packable)
+        keyword_plan.weights = keyword_weights
         keywords = set(keyword_weights)
         generic_ratio = generic_task_term_ratio(task)
         task_classification = classify_task(task)
@@ -201,7 +216,7 @@ class FileRanker:
             staged_paths=changes.git_staged,
             recently_modified=changes.recently_modified,
             dep_graph=dep_graph,
-            keywords=keyword_weights,
+            keywords=keyword_plan,
             include_tests=cfg.context.include_tests,
             include_configs=cfg.context.include_configs,
             weights=cfg.scoring,
@@ -218,13 +233,19 @@ class FileRanker:
             weights=cfg.scoring,
         )
         scored = boost_recall_neighbors(scored, dep_graph, changes.all_changed, weights=cfg.scoring)
-        scored = boost_second_pass_expansion(scored, dep_graph, keyword_weights, weights=cfg.scoring)
-        scored = boost_cross_layer_related(scored, keyword_weights, weights=cfg.scoring)
+        scored = boost_second_pass_expansion(scored, dep_graph, keyword_plan, weights=cfg.scoring)
+        scored = boost_cross_layer_related(scored, keyword_plan, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
         if root is not None:
-            scored = _apply_history_penalties(root, scored, changes.all_changed)
+            scored = _apply_history_penalties(
+                root,
+                scored,
+                changes.all_changed,
+                generic_ratio=generic_ratio,
+            )
         return RankResult(
             keywords=keywords,
+            keyword_plan=keyword_plan,
             generic_ratio=generic_ratio,
             task_class=task_classification.kind,
             task_class_confidence=task_classification.confidence,
@@ -285,12 +306,31 @@ class PackPlanner:
             workspace_roots=workspace_roots,
             workspace_dependency_edges=workspace_dependency_edges,
         )
+        rank_result.scored = _apply_scope_penalties(
+            rank_result.scored,
+            request.task,
+            changes.all_changed,
+            generic_ratio=rank_result.generic_ratio,
+        )
         if not changes.all_changed:
             rank_result.scored = _apply_no_live_precision_guard(rank_result.scored, rank_result.generic_ratio)
+            rank_result.scored = _apply_scope_penalties(
+                rank_result.scored,
+                request.task,
+                changes.all_changed,
+                generic_ratio=rank_result.generic_ratio,
+                no_live_changes=True,
+            )
+        effective_mode, mode_warning = _resolve_effective_mode(
+            root,
+            request.mode,
+            rank_result.generic_ratio,
+            no_live_changes=not changes.all_changed,
+        )
         phase_times["rank"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        repo_map_budget = _repo_map_budget_for_mode(request.mode, effective_budget)
+        repo_map_budget = _repo_map_budget_for_mode(effective_mode, effective_budget)
         repo_map = build_repo_map(
             files=packable,
             scored=rank_result.scored,
@@ -308,27 +348,39 @@ class PackPlanner:
             scored=rank_result.scored,
             changed_paths=changes.all_changed,
             summaries=summaries,
-            mode=request.mode,  # type: ignore[arg-type]
+            mode=effective_mode,  # type: ignore[arg-type]
             budget=selection_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=rank_result.keywords,
             min_summary_score=_guarded_summary_score_floor(
-                root, cfg, request.mode, rank_result.generic_ratio, no_live_changes=not changes.all_changed
+                root, cfg, effective_mode, rank_result.generic_ratio, no_live_changes=not changes.all_changed
             ),
             max_summary_files=_guarded_summary_cap(
                 root,
                 cfg,
-                request.mode,
+                effective_mode,
                 rank_result.generic_ratio,
                 no_live_changes=not changes.all_changed,
                 effective_budget=effective_budget,
+            ),
+            max_weak_signal_files=_guarded_weak_signal_cap(
+                root,
+                effective_mode,
+                rank_result.generic_ratio,
+                no_live_changes=not changes.all_changed,
+                effective_budget=effective_budget,
+            ),
+            strict_summary_selection=_strict_summary_selection(
+                root,
+                no_live_changes=not changes.all_changed,
             ),
         )
         phase_times["select"] = time.perf_counter() - t0
 
         return PackPlan(
             task=request.task,
-            mode=request.mode,
+            requested_mode=request.mode,
+            mode=effective_mode,
             budget=effective_budget,
             scan_result=scan_result,
             summaries=summaries,
@@ -337,6 +389,7 @@ class PackPlanner:
             git_staged=changes.git_staged,
             recently_modified=changes.recently_modified,
             keywords=rank_result.keywords,
+            keyword_plan=rank_result.keyword_plan,
             generic_task_ratio=rank_result.generic_ratio,
             task_class=rank_result.task_class,
             task_class_confidence=rank_result.task_class_confidence,
@@ -350,6 +403,7 @@ class PackPlanner:
             selected=selected,
             receipts=receipts,
             phase_times=phase_times,
+            mode_warning=mode_warning,
             current_snap=changes.current_snap,
         )
 
@@ -429,7 +483,7 @@ class PackService:
         pack_obj = ContextPack(
             task=request.task,
             agent=request.agent,
-            mode=request.mode,  # type: ignore[arg-type]
+            mode=plan.mode,  # type: ignore[arg-type]
             task_class=plan.task_class,
             budget=plan.budget,
             token_estimate=packed_tokens,
@@ -455,6 +509,7 @@ class PackService:
         if plan.workspace:
             out_path = _write_workspace_context(pack_obj, root, plan.workspace)
         plan.phase_times["render"] = time.perf_counter() - t0
+        persist_keyword_plan_stats(root, request.task, plan.keyword_plan)
 
         save_snapshot(plan.current_snap, root)
         save_pack_metadata(
@@ -463,7 +518,8 @@ class PackService:
             snapshot_root_hash=plan.current_snap["root_hash"],
             task=request.task,
             agent=request.agent,
-            mode=request.mode,
+            mode=plan.mode,
+            requested_mode=plan.requested_mode,
             budget=plan.budget,
             token_estimate=packed_tokens,
             freshness=freshness,
@@ -476,7 +532,7 @@ class PackService:
         _record_metrics(
             root,
             task=request.task,
-            mode=request.mode,
+            mode=plan.mode,
             phase_times=plan.phase_times,
             packed_tokens=packed_tokens,
             raw_tokens=all_tokens,
@@ -575,11 +631,126 @@ def _repo_map_budget_for_mode(mode: str, effective_budget: int) -> int:
     return min(caps.get(mode, 500), max(0, effective_budget // 20))
 
 
+_FRONTEND_TASK_TERMS = {
+    "component", "components", "frontend", "landing", "layout", "page", "pages",
+    "preview", "previews", "public", "seo", "signup", "tool", "tools", "ui", "web",
+}
+_BACKEND_TASK_TERMS = {
+    "api", "backend", "controller", "controllers", "cron", "database", "db", "job",
+    "jobs", "queue", "schema", "schemas", "service", "services", "worker", "workers",
+}
+_FRONTEND_PATH_PREFIXES = (
+    "src/app/", "src/components/", "src/pages/", "src/data/", "frontend/", "apps/web/", "web/",
+)
+_BACKEND_PATH_PREFIXES = (
+    "backend/", "server/", "apps/api/",
+)
+_SCOPE_SUPPORT_PREFIXES = (
+    "modified",
+    "staged",
+    "direct dependency of changed file",
+    "reverse dependency",
+    "recall neighbor",
+    "historically co-changed",
+    "has related tests",
+    "test for",
+    "workspace match",
+)
+_SCOPE_WEAK_ONLY_PREFIXES = (
+    "filename keyword match",
+    "symbol keyword match",
+    "matched role keyword",
+    "matched ranking keyword",
+    "matched define",
+    "matched call",
+    "matched naming keyword",
+)
+
+
+def _task_tokens(task: str) -> set[str]:
+    return {
+        token
+        for token in re.split(r"[^a-zA-Z0-9]+", task.lower())
+        if len(token) >= 3
+    }
+
+
+def _path_scope(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    if normalized.startswith(_FRONTEND_PATH_PREFIXES):
+        return "frontend"
+    if normalized.startswith(_BACKEND_PATH_PREFIXES):
+        return "backend"
+    return "other"
+
+
+def _infer_task_scope(task: str, changed_paths: set[str]) -> str:
+    frontend_changed = sum(1 for path in changed_paths if _path_scope(path) == "frontend")
+    backend_changed = sum(1 for path in changed_paths if _path_scope(path) == "backend")
+    if frontend_changed and not backend_changed:
+        return "frontend_only"
+    if backend_changed and not frontend_changed:
+        return "backend_only"
+    tokens = _task_tokens(task)
+    frontend_terms = len(tokens & _FRONTEND_TASK_TERMS)
+    backend_terms = len(tokens & _BACKEND_TASK_TERMS)
+    if frontend_terms and not backend_terms:
+        return "frontend_only"
+    if backend_terms and not frontend_terms:
+        return "backend_only"
+    return "mixed"
+
+
+def _has_reason_prefix(reasons: list[str], prefixes: tuple[str, ...]) -> bool:
+    return any(reason.startswith(prefixes) for reason in reasons)
+
+
+def _apply_scope_penalties(
+    scored: list[tuple[Any, float, list[str]]],
+    task: str,
+    changed_paths: set[str],
+    *,
+    generic_ratio: float,
+    no_live_changes: bool = False,
+) -> list[tuple[Any, float, list[str]]]:
+    scope = _infer_task_scope(task, changed_paths)
+    if scope == "mixed":
+        return scored
+
+    adjusted: list[tuple[Any, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        if fi.path in changed_paths:
+            adjusted.append((fi, score, reasons))
+            continue
+        path_scope = _path_scope(fi.path)
+        if scope == "frontend_only" and path_scope == "backend":
+            has_support = _has_reason_prefix(reasons, _SCOPE_SUPPORT_PREFIXES)
+            weak_only = not has_support and not any(reason.startswith("content keyword match") for reason in reasons)
+            if weak_only and (no_live_changes or generic_ratio >= 0.35):
+                adjusted.append((fi, 0.0, [*reasons, "frontend-scope backend suppression"]))
+                continue
+            penalty = max(25.0, score * (0.45 if has_support else 0.6))
+            adjusted.append((fi, max(0.0, score - penalty), [*reasons, "frontend-scope backend dampening"]))
+            continue
+        if scope == "backend_only" and path_scope == "frontend":
+            has_support = _has_reason_prefix(reasons, _SCOPE_SUPPORT_PREFIXES)
+            weak_only = not has_support and not any(reason.startswith("content keyword match") for reason in reasons)
+            if weak_only and (no_live_changes or generic_ratio >= 0.35):
+                adjusted.append((fi, 0.0, [*reasons, "backend-scope frontend suppression"]))
+                continue
+            penalty = max(25.0, score * (0.45 if has_support else 0.6))
+            adjusted.append((fi, max(0.0, score - penalty), [*reasons, "backend-scope frontend dampening"]))
+            continue
+        adjusted.append((fi, score, reasons))
+    return adjusted
+
+
 def _apply_history_penalties(
     root: Path,
     scored: list[tuple[Any, float, list[str]]],
     changed_paths: set[str],
     *,
+    generic_ratio: float = 0.0,
     window: int = 20,
 ) -> list[tuple[Any, float, list[str]]]:
     """Downrank paths that recent packs proved noisy for later edits."""
@@ -596,7 +767,15 @@ def _apply_history_penalties(
         if count <= 0:
             adjusted.append((fi, score, reasons))
             continue
-        penalty = min(25.0, count * 4.0)
+        has_strong = any(reason.startswith(_NO_LIVE_STRONG_SIGNALS) for reason in reasons)
+        has_only_weak = not has_strong and _has_reason_prefix(reasons, _SCOPE_WEAK_ONLY_PREFIXES)
+        if generic_ratio >= 0.35 and count >= 4 and not has_strong:
+            adjusted.append((fi, 0.0, [*reasons, "repeat noise path suppressed"]))
+            continue
+        if count >= 6 and has_only_weak:
+            adjusted.append((fi, 0.0, [*reasons, "repeat weak-noise path suppressed"]))
+            continue
+        penalty = min(45.0, count * 6.0 + max(0, count - 2) * 4.0)
         adjusted.append((fi, max(0.0, score - penalty), [*reasons, f"history noise penalty -{penalty:.0f}"]))
     return adjusted
 
@@ -648,10 +827,7 @@ _NO_LIVE_STRONG_SIGNALS = (
     "content keyword match",
     "matched entrypoint",
     "matched external system",
-    "matched role keyword",
     "matched domain",
-    "matched ranking keyword",
-    "matched define",
     "matched env read",
     "matched side effect",
     "direct dependency",
@@ -661,6 +837,11 @@ _NO_LIVE_STRONG_SIGNALS = (
     "config file",
     "knowledge/architecture doc",
     "historically co-changed",
+)
+_NO_LIVE_META_ONLY_SIGNALS = (
+    "matched role keyword",
+    "matched ranking keyword",
+    "matched define",
 )
 
 
@@ -675,19 +856,22 @@ def _apply_no_live_precision_guard(
     filename-only hits, and avoid letting broad task words fan out across repo.
     """
     adjusted: list[tuple[Any, float, list[str]]] = []
-    broad_task = generic_ratio >= 0.35
+    broad_task = generic_ratio >= 0.3
     for fi, score, reasons in scored:
         has_filename = any(reason.startswith("filename keyword match") for reason in reasons)
         has_strong = any(reason.startswith(_NO_LIVE_STRONG_SIGNALS) for reason in reasons)
+        has_meta_only = any(reason.startswith(_NO_LIVE_META_ONLY_SIGNALS) for reason in reasons)
+        if broad_task and has_filename and not has_strong:
+            damped = min(score, max(0.0, score * 0.2))
+            adjusted.append((fi, damped, [*reasons, "broad-task weak-signal dampening"]))
+            continue
         if has_filename and not has_strong:
             damped = min(score, max(0.0, score * 0.35))
             adjusted.append((fi, damped, [*reasons, "no-live filename-only dampening"]))
             continue
-        if broad_task and has_filename and not any(
-            reason.startswith(("symbol keyword match", "content keyword match", "historically co-changed"))
-            for reason in reasons
-        ):
-            adjusted.append((fi, max(0.0, score - 30), [*reasons, "broad-task filename dampening"]))
+        if broad_task and has_meta_only and not has_strong:
+            damped = max(0.0, score * 0.45 - 15)
+            adjusted.append((fi, damped, [*reasons, "broad-task meta-summary dampening"]))
             continue
         adjusted.append((fi, score, reasons))
     return adjusted
@@ -812,6 +996,91 @@ def _guarded_summary_cap(
     return min(cap, strict_cap)
 
 
+def _strict_summary_selection(
+    root: Path,
+    *,
+    no_live_changes: bool = False,
+) -> bool:
+    avg_summary_precision, rows = _recent_summary_token_precision(root)
+    if rows < 3:
+        return no_live_changes
+    if avg_summary_precision <= 0.05:
+        return True
+    return no_live_changes and avg_summary_precision <= 0.15
+
+
+def _recent_token_precision(root: Path, window: int = 10) -> tuple[float, int]:
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if not metrics_path.exists():
+        return 1.0, 0
+    values: list[float] = []
+    try:
+        lines = metrics_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 1.0, 0
+    for line in reversed(lines):
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        value = rec.get("selection_token_precision")
+        if isinstance(value, int | float):
+            values.append(float(value))
+            if len(values) >= window:
+                break
+    if not values:
+        return 1.0, 0
+    return sum(values) / len(values), len(values)
+
+
+def _guarded_weak_signal_cap(
+    root: Path,
+    mode: str,
+    generic_ratio: float,
+    *,
+    no_live_changes: bool = False,
+    effective_budget: int = 0,
+) -> int:
+    if not no_live_changes:
+        return 0
+    if generic_ratio >= 0.5:
+        base = {"minimal": 0, "balanced": 1, "deep": 2}.get(mode, 1)
+    elif generic_ratio >= 0.35:
+        base = {"minimal": 1, "balanced": 2, "deep": 3}.get(mode, 2)
+    else:
+        base = {"minimal": 2, "balanced": 4, "deep": 6}.get(mode, 3)
+    avg_precision, rows = _recent_token_precision(root)
+    if rows >= 3:
+        if avg_precision <= 0.1:
+            base = min(base, 0 if mode == "minimal" else 1)
+        elif avg_precision <= 0.2:
+            base = min(base, 1 if mode != "deep" else 2)
+    if effective_budget and effective_budget <= 2500:
+        base = min(base, 1)
+    return max(0, base)
+
+
+def _resolve_effective_mode(
+    root: Path,
+    requested_mode: str,
+    generic_ratio: float,
+    *,
+    no_live_changes: bool = False,
+) -> tuple[str, str | None]:
+    if requested_mode != "balanced" or not no_live_changes:
+        return requested_mode, None
+    avg_precision, precision_rows = _recent_token_precision(root)
+    avg_summary_precision, summary_rows = _recent_summary_token_precision(root)
+    low_precision = precision_rows >= 3 and avg_precision <= 0.2
+    dead_summaries = summary_rows >= 3 and avg_summary_precision <= 0.05
+    if generic_ratio >= 0.5 or low_precision or dead_summaries:
+        return "minimal", (
+            "Balanced mode auto-tightened to minimal because no live changes were detected "
+            "and recent precision suggests broader context is mostly noise."
+        )
+    return requested_mode, None
+
+
 def _recent_summary_token_precision(root: Path, window: int = 10) -> tuple[float, int]:
     metrics_path = root / ".agentpack" / "metrics.jsonl"
     if not metrics_path.exists():
@@ -851,19 +1120,7 @@ def _change_source(root: Path, since: str | None, snapshot_changed: set[str], gi
 
 
 def _task_md_body(root: Path) -> str | None:
-    task_md_path = root / ".agentpack" / "task.md"
-    if not task_md_path.exists():
-        return None
-    try:
-        content = task_md_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    lines = [ln for ln in content.splitlines() if ln.strip() and not ln.startswith("#")]
-    body = lines[0].strip() if lines else ""
-    placeholder = "Write or update the current coding task here."
-    if body and placeholder not in body:
-        return body
-    return None
+    return read_task_md(root)
 
 
 def _build_freshness_metadata(
@@ -884,7 +1141,12 @@ def _build_freshness_metadata(
         "task_class_confidence": plan.task_class_confidence,
         "task_class_signals": plan.task_class_signals,
         "dirty_files_count": len(dirty),
+        "requested_mode": plan.requested_mode,
+        "effective_mode": plan.mode,
     }
+    if plan.mode_warning:
+        metadata["mode_warning"] = plan.mode_warning
+    metadata.update(task_metadata(root, request.task))
     if plan.workspace:
         metadata["workspace"] = plan.workspace
     if plan.workspace_roots:
@@ -909,12 +1171,14 @@ def _freshness_warnings(root: Path, request: PackRequest, freshness: dict[str, A
     task_md = freshness.get("task_md")
     if task_md and task_md != request.task:
         warnings.append(
-            ".agentpack/task.md differs from the packed task; rerun with --task auto if task.md should win."
+            ".agentpack/task.md differs from the packed task; AgentPack-controlled context reads should auto-refresh, or run `agentpack pack --task auto`."
         )
     if freshness.get("changed_files_source") == "no live changes; ranking used task keywords and history":
         warnings.append("No live changed files were detected; treat selected files as keyword-based hints.")
     if freshness.get("generic_task_ratio", 0) >= 0.5:
         warnings.append("Task terms are broad/generic; pack tightened weak-summary selection.")
+    if freshness.get("mode_warning"):
+        warnings.append(str(freshness["mode_warning"]))
     saved_sha = freshness.get("git_sha")
     current_sha = git.current_sha(root) if git.is_git_repo(root) else None
     if saved_sha and current_sha and saved_sha != current_sha:

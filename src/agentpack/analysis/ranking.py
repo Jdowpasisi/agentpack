@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
+import math
 import re
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from agentpack.core.models import DependencyGraph, FileInfo
 from agentpack.core.config import ScoringWeights
@@ -21,10 +26,18 @@ _GENERIC_TASK_TERMS = {
     "add", "added", "change", "changed", "changes", "clean", "cleanup",
     "code", "commit", "context", "debug", "dev", "development", "doc",
     "docs", "eval", "evals", "feature", "fix", "freshness", "general",
-    "impl", "implement", "implementation", "improve", "issue", "metric", "metrics",
-    "noise", "noisy", "package", "pack", "packs", "release", "repo",
-    "source", "sync", "task", "tasks", "test", "tests", "update", "use",
-    "useful", "usefulness", "version", "workflow", "workflows",
+    "gap", "gaps", "generic", "impl", "implement", "implementation", "improve",
+    "issue", "metric", "metrics", "noise", "noisy", "package", "pack", "packs",
+    "quality", "release", "remaining", "repo", "root", "rule", "rules",
+    "source", "stat", "stats", "sync", "task", "tasks", "test", "tests",
+    "text", "update", "use", "useful", "usefulness", "version", "visibility",
+    "workflow", "workflows", "wording",
+}
+
+_AMBIGUOUS_TASK_TERMS = {
+    "analysis", "analyze", "analytics", "preview", "previews", "public",
+    "tool", "tools", "page", "pages", "component", "components", "screen",
+    "screens", "ui", "flow", "flows",
 }
 
 _CONCEPT_MAP: dict[str, frozenset[str]] = {
@@ -203,6 +216,26 @@ CONFIG_NAMES = {
 
 _DEFAULT_WEIGHTS = ScoringWeights()
 
+
+@dataclass
+class KeywordPlan:
+    weights: dict[str, float]
+    generic_terms: tuple[str, ...]
+    ambiguous_terms: tuple[str, ...]
+    learned_ambiguous_terms: tuple[str, ...]
+    concrete_terms: tuple[str, ...]
+    rarity: dict[str, float]
+    phrase_weights: dict[str, float] = field(default_factory=dict)
+    workspace_weights: dict[str, dict[str, float]] = field(default_factory=dict)
+    workspace_phrase_weights: dict[str, dict[str, float]] = field(default_factory=dict)
+    learned_positive_terms: tuple[str, ...] = ()
+    learned_ambiguous_phrases: tuple[str, ...] = ()
+    learned_positive_phrases: tuple[str, ...] = ()
+    phrase_rarity: dict[str, float] = field(default_factory=dict)
+    term_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
+    phrase_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
+    workspace_roots: tuple[str, ...] = ()
+
 _IMPLEMENTATION_ROLE_TOKENS = {
     "api", "apis", "route", "routes", "router", "endpoint", "endpoints",
     "controller", "controllers", "service", "services", "handler", "handlers",
@@ -251,19 +284,78 @@ def _add_keyword_weight(weights: dict[str, float], keyword: str, weight: float) 
     weights[keyword] = max(weights.get(keyword, 0.0), weight)
 
 
-def extract_keyword_weights(task: str) -> dict[str, float]:
-    words = re.split(r"[^a-zA-Z0-9]+", task.lower())
+def task_terms(task: str) -> list[str]:
+    return [
+        word for word in re.split(r"[^a-zA-Z0-9]+", task.lower())
+        if len(word) >= 3 and word not in _STOPWORDS
+    ]
+
+
+def task_phrases(task: str, max_len: int = 2) -> list[str]:
+    terms = task_terms(task)
+    phrases: list[str] = []
+    for size in range(2, max_len + 1):
+        for index in range(len(terms) - size + 1):
+            phrase_terms = terms[index:index + size]
+            if all(term in _GENERIC_TASK_TERMS for term in phrase_terms):
+                continue
+            phrases.append(" ".join(phrase_terms))
+    return phrases
+
+
+def ambiguous_task_terms(task: str) -> list[str]:
+    return sorted({word for word in task_terms(task) if word in _AMBIGUOUS_TASK_TERMS})
+
+
+def concrete_task_terms(task: str) -> list[str]:
+    return [
+        word for word in task_terms(task)
+        if word not in _GENERIC_TASK_TERMS and word not in _AMBIGUOUS_TASK_TERMS
+    ]
+
+
+def suggest_task_rewrite(task: str) -> str:
+    tokens = task_terms(task)
+    generic = [word for word in tokens if word in _GENERIC_TASK_TERMS]
+    ambiguous = [word for word in tokens if word in _AMBIGUOUS_TASK_TERMS]
+    concrete = concrete_task_terms(task)[:4]
+    concrete_text = " + ".join(concrete) if concrete else "exact file, route, or failing symptom"
+    if set(tokens) & {"frontend", "page", "pages", "component", "components", "seo", "signup", "public"}:
+        scope = "frontend page/component work only"
+        boundary = "; no backend service or analysis changes"
+    elif set(tokens) & {"backend", "api", "service", "services", "job", "jobs"}:
+        scope = "backend service/route work only"
+        boundary = "; no frontend page or component changes"
+    else:
+        scope = "focus exact subsystem only"
+        boundary = ""
+    caution = ""
+    if generic or ambiguous:
+        weak_terms = [*generic[:2], *[word for word in ambiguous if word not in generic][:2]]
+        if weak_terms:
+            caution = f"; avoid vague terms like {', '.join(weak_terms)}"
+    return f"{scope}: {concrete_text}{boundary}{caution}"
+
+
+def _base_keyword_weights(task: str) -> dict[str, float]:
+    words = task_terms(task)
     keyword_weights: dict[str, float] = {}
     for word in words:
-        if len(word) < 3:
-            continue
-        if word in _STOPWORDS:
-            continue
-        literal_weight = 0.25 if word in _GENERIC_TASK_TERMS else 1.0
+        if word in _GENERIC_TASK_TERMS:
+            literal_weight = 0.25
+        elif word in _AMBIGUOUS_TASK_TERMS:
+            literal_weight = 0.45
+        else:
+            literal_weight = 1.0
         _add_keyword_weight(keyword_weights, word, literal_weight)
         if word in _VARIANTS:
             variant = _VARIANTS[word]
-            variant_weight = 0.25 if variant in _GENERIC_TASK_TERMS else min(0.75, literal_weight)
+            if variant in _GENERIC_TASK_TERMS:
+                variant_weight = 0.25
+            elif variant in _AMBIGUOUS_TASK_TERMS:
+                variant_weight = min(0.45, literal_weight)
+            else:
+                variant_weight = min(0.75, literal_weight)
             _add_keyword_weight(keyword_weights, variant, variant_weight)
 
     # Expand via concept map one level only. Expanded concepts are weaker than
@@ -280,11 +372,323 @@ def extract_keyword_weights(task: str) -> dict[str, float]:
     return keyword_weights
 
 
+def _load_metric_rows(root: Path | None, window: int = 40) -> list[dict[str, Any]]:
+    if root is None:
+        return []
+    metrics_path = root / ".agentpack" / "metrics.jsonl"
+    if not metrics_path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in reversed(metrics_path.read_text(encoding="utf-8").splitlines()):
+            if len(rows) >= window:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    except OSError:
+        return []
+    return rows
+
+
+def _task_signal_stats(root: Path | None, *, window: int = 40) -> dict[str, dict[str, dict[str, int]]]:
+    rows = _load_metric_rows(root, window=window)
+    stats = {
+        "terms": {"good": {}, "bad": {}},
+        "phrases": {"good": {}, "bad": {}},
+    }
+    if not rows:
+        return stats
+    bad_counts: dict[str, int] = {}
+    good_counts: dict[str, int] = {}
+    bad_phrases: dict[str, int] = {}
+    good_phrases: dict[str, int] = {}
+    for row in rows:
+        task = row.get("task")
+        if not isinstance(task, str):
+            continue
+        precision = row.get("selection_token_precision")
+        bad_run = (
+            isinstance(precision, int | float) and float(precision) <= 0.2
+        ) or bool(row.get("selection_noise_paths"))
+        good_run = isinstance(precision, int | float) and float(precision) >= 0.45
+        for term in task_terms(task):
+            if term in _GENERIC_TASK_TERMS or len(term) < 4:
+                continue
+            if bad_run:
+                bad_counts[term] = bad_counts.get(term, 0) + 1
+            if good_run:
+                good_counts[term] = good_counts.get(term, 0) + 1
+        for phrase in task_phrases(task):
+            if bad_run:
+                bad_phrases[phrase] = bad_phrases.get(phrase, 0) + 1
+            if good_run:
+                good_phrases[phrase] = good_phrases.get(phrase, 0) + 1
+    stats["terms"]["bad"] = bad_counts
+    stats["terms"]["good"] = good_counts
+    stats["phrases"]["bad"] = bad_phrases
+    stats["phrases"]["good"] = good_phrases
+    return stats
+
+
+def _summary_term_corpus(summary_data: dict[str, Any] | None) -> set[str]:
+    if not summary_data:
+        return set()
+    terms: set[str] = set()
+    for summary_field in (
+        "role", "domain", "ranking_keywords", "defines", "calls", "entrypoints",
+        "external_systems", "naming_keywords", "reads_env",
+    ):
+        terms.update(_summary_values(summary_data, summary_field))
+    tokens: set[str] = set()
+    for term in terms:
+        tokens |= _tokens_for_match(term)
+    return {token for token in tokens if len(token) >= 3}
+
+
+def _document_phrases(path: str, summary_data: dict[str, Any] | None) -> set[str]:
+    parts: list[str] = [path.replace("/", " ").replace("\\", " ")]
+    if summary_data:
+        for field in (
+            "role", "domain", "ranking_keywords", "defines", "calls", "entrypoints",
+            "external_systems", "naming_keywords", "reads_env",
+        ):
+            parts.extend(_summary_values(summary_data, field))
+    phrases: set[str] = set()
+    for value in parts:
+        ordered = _ordered_tokens(value)
+        for size in (2,):
+            for index in range(len(ordered) - size + 1):
+                phrases.add(" ".join(ordered[index:index + size]))
+    return {phrase for phrase in phrases if phrase}
+
+
+def _term_document_frequency(
+    files: list[FileInfo],
+    summaries: dict[str, Any] | None,
+    workspace_roots: list[str] | None = None,
+) -> tuple[int, dict[str, int], dict[str, dict[str, int]], dict[str, int], dict[str, int], dict[str, dict[str, int]]]:
+    doc_counts: dict[str, int] = {}
+    phrase_counts: dict[str, int] = {}
+    workspace_counts: dict[str, dict[str, int]] = {}
+    workspace_phrase_counts: dict[str, dict[str, int]] = {}
+    workspace_totals: dict[str, int] = {}
+    total_docs = 0
+    for fi in files:
+        if fi.ignored or fi.binary:
+            continue
+        doc_terms = _path_tokens(fi.path)
+        doc_phrases = _document_phrases(fi.path, summaries.get(fi.path) if summaries else None)
+        if summaries:
+            doc_terms |= _summary_term_corpus(summaries.get(fi.path))
+        if not doc_terms and not doc_phrases:
+            continue
+        total_docs += 1
+        workspace = workspace_for_path(fi.path, workspace_roots or []) or "(root)"
+        workspace_totals[workspace] = workspace_totals.get(workspace, 0) + 1
+        for term in doc_terms:
+            doc_counts[term] = doc_counts.get(term, 0) + 1
+            workspace_counts.setdefault(workspace, {})
+            workspace_counts[workspace][term] = workspace_counts[workspace].get(term, 0) + 1
+        for phrase in doc_phrases:
+            phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
+            workspace_phrase_counts.setdefault(workspace, {})
+            workspace_phrase_counts[workspace][phrase] = workspace_phrase_counts[workspace].get(phrase, 0) + 1
+    return total_docs, doc_counts, workspace_counts, workspace_totals, phrase_counts, workspace_phrase_counts
+
+
+def _rarity_score(term: str, total_docs: int, doc_counts: dict[str, int]) -> float:
+    if total_docs <= 1:
+        return 1.0
+    df = doc_counts.get(term, 0)
+    numerator = math.log((total_docs + 1) / (df + 1))
+    denominator = math.log(total_docs + 1)
+    if denominator <= 0:
+        return 1.0
+    return max(0.0, min(1.0, numerator / denominator))
+
+
+def _learned_signal_terms(
+    candidates: set[str],
+    good_counts: dict[str, int],
+    bad_counts: dict[str, int],
+    *,
+    min_good: int = 2,
+    min_bad: int = 2,
+) -> tuple[set[str], set[str]]:
+    learned_positive = {
+        term
+        for term in candidates
+        if good_counts.get(term, 0) >= min_good
+        and good_counts.get(term, 0) >= max(2, bad_counts.get(term, 0) * 2)
+    }
+    learned_ambiguous = {
+        term
+        for term in candidates
+        if bad_counts.get(term, 0) >= min_bad
+        and bad_counts.get(term, 0) > max(1, good_counts.get(term, 0) * 2)
+    }
+    return learned_positive, learned_ambiguous
+
+
+def build_keyword_plan(
+    task: str,
+    *,
+    files: list[FileInfo] | None = None,
+    summaries: dict[str, Any] | None = None,
+    root: Path | None = None,
+    workspace_roots: list[str] | None = None,
+) -> KeywordPlan:
+    weights = _base_keyword_weights(task)
+    phrases = task_phrases(task)
+    generic = tuple(sorted({word for word in task_terms(task) if word in _GENERIC_TASK_TERMS}))
+    static_ambiguous = set(ambiguous_task_terms(task))
+    signal_stats = _task_signal_stats(root)
+    term_good = signal_stats["terms"]["good"]
+    term_bad = signal_stats["terms"]["bad"]
+    phrase_good = signal_stats["phrases"]["good"]
+    phrase_bad = signal_stats["phrases"]["bad"]
+    learned_positive_terms, learned_ambiguous = _learned_signal_terms(set(weights), term_good, term_bad)
+    learned_positive_phrases, learned_ambiguous_phrases = _learned_signal_terms(set(phrases), phrase_good, phrase_bad, min_good=1, min_bad=1)
+    total_docs, doc_counts, workspace_counts, workspace_totals, phrase_counts, workspace_phrase_counts = _term_document_frequency(
+        files or [],
+        summaries,
+        workspace_roots=workspace_roots,
+    )
+    rarity: dict[str, float] = {}
+    adjusted: dict[str, float] = {}
+    for term, weight in weights.items():
+        rarity_value = _rarity_score(term, total_docs, doc_counts) if total_docs else 1.0
+        rarity[term] = round(rarity_value, 3)
+        rarity_factor = 0.55 + (0.7 * rarity_value)
+        candidate = weight * rarity_factor
+        if term in static_ambiguous:
+            candidate = min(candidate, 0.45)
+        if term in learned_ambiguous and term not in static_ambiguous:
+            candidate = min(candidate, 0.55)
+        if term in learned_positive_terms and term not in static_ambiguous:
+            candidate = min(1.35, candidate + 0.2)
+        adjusted[term] = round(candidate, 3)
+    phrase_rarity: dict[str, float] = {}
+    phrase_weights: dict[str, float] = {}
+    for phrase in phrases:
+        part_weights = [adjusted.get(term, weights.get(term, 1.0)) for term in phrase.split()]
+        base = sum(part_weights) / len(part_weights)
+        rarity_value = _rarity_score(phrase, total_docs, phrase_counts) if total_docs else 1.0
+        phrase_rarity[phrase] = round(rarity_value, 3)
+        candidate = base * (0.75 + (0.45 * rarity_value))
+        if phrase in learned_ambiguous_phrases:
+            candidate = min(candidate, 0.45)
+        elif phrase in learned_positive_phrases:
+            candidate = min(1.4, candidate + 0.25)
+        elif all(part not in static_ambiguous and part not in learned_ambiguous for part in phrase.split()):
+            candidate = min(1.25, candidate + 0.12)
+        phrase_weights[phrase] = round(candidate, 3)
+    workspace_weights: dict[str, dict[str, float]] = {}
+    workspace_phrase_weights: dict[str, dict[str, float]] = {}
+    for workspace, total in workspace_totals.items():
+        workspace_weights[workspace] = {}
+        for term in weights:
+            ws_rarity = _rarity_score(term, total, workspace_counts.get(workspace, {}))
+            workspace_weights[workspace][term] = round(
+                min(1.5, adjusted.get(term, weights[term]) * (0.85 + (0.45 * ws_rarity))),
+                3,
+            )
+        workspace_phrase_weights[workspace] = {}
+        for phrase in phrase_weights:
+            ws_rarity = _rarity_score(phrase, total, workspace_phrase_counts.get(workspace, {}))
+            workspace_phrase_weights[workspace][phrase] = round(
+                min(1.5, phrase_weights[phrase] * (0.85 + (0.45 * ws_rarity))),
+                3,
+            )
+    concrete = tuple(sorted(
+        term for term in weights
+        if term not in set(generic) and term not in static_ambiguous and term not in learned_ambiguous
+    ))
+    term_stats = {
+        term: {
+            "weight": adjusted[term],
+            "rarity": rarity[term],
+            "good_runs": term_good.get(term, 0),
+            "bad_runs": term_bad.get(term, 0),
+            "kind": (
+                "generic" if term in generic else
+                "ambiguous" if term in static_ambiguous or term in learned_ambiguous else
+                "positive" if term in learned_positive_terms else
+                "concrete"
+            ),
+        }
+        for term in adjusted
+    }
+    phrase_stats = {
+        phrase: {
+            "weight": phrase_weights[phrase],
+            "rarity": phrase_rarity[phrase],
+            "good_runs": phrase_good.get(phrase, 0),
+            "bad_runs": phrase_bad.get(phrase, 0),
+            "kind": (
+                "ambiguous" if phrase in learned_ambiguous_phrases else
+                "positive" if phrase in learned_positive_phrases else
+                "phrase"
+            ),
+        }
+        for phrase in phrase_weights
+    }
+    return KeywordPlan(
+        weights=adjusted,
+        phrase_weights=phrase_weights,
+        workspace_weights=workspace_weights,
+        workspace_phrase_weights=workspace_phrase_weights,
+        generic_terms=generic,
+        ambiguous_terms=tuple(sorted(static_ambiguous | learned_ambiguous)),
+        learned_ambiguous_terms=tuple(sorted(learned_ambiguous)),
+        learned_positive_terms=tuple(sorted(learned_positive_terms)),
+        learned_ambiguous_phrases=tuple(sorted(learned_ambiguous_phrases)),
+        learned_positive_phrases=tuple(sorted(learned_positive_phrases)),
+        concrete_terms=concrete,
+        rarity=rarity,
+        phrase_rarity=phrase_rarity,
+        term_stats=term_stats,
+        phrase_stats=phrase_stats,
+        workspace_roots=tuple(workspace_roots or ()),
+    )
+
+
+def persist_keyword_plan_stats(root: Path, task: str, plan: KeywordPlan) -> Path:
+    out = root / ".agentpack" / "term_stats.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "task": task,
+        "generic_terms": list(plan.generic_terms),
+        "ambiguous_terms": list(plan.ambiguous_terms),
+        "learned_ambiguous_terms": list(plan.learned_ambiguous_terms),
+        "learned_positive_terms": list(plan.learned_positive_terms),
+        "learned_ambiguous_phrases": list(plan.learned_ambiguous_phrases),
+        "learned_positive_phrases": list(plan.learned_positive_phrases),
+        "concrete_terms": list(plan.concrete_terms),
+        "workspace_roots": list(plan.workspace_roots),
+        "terms": plan.term_stats,
+        "phrases": plan.phrase_stats,
+        "workspace_weights": plan.workspace_weights,
+        "workspace_phrase_weights": plan.workspace_phrase_weights,
+    }
+    out.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    return out
+
+
+def extract_keyword_weights(task: str) -> dict[str, float]:
+    return _base_keyword_weights(task)
+
+
 def generic_task_term_ratio(task: str) -> float:
-    words = [
-        word for word in re.split(r"[^a-zA-Z0-9]+", task.lower())
-        if len(word) >= 3 and word not in _STOPWORDS
-    ]
+    words = task_terms(task)
     if not words:
         return 0.0
     generic = sum(1 for word in words if word in _GENERIC_TASK_TERMS)
@@ -357,11 +761,14 @@ def enrich_keyword_weights_from_files(
     return enriched
 
 
+def _ordered_tokens(text: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    return [tok for tok in re.split(r"[^a-zA-Z0-9]+", spaced.lower()) if tok]
+
+
 def _tokens_for_match(text: str) -> set[str]:
     """Return identifier-ish tokens for exact keyword matching."""
-    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
-    raw_tokens = re.split(r"[^a-zA-Z0-9]+", spaced.lower())
-    return {tok for tok in raw_tokens if tok}
+    return set(_ordered_tokens(text))
 
 
 def _path_tokens(path: str) -> set[str]:
@@ -373,38 +780,116 @@ def _path_tokens(path: str) -> set[str]:
     return tokens
 
 
-def _keyword_token_weights(keywords: set[str] | dict[str, float]) -> dict[str, float]:
+def _keyword_weight_items(keywords: set[str] | dict[str, float] | KeywordPlan):
+    if isinstance(keywords, KeywordPlan):
+        return keywords.weights.items()
     if isinstance(keywords, dict):
-        items = keywords.items()
-    else:
-        items = ((keyword, 1.0) for keyword in keywords)
+        return keywords.items()
+    return ((keyword, 1.0) for keyword in keywords)
 
+
+def _term_weight_for_context(
+    term: str,
+    keywords: set[str] | dict[str, float] | KeywordPlan,
+    *,
+    path: str | None = None,
+) -> float:
+    plan = _keyword_plan(keywords)
+    if plan is None:
+        token_weights = dict(_keyword_weight_items(keywords))
+        return float(token_weights.get(term, 0.0))
+    weight = float(plan.weights.get(term, 0.0))
+    if path and plan.workspace_weights and plan.workspace_roots:
+        workspace = workspace_for_path(path, list(plan.workspace_roots)) or "(root)"
+        weight = max(weight, float(plan.workspace_weights.get(workspace, {}).get(term, weight)))
+    return weight
+
+
+def _phrase_weight_for_context(
+    phrase: str,
+    plan: KeywordPlan,
+    *,
+    path: str | None = None,
+) -> float:
+    weight = float(plan.phrase_weights.get(phrase, 0.0))
+    if path and plan.workspace_phrase_weights and plan.workspace_roots:
+        workspace = workspace_for_path(path, list(plan.workspace_roots)) or "(root)"
+        weight = max(weight, float(plan.workspace_phrase_weights.get(workspace, {}).get(phrase, weight)))
+    return weight
+
+
+def _keyword_token_weights(
+    keywords: set[str] | dict[str, float] | KeywordPlan,
+    *,
+    path: str | None = None,
+) -> dict[str, float]:
+    items = _keyword_weight_items(keywords)
     token_weights: dict[str, float] = {}
     for keyword, weight in items:
         for token in _tokens_for_match(keyword):
             if len(token) >= 3:
-                token_weights[token] = max(token_weights.get(token, 0.0), weight)
+                contextual = _term_weight_for_context(token, keywords, path=path) or weight
+                token_weights[token] = max(token_weights.get(token, 0.0), contextual)
     return token_weights
 
 
-def _match_weight(text: str, keywords: set[str] | dict[str, float]) -> float:
+def _keyword_plan(keywords: set[str] | dict[str, float] | KeywordPlan) -> KeywordPlan | None:
+    return keywords if isinstance(keywords, KeywordPlan) else None
+
+
+def _matched_keyword_tokens(text: str, keywords: set[str] | dict[str, float] | KeywordPlan) -> set[str]:
     token_weights = _keyword_token_weights(keywords)
+    return _tokens_for_match(text) & set(token_weights)
+
+
+def _matched_symbol_tokens(symbols: list[str], keywords: set[str] | dict[str, float] | KeywordPlan) -> set[str]:
+    matches: set[str] = set()
+    for sym in symbols:
+        matches |= _matched_keyword_tokens(sym, keywords)
+    return matches
+
+
+def _matched_keyword_phrases(
+    text: str,
+    keywords: set[str] | dict[str, float] | KeywordPlan,
+) -> set[str]:
+    plan = _keyword_plan(keywords)
+    if plan is None or not plan.phrase_weights:
+        return set()
+    normalized = " ".join(_ordered_tokens(text))
+    return {phrase for phrase in plan.phrase_weights if phrase in normalized}
+
+
+def _match_weight(
+    text: str,
+    keywords: set[str] | dict[str, float] | KeywordPlan,
+    *,
+    path: str | None = None,
+) -> float:
+    token_weights = _keyword_token_weights(keywords, path=path)
     matches = _tokens_for_match(text) & set(token_weights)
-    return max((token_weights[token] for token in matches), default=0.0)
+    best = max((token_weights[token] for token in matches), default=0.0)
+    plan = _keyword_plan(keywords)
+    if plan is not None and plan.phrase_weights:
+        normalized = " ".join(_ordered_tokens(text))
+        for phrase in plan.phrase_weights:
+            if phrase in normalized:
+                best = max(best, _phrase_weight_for_context(phrase, plan, path=path))
+    return best
 
 
-def _path_matches_keywords(path: str, keywords: set[str] | dict[str, float]) -> float:
-    return _match_weight(path, keywords)
+def _path_matches_keywords(path: str, keywords: set[str] | dict[str, float] | KeywordPlan) -> float:
+    return _match_weight(path, keywords, path=path)
 
 
-def _content_matches_keywords(text: str, keywords: set[str] | dict[str, float]) -> tuple[int, float]:
+def _content_matches_keywords(text: str, keywords: set[str] | dict[str, float] | KeywordPlan) -> tuple[int, float]:
     token_weights = _keyword_token_weights(keywords)
     text_tokens = _tokens_for_match(text)
     matches = text_tokens & set(token_weights)
     return len(matches), sum(token_weights[token] for token in matches)
 
 
-def _symbol_matches_keywords(symbols: list[str], keywords: set[str] | dict[str, float]) -> float:
+def _symbol_matches_keywords(symbols: list[str], keywords: set[str] | dict[str, float] | KeywordPlan) -> float:
     best_weight = 0.0
     for sym in symbols:
         best_weight = max(best_weight, _match_weight(sym, keywords))
@@ -439,16 +924,17 @@ def _summary_values(summary: object, field: str) -> list[str]:
 
 def _best_summary_match(
     values: list[str],
-    keywords: set[str] | dict[str, float],
+    keywords: set[str] | dict[str, float] | KeywordPlan,
     *,
     presence_terms: set[str] | None = None,
+    path: str | None = None,
 ) -> tuple[str, float] | None:
     if not values:
         return None
     best_value = ""
     best_weight = 0.0
     for value in values:
-        weight = _match_weight(value, keywords)
+        weight = _match_weight(value, keywords, path=path)
         if weight > best_weight:
             best_value = value
             best_weight = weight
@@ -501,7 +987,7 @@ def score_files(
     staged_paths: set[str],
     recently_modified: list[str],
     dep_graph: "DependencyGraph | dict",
-    keywords: set[str] | dict[str, float],
+    keywords: set[str] | dict[str, float] | KeywordPlan,
     include_tests: bool = True,
     include_configs: bool = True,
     weights: ScoringWeights | None = None,
@@ -516,6 +1002,9 @@ def score_files(
     all_paths = {f.path for f in files}
     results: list[tuple[FileInfo, float, list[str]]] = []
     recently_set = set(recently_modified[:20])
+    keyword_plan = _keyword_plan(keywords)
+    ambiguous_terms = set(keyword_plan.ambiguous_terms) if keyword_plan else set()
+    concrete_terms = set(keyword_plan.concrete_terms) if keyword_plan else set()
 
     churn_threshold: int | None = None
     if churn_counts:
@@ -540,9 +1029,18 @@ def score_files(
             reasons.append("staged")
 
         filename_weight = _path_matches_keywords(fi.path, keywords)
+        matched_terms = _matched_keyword_tokens(fi.path, keywords)
+        matched_phrases = _matched_keyword_phrases(fi.path, keywords)
         if filename_weight > 0:
             score += w.filename_keyword * filename_weight
             reasons.append("filename keyword match")
+        if keyword_plan is not None and matched_phrases:
+            best_phrase = max(
+                matched_phrases,
+                key=lambda phrase: _phrase_weight_for_context(phrase, keyword_plan, path=fi.path),
+            )
+            score += min(28.0, 18.0 * _phrase_weight_for_context(best_phrase, keyword_plan, path=fi.path))
+            reasons.append(f"keyword phrase match: {best_phrase}")
 
         node = dep_graph.get(fi.path)
         sym_names: list[str] = []
@@ -550,6 +1048,7 @@ def score_files(
         if summary_data:
             sym_names = _summary_values(summary_data, "symbols")
         symbol_weight = _symbol_matches_keywords(sym_names, keywords)
+        matched_terms |= _matched_symbol_tokens(sym_names, keywords)
         if symbol_weight > 0:
             score += w.symbol_keyword * symbol_weight
             reasons.append("symbol keyword match")
@@ -571,6 +1070,7 @@ def score_files(
                     _summary_values(summary_data, field),
                     keywords,
                     presence_terms=presence_terms,
+                    path=fi.path,
                 )
                 if not match:
                     continue
@@ -578,10 +1078,29 @@ def score_files(
                 score += _summary_boost_weight(field, value, amount) * match_weight
                 reasons.append(f"{label}: {_short_reason_value(value)}")
 
+            naming_keywords = _summary_values(summary_data, "naming_keywords")
+            naming_signals = _summary_values(summary_data, "naming_signals")
+            naming_match = _best_summary_match(naming_keywords, keywords, path=fi.path)
+            if naming_match:
+                value, match_weight = naming_match
+                score += min(20.0, match_weight * 18.0)
+                reasons.append(f"matched naming keyword: {_short_reason_value(value)}")
+
+            generic_public_names = [
+                value.split(": ", 1)[1]
+                for value in naming_signals
+                if value.startswith("generic public name: ")
+            ]
+            if generic_public_names and filename_weight == 0 and symbol_weight == 0:
+                score += min(-6.0, w.weak_filename_match_penalty / 2)
+                reasons.append(f"generic public API penalty: {generic_public_names[0]}")
+
         content_hits = 0
         if fi.content is not None:
             hits, hit_weight = _content_matches_keywords(fi.content, keywords)
             content_hits = hits
+            matched_terms |= _matched_keyword_tokens(fi.content, keywords)
+            matched_phrases |= _matched_keyword_phrases(fi.content, keywords)
             if hits > 0:
                 score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                 reasons.append(f"content keyword match ({hits})")
@@ -590,11 +1109,38 @@ def score_files(
                 text = fi.abs_path.read_text(errors="replace")
                 hits, hit_weight = _content_matches_keywords(text, keywords)
                 content_hits = hits
+                matched_terms |= _matched_keyword_tokens(text, keywords)
+                matched_phrases |= _matched_keyword_phrases(text, keywords)
                 if hits > 0:
                     score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                     reasons.append(f"content keyword match ({hits})")
             except OSError:
                 pass
+
+        if keyword_plan is not None and matched_phrases:
+            best_content_phrase = max(
+                matched_phrases,
+                key=lambda phrase: _phrase_weight_for_context(phrase, keyword_plan, path=fi.path),
+            )
+            score += min(20.0, 14.0 * _phrase_weight_for_context(best_content_phrase, keyword_plan, path=fi.path))
+            if not any(reason.startswith("keyword phrase match:") for reason in reasons):
+                reasons.append(f"keyword phrase match: {best_content_phrase}")
+
+        if ambiguous_terms:
+            ambiguous_hits = matched_terms & ambiguous_terms
+            concrete_hits = matched_terms & concrete_terms
+            if ambiguous_hits and not concrete_hits:
+                labels = ", ".join(sorted(ambiguous_hits)[:3])
+                if content_hits >= 1 and (
+                    symbol_weight > 0
+                    or _has_role(fi.path, _IMPLEMENTATION_ROLE_TOKENS)
+                ):
+                    bonus = min(24.0, 10.0 + (6.0 * min(content_hits, 3)))
+                    score += bonus
+                    reasons.append(f"ambiguous term restored by corroboration: {labels}")
+                elif filename_weight > 0 and content_hits == 0 and symbol_weight == 0:
+                    score = max(0.0, score - 8.0)
+                    reasons.append(f"ambiguous term cap: {labels}")
 
         matched_task_signal = filename_weight > 0 or symbol_weight > 0 or content_hits > 0
         if matched_task_signal and _has_role(fi.path, _IMPLEMENTATION_ROLE_TOKENS):
@@ -672,7 +1218,7 @@ def _has_filename_corroboration(reasons: list[str]) -> bool:
 
 def boost_cross_layer_related(
     scored: list[tuple[FileInfo, float, list[str]]],
-    keywords: set[str] | dict[str, float],
+    keywords: set[str] | dict[str, float] | KeywordPlan,
     weights: ScoringWeights | None = None,
 ) -> list[tuple[FileInfo, float, list[str]]]:
     """Boost service/controller/schema/handler files near high-scoring entrypoints.
@@ -802,7 +1348,7 @@ def boost_recall_neighbors(
 def boost_second_pass_expansion(
     scored: list[tuple[FileInfo, float, list[str]]],
     dep_graph: DependencyGraph,
-    keywords: set[str] | dict[str, float],
+    keywords: set[str] | dict[str, float] | KeywordPlan,
     weights: ScoringWeights | None = None,
     *,
     seed_limit: int = 10,

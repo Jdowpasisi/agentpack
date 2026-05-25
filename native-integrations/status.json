@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "updated": "2026-05-20",
+  "native_enforcement_contract": {
+    "required_capabilities": [
+      "mandatory_pre_edit_or_pre_tool_hook",
+      "ability_to_block_edit_when_guard_fails",
+      "current_prompt_or_task_access",
+      "workspace_root_access",
+      "command_execution_or_mcp_tool_access"
+    ],
+    "fallback_command": "agentpack guard --agent <agent> --repair-stale --refresh-context",
+    "boundary": "Without a host-provided mandatory pre-edit/pre-tool hook, AgentPack can only provide guarded best-effort enforcement."
+  },
+  "hosts": [
+    {
+      "id": "cursor",
+      "display_name": "Cursor",
+      "agentpack_agent": "cursor",
+      "status": "skeleton",
+      "enforcement_level": "guarded",
+      "path": "native-integrations/cursor-extension",
+      "blocked_on": [
+        "Host API that guarantees extension activation before edits/tool calls",
+        "Host API that lets extension block agent edits when guard fails"
+      ]
+    },
+    {
+      "id": "windsurf",
+      "display_name": "Windsurf",
+      "agentpack_agent": "windsurf",
+      "status": "skeleton",
+      "enforcement_level": "guarded",
+      "path": "native-integrations/windsurf-extension",
+      "blocked_on": [
+        "Host API that guarantees extension activation before edits/tool calls",
+        "Host API that lets extension block agent edits when guard fails"
+      ]
+    },
+    {
+      "id": "claude",
+      "display_name": "Claude Code",
+      "agentpack_agent": "claude",
+      "status": "blocked_stub",
+      "enforcement_level": "guarded",
+      "path": "native-integrations/claude-native",
+      "blocked_on": [
+        "Native mandatory pre-edit/pre-tool plugin API",
+        "Host API for block/deny result when AgentPack guard fails"
+      ]
+    },
+    {
+      "id": "codex",
+      "display_name": "Codex",
+      "agentpack_agent": "codex",
+      "status": "blocked_stub",
+      "enforcement_level": "guarded",
+      "path": "native-integrations/codex-native",
+      "blocked_on": [
+        "Native mandatory pre-edit/pre-tool plugin API",
+        "Host API for block/deny result when AgentPack guard fails"
+      ]
+    }
+  ]
+}

@@ -10,6 +10,127 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.10] — 2026-05-25
+
+### Added
+- Added `agentpack eval`, a local deterministic eval harness for real agent failures with TOML cases, command checks, diff limits, required/forbidden file checks, golden-file comparisons, JSONL results, Markdown reports, and failure taxonomy labels.
+- Added `agentpack eval --watch --until-pass`, variant attribution via `--variant` and `--compare-variants`, and `--ci-template` for GitHub Actions eval runs.
+- Added patch-based replay: `--capture` stores patch artifacts and context metadata, while `--replay` applies captured patches in isolated git worktrees before running checks.
+- Added check retries with flaky-pass recording and tuning suggestions from recent eval failures.
+- Added the Pepy total PyPI downloads badge to the README.
+
+### Security
+- Captured eval patch artifacts are now scanned with AgentPack's local secret redactor before being written; cases record `patch_redaction_warnings` when a secret is replaced.
+
+### Documentation
+- Documented deterministic eval workflows, replay datasets, attribution comparisons, CI usage, and the executable trust boundary for eval TOML files.
+
+---
+
+## [0.3.9] — 2026-05-23
+
+### Added
+- Added `agentpack global-repair-hooks` to refresh `~/.git-templates/hooks/`, reassert the global `init.templateDir`, and repair the current repo's `.git/hooks/` after an upgrade.
+
+### Fixed
+- Global git template hook installs now update stale marker-managed hooks instead of leaving legacy shell snippets in place.
+- AgentPack-managed git template hooks now end with `exit 0`, so non-AgentPack repos and fresh clones succeed cleanly even when the hook runner decides no repack is needed.
+- README and npm README now document the repaired `GitAutoRepack` path and the follow-up repair command for older copied hooks.
+
+---
+
+## [0.3.8] — 2026-05-23
+
+### Fixed
+- `agentpack init --force` now backs up an existing `.agentignore` consistently even when the synced ignore content is already up to date, removing environment-dependent release test behavior.
+- Added a focused regression test for the unchanged-content backup path so CI and local runs exercise the same force-mode semantics.
+
+---
+
+## [0.3.7] — 2026-05-23
+
+### Fixed
+- Made the `agentpack init --force` backup regression test deterministic by seeding a repo-local `.gitignore`, avoiding environment-dependent `.agentignore` import behavior in release CI.
+- Recovery release after the failed PyPI-only `0.3.6` publish workflow, keeping npm and PyPI version lines aligned again.
+
+---
+
+## [0.3.6] — 2026-05-22
+
+### Added
+- Added `agentpack ignore sync`, a shared `.agentignore` sync path that imports safe noisy rules from root and nested `.gitignore` files, `.git/info/exclude`, and the configured global Git ignore file.
+- `agentpack doctor` now warns when the imported `.agentignore` block is stale, and `init` now prints imported ignore-rule summaries while reusing the same sync engine.
+- Expanded `.agentignore` defaults for common generated noise such as Serverless, caches, temp directories, and snapshot artifacts.
+
+### Changed
+- Broad no-live-change packs now cap weak filename/meta-only matches, compress them to summaries, and suppress repeat noisy paths more aggressively when recent metrics already proved them unhelpful.
+- Pack and stats guidance now push users toward concrete task wording and `agentpack ignore sync` when recent precision metrics show noisy context selection.
+- Published package metadata no longer includes Claude-specific keywords in Python or npm package manifests.
+
+---
+
+## [0.3.5] — 2026-05-20
+
+### Added
+- Hybrid task-context auto-refresh: MCP `get_context()` now blocks for a fresh pack when `.agentpack/task.md` differs from the packed task, while hook prompts continue to trigger background repacks.
+- Shared task-freshness helpers and task hashes in pack metadata so stale task state is reported consistently across MCP, status, doctor, and rendered context.
+- MCP `get_context()` also auto-refreshes when the repo snapshot changed, and Claude prompt hooks block once on task switches so first-turn hints are fresh.
+- MCP `get_context()` now refreshes when pack metadata or snapshot state is missing instead of returning cached context with only a stale header.
+- Agent installer rules now prefer MCP as the active context path and treat markdown files as fallback artifacts.
+- Added `agentpack guard`, an executable pre-edit gate that checks context freshness and agent integration health, with optional stale-rule repair and context refresh.
+- Added `agentpack migrate` to scan exact or nested repo paths and repair stale AgentPack integrations across existing repos.
+- Added tracked native enforcement skeletons/stubs for Cursor, Windsurf, Claude, and Codex under `native-integrations/`, plus a machine-readable status index.
+- `agentpack pack` now opportunistically self-heals stale AgentPack rule blocks for the active agent, helping old installs upgrade when they still call `pack`.
+
+### Changed
+- Rendered context now includes a loud stale-task warning as a last-resort guardrail when static markdown is read after the task changes.
+- Rendered markdown now includes a machine-readable JSON `agentpack:freshness` block with active/fallback context mode, task hashes, snapshot hash, refresh commands, and the guard command.
+- Non-MCP installer rules and VS Code tasks now run `agentpack guard --repair-stale --refresh-context` as the concrete fallback before trusting markdown context.
+- Changed-file selection caps unrelated dirty files when many files are dirty, keeping safety context without letting unrelated edits dominate the pack.
+
+---
+
+## [0.3.4] — 2026-05-20
+
+### Fixed
+- Removed an unused import in `agentpack hook` so the release workflow `ruff check src/ tests/` lint step passes again.
+
+---
+
+## [0.3.3] — 2026-05-20
+
+### Added
+- Native Windows support target for PowerShell plus Git for Windows across the npm wrapper, Git hook launchers, and global shell integration.
+
+### Changed
+- Repo-local and global Git hooks now delegate to cross-platform Python launchers instead of POSIX-only background shell snippets.
+- npm wrapper no longer blocks `win32`, prefers the Windows `py -3` launcher, and uses Windows cache locations when appropriate.
+- README and npm docs now describe Windows as a supported platform with scoped expectations.
+
+---
+
+## [0.3.2] — 2026-05-20
+
+### Added
+- Public naming-signal analysis for files, exported symbols, tests, and env/config identifiers so offline summaries can capture domain-revealing names as structured ranking hints.
+- Focused tests covering naming classification, summary population, and ranking receipts for strong and weak public names.
+
+### Changed
+- Aligned GitHub, PyPI, and npm discovery copy, keywords, and README openings around AgentPack's local context engine positioning, including clearer npm wrapper framing.
+- Ranking and offline summaries now use public naming signals from files, exported symbols, tests, and env/config identifiers, with small receipts-driven bonuses for domain-revealing names and a light penalty for vague public APIs.
+- README architecture and development guidance now document naming-signal flow and public naming advice for ranking.
+
+---
+
+## [0.3.1] — 2026-05-19
+
+### Fixed
+- Recommended `pipx install agentpack-cli` for normal installs so new users avoid PEP 668 `externally-managed-environment` errors from system-managed Python.
+- Removed the `agentpack global-install` fallback to `pip install --user`; failed `pipx` installs now give OS package-manager guidance for installing `pipx`.
+- Updated optional `watch` and `mcp` dependency guidance to use `pipx inject` instead of global `pip install`.
+
+---
+
 ## [0.3.0] — 2026-05-17
 
 ### Added
