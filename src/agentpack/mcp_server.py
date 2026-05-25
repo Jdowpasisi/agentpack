@@ -16,6 +16,9 @@ Or register in Claude Code settings:
 Tools exposed:
     start_task          — write task.md and return a fresh context pack
     pack_context        — generate/refresh a context pack for a task
+    route_task          — read-only route: files + rules + skills + commands
+    get_skills          — read-only skill/rule inventory
+    explain_route       — read-only route with skill score reasons
     get_context         — read latest context pack; auto-refreshes when task.md changed
     refresh             — refresh using the current task.md
     explain_file        — show score breakdown + symbols for a specific file
@@ -420,6 +423,30 @@ def _get_delta_context_impl(root: Path, max_files: int = 12) -> str:
     return "\n".join(lines)
 
 
+def _route_task_impl(root: Path, task: str) -> str:
+    """Return read-only task route JSON; does not write task/context files."""
+    from agentpack.router.service import RouteService
+
+    result = RouteService().route_task(root, task)
+    return result.model_dump_json(indent=2)
+
+
+def _get_skills_impl(root: Path) -> str:
+    """Return discovered skill/rule inventory JSON."""
+    from agentpack.router.service import RouteService
+
+    inventory = RouteService().inventory(root)
+    return inventory.model_dump_json(indent=2)
+
+
+def _explain_route_impl(root: Path, task: str) -> str:
+    """Return task route JSON including all positive skill scores."""
+    from agentpack.router.service import RouteService
+
+    result = RouteService().explain_route(root, task)
+    return result.model_dump_json(indent=2)
+
+
 def serve() -> None:
     try:
         from mcp.server.fastmcp import FastMCP
@@ -467,6 +494,25 @@ def serve() -> None:
             budget=budget,
             max_tokens=max_tokens,
         )
+
+    @mcp.tool()
+    def route_task(task: str) -> str:
+        """Route a task to files, rules, skills, command suggestions, and safety warnings.
+
+        Read-only: does not write task.md or context files. Use pack_context when full
+        context content is needed.
+        """
+        return _route_task_impl(_repo_root(), task)
+
+    @mcp.tool()
+    def get_skills() -> str:
+        """Return the discovered Agentpack skill/rule inventory as JSON."""
+        return _get_skills_impl(_repo_root())
+
+    @mcp.tool()
+    def explain_route(task: str) -> str:
+        """Return a route_task-style JSON result with skill scoring reasons."""
+        return _explain_route_impl(_repo_root(), task)
 
     @mcp.tool()
     def get_context() -> str:

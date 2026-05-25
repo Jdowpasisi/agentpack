@@ -10,6 +10,22 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.11] — 2026-05-25
+
+### Added
+- Added AgentPack Router, a read-only task router available through MCP `route_task`, `get_skills`, and `explain_route`.
+- Added CLI debug/admin surfaces: `agentpack route`, `agentpack skills scan`, and `agentpack skills index`.
+- Added deterministic skill/rule discovery for Claude, Codex, Cursor, AgentPack project skills, and root agent rule files.
+
+### Changed
+- Agent installer guidance now prefers `route_task` before full context packing when MCP is available.
+
+### Security
+- Skill index files now store metadata only and omit raw skill/rule bodies.
+- External side-effect skills are warned and excluded from selection by default.
+
+---
+
 ## [0.3.10] — 2026-05-25
 
 ### Added

@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.10).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.11).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 
@@ -26,6 +26,7 @@ Use AgentPack when a repo is too large to paste and you want faster, more consis
 - [Quality Bar](#quality-bar)
 - [Download Stats](#download-stats)
 - [Debugging Selection](#debugging-selection)
+- [Task Router](#task-router)
 - [Supported Integrations](#supported-integrations)
 - [Commands](#commands)
 - [Architecture](#architecture)
@@ -40,6 +41,7 @@ Use AgentPack when a repo is too large to paste and you want faster, more consis
 - **Local code intelligence**: extracts roles, domains, entrypoints, definitions, dependencies, env reads, side effects, and external systems using static analysis.
 - **Semantic repo map**: adds a compact module-level map before file context so agents orient faster.
 - **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, MCP auto-refresh signals, and a machine-readable `agentpack:freshness` block in markdown fallback artifacts.
+- **Task router**: MCP and CLI surfaces route a task to relevant files, scoped rules, installed skills, suggested commands, and safety warnings without executing skills automatically.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
 - **Local and measurable**: no API calls for scan, summarize, rank, pack, stats, or benchmark; quality is measured with expected-file evals.
 
@@ -252,6 +254,40 @@ agentpack guard --agent auto --repair-stale --refresh-context
 ```
 
 `guard` checks pack freshness, task freshness, repo snapshot freshness, and installed agent rules/hooks. With `--repair-stale --refresh-context`, it repairs stale AgentPack rule files and refreshes missing or stale context before returning success. `agentpack pack` also self-heals stale AgentPack rule blocks for the active agent, so older installs that still run `pack` get upgraded opportunistically.
+
+## Task Router
+
+AgentPack Router is the MCP-first path for agents that need a task map before loading full context. It returns:
+
+- files to read first
+- repo and tool rules to apply
+- installed skills to consider
+- commands to consider, never execute automatically
+- safety warnings for external side-effect skills
+- an agent-ready prompt block
+
+Use MCP when available:
+
+```text
+route_task("fix flaky payment webhook test")
+```
+
+Use CLI for inspection or scripting:
+
+```bash
+agentpack skills scan
+agentpack skills index
+agentpack route --task "fix flaky payment webhook test"
+agentpack route --task "fix flaky payment webhook test" --format json
+```
+
+Router reads skills and rules from `.claude/skills/`, `~/.claude/skills/`, `~/.codex/skills/`, `~/.agents/skills/`, `.agentpack/skills/`, `.cursor/rules/`, `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`. Rules are mandatory scoped instructions; skills are optional recommendations. The local `.agentpack/skills_index.json` stores metadata only and omits raw skill/rule bodies.
+
+Safety defaults:
+
+- skills are recommended, not executed
+- suggested commands are returned as strings with reasons
+- external side-effect skills, such as deploy or cloud mutation checklists, are warned and not selected unless explicitly allowed in config
 
 ## Before / After Agent Behavior
 
@@ -559,6 +595,9 @@ Command map:
 | `agentpack install` | Refresh or add an agent integration without changing project state |
 | `agentpack repair` | Restore missing or drifted integration files |
 | `agentpack pack` | Generate a ranked context pack for one task |
+| `agentpack route` | Route a task to files, rules, skills, commands, and safety warnings |
+| `agentpack skills scan` | Print discovered local/global skills and rules |
+| `agentpack skills index` | Write `.agentpack/skills_index.json` metadata for faster routing |
 | `agentpack watch` | Keep the context pack fresh while you work |
 | `agentpack doctor` | Audit hooks, agent files, CLI path, and repo health |
 | `agentpack explain` | Understand why a file was selected or omitted |
@@ -856,6 +895,32 @@ This keeps unrelated dirty files from consuming the whole context budget while p
 
 ---
 
+### `agentpack route`
+
+Route a task without writing context files. This is the CLI debug/admin surface for the same router used by MCP `route_task`.
+
+```bash
+agentpack route --task "fix flaky payment webhook test"
+agentpack route --task "fix flaky payment webhook test" --format json
+```
+
+Output includes relevant files, applied rules, recommended skills, suggested commands, safety warnings, and an agent prompt. It uses the existing AgentPack file ranker in memory and does not write `.agentpack/context.md`.
+
+---
+
+### `agentpack skills`
+
+Inspect or index installed skills and rule files.
+
+```bash
+agentpack skills scan
+agentpack skills index
+```
+
+`scan` prints discovered artifacts. `index` writes `.agentpack/skills_index.json` with metadata only; raw skill and rule bodies are omitted from the index.
+
+---
+
 ### `agentpack quickstart`
 
 Show the shortest useful path for the current repo.
@@ -947,6 +1012,9 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 
 | Tool | Description |
 |---|---|
+| `route_task(task)` | Read-only task router. Returns relevant files, applied rules, recommended skills, suggested commands, safety warnings, and an agent prompt as JSON. |
+| `get_skills()` | Return discovered skill/rule inventory as JSON. |
+| `explain_route(task)` | Return route JSON with positive skill score reasons for debugging router choices. |
 | `start_task(task, mode, budget, max_tokens)` | Recommended MCP-first entry point. Writes `.agentpack/task.md`, generates a ranked pack, and returns packed markdown. |
 | `pack_context(task, mode, budget, max_tokens)` | Generate a ranked context pack. If `task` is provided, writes it to `.agentpack/task.md`; if omitted, reads `task.md` or infers from git. |
 | `get_context()` | Return the latest pack. If `.agentpack/task.md` or the repo snapshot differs from the packed metadata, it auto-refreshes before returning; otherwise it prepends a freshness header. |

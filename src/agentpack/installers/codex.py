@@ -14,9 +14,10 @@ At the start of every coding task:
 
 1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
 2. Run `agentpack guard --agent codex --repair-stale --refresh-context`. This is the executable pre-edit gate for non-MCP paths.
-3. Prefer AgentPack MCP if available. Call `agentpack_get_context()` for existing task context, or `agentpack_pack_context(task="<task>")` for a new task. MCP is the active path because it auto-refreshes stale task/repo context.
-4. If MCP is unavailable, read `.agentpack/context.md`. Treat it as a fallback artifact; if its `agentpack:freshness` block says `refresh_required: true` or the task does not match, rerun the guard command before using selected files.
-5. Use selected files as starting points, but verify with actual code before editing.
+3. Prefer AgentPack MCP if available. MCP is the active path. Call `agentpack_route_task(task="<task>")` first to get files, rules, skills, commands, and safety warnings.
+4. Call `agentpack_pack_context(task="<task>")` only when full packed context is needed, or `agentpack_get_context()` for existing task context.
+5. If MCP is unavailable, read `.agentpack/context.md`. Treat it as a fallback artifact; if its `agentpack:freshness` block says `refresh_required: true` or the task does not match, rerun the guard command before using selected files.
+6. Use selected files as starting points, but verify with actual code before editing.
 
 When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the guard command before editing.
 <!-- agentpack:end -->"""

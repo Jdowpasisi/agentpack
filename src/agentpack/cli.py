@@ -19,7 +19,9 @@ from agentpack.commands import (
     pack,
     quickstart,
     repair,
+    route,
     scan,
+    skills,
     stats,
     status,
     summarize,
@@ -56,6 +58,7 @@ for mod in [
     pack,
     install,
     repair,
+    route,
     migrate,
     monitor,
     explain,
@@ -69,6 +72,7 @@ for mod in [
     mcp_cmd,
     hook_cmd,
     quickstart,
+    skills,
 ]:
     mod.register(app)
 

@@ -5,7 +5,7 @@
 [![PyPI core](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.10).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.11).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
 
@@ -24,6 +24,7 @@ AgentPack is a context preparation tool, not a coding agent. It stays local, det
 - **Task-focused packing**: ranks files from git changes, task terms, symbols, imports, related tests, configs, churn, repo history, and deterministic offline summaries.
 - **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
 - **Local code intelligence**: extracts roles, domains, entrypoints, definitions, dependencies, env reads, side effects, and external systems using static analysis.
+- **Task router**: MCP and CLI surfaces route a task to relevant files, scoped rules, installed skills, suggested commands, and safety warnings without executing skills automatically.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
 - **Freshness and deltas**: records task source, git state, snapshot hashes, selected-file deltas, stale-context warnings, MCP task/repo auto-refresh signals, and a machine-readable `agentpack:freshness` block in markdown fallback artifacts.
 - **Measurable quality**: benchmark expected-file recall, token efficiency, misses, and public smoke suites.

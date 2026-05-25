@@ -14,10 +14,10 @@ Prefer MCP over reading `.agentpack/context*.md` directly because MCP auto-refre
 and repo-snapshot context before returning.
 
 ```
-mcp__agentpack__get_context()
+mcp__agentpack__route_task(task="<what you're working on>")
 ```
 
-For a brand-new task, call:
+When full packed context is needed, call:
 
 ```
 mcp__agentpack__pack_context(task="<what you're working on>", budget=4000)
@@ -30,6 +30,7 @@ agentpack guard --agent claude --repair-stale --refresh-context
 ```
 
 Other tools:
+- `mcp__agentpack__route_task(task)` — files, rules, skills, commands, and safety warnings
 - `mcp__agentpack__explain_file(path)` — score breakdown + symbols for a file
 - `mcp__agentpack__get_related_files(path)` — import-graph neighbours
 - `mcp__agentpack__get_stats()` — token/saving stats for the latest pack

@@ -42,6 +42,19 @@ class HooksConfig(BaseModel):
     blocking_task_refresh: bool = True
 
 
+class SkillsConfig(BaseModel):
+    paths: list[str] = Field(default_factory=lambda: [
+        ".claude/skills",
+        "~/.claude/skills",
+        "~/.codex/skills",
+        "~/.agents/skills",
+        ".agentpack/skills",
+        ".cursor/rules",
+    ])
+    max_selected: int = 3
+    allow_external_side_effects: bool = False
+
+
 class AgentConfig(BaseModel):
     output: str
     patch_claude_md: bool = False
@@ -89,6 +102,7 @@ class Config(BaseModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scoring: ScoringWeights = Field(default_factory=ScoringWeights)
 
@@ -127,6 +141,12 @@ task_switch_detection = true
 task_switch_min_terms = 1
 # Block once on task switches so the first prompt sees fresh top-file hints.
 blocking_task_refresh = true
+
+[skills]
+# Skill/rule sources used by `agentpack route` and MCP `route_task`.
+paths = [".claude/skills", "~/.claude/skills", "~/.codex/skills", "~/.agents/skills", ".agentpack/skills", ".cursor/rules"]
+max_selected = 3
+allow_external_side_effects = false
 
 [scoring]
 # Scoring weights — higher wins budget allocation.
