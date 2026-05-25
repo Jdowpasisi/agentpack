@@ -10,6 +10,23 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.10] — 2026-05-25
+
+### Added
+- Added `agentpack eval`, a local deterministic eval harness for real agent failures with TOML cases, command checks, diff limits, required/forbidden file checks, golden-file comparisons, JSONL results, Markdown reports, and failure taxonomy labels.
+- Added `agentpack eval --watch --until-pass`, variant attribution via `--variant` and `--compare-variants`, and `--ci-template` for GitHub Actions eval runs.
+- Added patch-based replay: `--capture` stores patch artifacts and context metadata, while `--replay` applies captured patches in isolated git worktrees before running checks.
+- Added check retries with flaky-pass recording and tuning suggestions from recent eval failures.
+- Added the Pepy total PyPI downloads badge to the README.
+
+### Security
+- Captured eval patch artifacts are now scanned with AgentPack's local secret redactor before being written; cases record `patch_redaction_warnings` when a secret is replaced.
+
+### Documentation
+- Documented deterministic eval workflows, replay datasets, attribution comparisons, CI usage, and the executable trust boundary for eval TOML files.
+
+---
+
 ## [0.3.9] — 2026-05-23
 
 ### Added

@@ -1,13 +1,14 @@
 # AgentPack
 
 [![PyPI version](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/agentpack-cli?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/agentpack-cli)
 [![npm version](https://img.shields.io/npm/v/@vishal2612200/agentpack.svg)](https://www.npmjs.com/package/@vishal2612200/agentpack)
 [![npm downloads](https://img.shields.io/npm/dm/@vishal2612200/agentpack.svg)](https://www.npmjs.com/package/@vishal2612200/agentpack)
 [![Python versions](https://img.shields.io/pypi/pyversions/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.9).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.10).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 
@@ -562,6 +563,7 @@ Command map:
 | `agentpack doctor` | Audit hooks, agent files, CLI path, and repo health |
 | `agentpack explain` | Understand why a file was selected or omitted |
 | `agentpack benchmark` | Measure recall, precision, and misses against real tasks |
+| `agentpack eval` | Run deterministic failure evals with tests, diff limits, and taxonomy labels |
 | `agentpack tune` | Suggest fixes from recent pack metrics and benchmark misses |
 | `agentpack status` | Inspect current pack freshness and metadata |
 | `agentpack diff` | Show what changed between context snapshots |
@@ -1169,6 +1171,82 @@ agentpack tune --no-benchmark
 `tune` reads `.agentpack/metrics.jsonl` and, when present, `.agentpack/benchmark_results.jsonl`. It flags low token precision, zero-value summaries, repeated noisy paths, support-context gaps, and benchmark miss patterns. `--write` saves the same guidance to `.agentpack/tuning.md`.
 
 This command does not pretend a pack is correct. It gives the next thing to inspect: lower mode, explain noisy files, adjust `.agentignore`, add benchmark cases, or inspect budget/score misses.
+
+---
+
+### `agentpack eval`
+
+Run deterministic failure evals. AgentPack does not run the coding agent and
+does not use an LLM judge; it verifies the current or replayed worktree with
+commands and diff policies.
+
+```bash
+agentpack eval --init
+# edit .agentpack/evals.toml with real failures and checks
+agentpack eval
+agentpack eval --case auth-timeout --prove-targets
+agentpack eval --capture auth-timeout --failure-class context --check "pytest tests/test_auth.py -q"
+agentpack eval --watch --until-pass
+agentpack eval --replay --prove-targets
+agentpack eval --variant baseline
+agentpack eval --variant agentpack
+agentpack eval --compare-variants baseline:agentpack
+agentpack eval --ci-template
+agentpack eval --report
+```
+
+Example case:
+
+```toml
+[[cases]]
+id = "auth-timeout"
+task = "fix auth token timeout"
+failure_class = "context"
+failure_source = "agent_failed"
+base_ref = "HEAD"
+patch_file = ".agentpack/evals/auth-timeout.patch"
+required_changed_files = ["src/auth/token.py"]
+forbidden_changed_files = ["src/db/**"]
+max_changed_files = 5
+max_changed_lines = 250
+agent = "codex"
+context_file = ".agentpack/context.md"
+context_hash = "..."
+selected_files = ["src/auth/token.py", "tests/test_auth.py"]
+
+[[cases.checks]]
+name = "tests"
+command = "pytest tests/test_auth.py -q"
+timeout_s = 120
+retries = 1 # optional, marks pass-after-fail checks as flaky
+```
+
+Use `eval` after an agent run: capture the real failure, add deterministic
+checks such as tests, typecheck, lint, schema validation, API contract tests,
+diff size, forbidden files, or golden outputs, then rerun until the harness
+passes. The model can propose; the harness must verify.
+
+For hands-free local iteration, keep `agentpack eval --watch --until-pass`
+running in a terminal while the agent or developer edits. It reruns when the
+case file, patch artifacts, golden files, or git diff content changes and stops
+when all deterministic checks pass. `--capture` stores the current patch under
+`.agentpack/evals/<case-id>.patch` plus context metadata; `--replay` checks out
+`base_ref` into an isolated git worktree, applies that patch, and runs the same
+deterministic checks there. To measure AgentPack's contribution, run the same
+case with `--variant baseline` and then with `--variant agentpack`;
+`--compare-variants baseline:agentpack` reports which cases improved, regressed,
+stayed unchanged, or still need both sides. Use `--ci-template` to scaffold a
+GitHub Actions workflow for `benchmarks/evals.toml`.
+
+Eval files are executable trust boundaries: commands in `checks.command` run
+locally and in CI. Review eval TOML from contributors with the same care as
+shell scripts or workflow files.
+
+Captured patch artifacts are secret-scanned with the same local redactor used
+for context packs before they are written. If a patch line contains a real
+secret, the artifact stores `[REDACTED:<type>]` and the case records
+`patch_redaction_warnings`. Secret-bearing patches may replay with redacted
+values; replace secrets with safe fixture values when exact replay matters.
 
 ---
 

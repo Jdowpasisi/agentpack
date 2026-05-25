@@ -87,3 +87,60 @@ agentpack explain --task "your task" --file path/to/missed_file.py
 agentpack explain --task "your task" --omitted
 agentpack explain --task "your task" --budget-plan
 ```
+
+## Deterministic Failure Evals
+
+Use `agentpack eval` for the next reliability layer after file-selection
+benchmarks. The flow is:
+
+```bash
+agentpack eval --init
+# run an agent outside AgentPack, observe a real failure, then capture it
+agentpack eval --capture auth-timeout --failure-class context --check "pytest tests/test_auth.py -q"
+agentpack eval --case auth-timeout --prove-targets
+agentpack eval --watch --until-pass
+agentpack eval --replay --prove-targets
+agentpack eval --variant baseline
+agentpack eval --variant agentpack
+agentpack eval --compare-variants baseline:agentpack
+agentpack eval --ci-template
+agentpack eval --report
+```
+
+`eval` is verify-only: it does not launch agents and does not ask an LLM whether
+work succeeded. Cases use deterministic checks such as tests, typecheck, lint,
+schema validation, API contract tests, diff size checks, forbidden file checks,
+golden output comparisons, and snapshot tests. Each case carries a failure
+taxonomy label (`context`, `tool`, `planning`, `reasoning`, `implementation`,
+`verification`, `permission`, `format`, `hallucination`, `over_action`,
+`under_action`, `harness`, `flaky`, or `spec_ambiguous`) so repeated failures
+point to concrete harness, context, or workflow fixes.
+
+Use variants to automate attribution instead of guessing. Run the same eval
+case as `--variant baseline` for the no-AgentPack or old-context attempt, then
+as `--variant agentpack` after packing fresh context. `agentpack eval
+--compare-variants baseline:agentpack` turns result history into improved,
+regressed, unchanged, and incomplete counts. During active work, `--watch
+--until-pass` reruns on case, patch, golden-file, or git diff changes so
+developers do not need to remember manual eval commands.
+
+For real replay datasets, prefer `--capture` followed by `--replay`.
+`--capture` writes `.agentpack/evals/<case-id>.patch` and stores context
+metadata such as selected files, context hash, AgentPack version, and optional
+prompt file. `--replay` creates an isolated git worktree at `base_ref`, applies
+that patch, then runs checks so the case is not tied to the current dirty
+worktree. Add `retries = 1` or higher to a check only when measuring flake; a
+pass after an earlier failed attempt is recorded as flaky in
+`.agentpack/eval_results.jsonl`.
+
+Eval TOML is executable configuration because `checks.command` is run as a local
+process. Treat shared eval files like scripts or CI workflows: review changes
+before running them. For CI, `agentpack eval --ci-template` scaffolds a GitHub
+Actions workflow that runs `agentpack eval --cases benchmarks/evals.toml
+--replay --prove-targets`.
+
+Captured patches are redacted before they are written. If AgentPack detects a
+secret in the patch, it stores `[REDACTED:<type>]` and records
+`patch_redaction_warnings` on the case. That prevents raw secret leakage, but a
+case that truly depends on the secret value should be rewritten to use safe
+fixture credentials before publishing or replaying broadly.

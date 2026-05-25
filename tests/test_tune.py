@@ -54,6 +54,25 @@ def test_build_tuning_suggestions_from_benchmark_misses(tmp_path: Path) -> None:
     assert any(item.area == "benchmark misses" and "ignored" in item.finding for item in suggestions)
 
 
+def test_build_tuning_suggestions_from_eval_failures(tmp_path: Path) -> None:
+    _write_jsonl(
+        tmp_path / ".agentpack" / "eval_results.jsonl",
+        [
+            {
+                "case_id": "auth-timeout",
+                "passed": False,
+                "failure_class": "context",
+                "failed_checks": ["tests", "required_changed_file:src/auth.py"],
+            }
+        ],
+    )
+
+    suggestions = _build_tuning_suggestions(tmp_path)
+
+    assert any(item.area == "eval failures" and "context" in item.finding for item in suggestions)
+    assert any(item.area == "eval checks" and "tests" in item.finding for item in suggestions)
+
+
 def test_write_tuning_report(tmp_path: Path) -> None:
     suggestions = _build_tuning_suggestions(tmp_path)
     out = _write_tuning_report(tmp_path, suggestions)
