@@ -17,13 +17,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install agentpack
-        run: pip install agentpack
+        run: pip install -e .
 
       - name: Generate context pack
         run: |
+          mkdir -p .agentpack
+          printf '%s\n' "${{ github.event.pull_request.title }}" > .agentpack/task.md
           agentpack init --yes
           agentpack pack --agent claude \
-            --task "${{ github.event.pull_request.title }}" \
+            --task auto \
             --since origin/${{ github.base_ref }} \
             --mode balanced
 

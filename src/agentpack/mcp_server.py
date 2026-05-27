@@ -35,6 +35,7 @@ from pathlib import Path
 from agentpack.core import git
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.task_freshness import read_task_md, task_freshness, write_task_md
+from agentpack.core.thread_context import resolve_thread_option, thread_paths
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -84,13 +85,14 @@ def _truncate_to_budget(text: str, max_tokens: int = 20000) -> str:
     return header + accumulated
 
 
-def _get_context_impl(root: Path) -> str:
+def _get_context_impl(root: Path, thread_id: str | None = None) -> str:
     """Read the latest context pack, blocking to refresh when task.md changed."""
+    scoped = thread_paths(root, thread_id)
     pack_path = None
-    for candidate in (
-        root / ".agentpack" / "context.claude.md",
-        root / ".agentpack" / "context.md",
-    ):
+    candidates = (
+        (scoped.context_claude, scoped.context) if scoped else (root / ".agentpack" / "context.claude.md", root / ".agentpack" / "context.md")
+    )
+    for candidate in candidates:
         if candidate.exists():
             pack_path = candidate
             break
@@ -106,10 +108,13 @@ def _get_context_impl(root: Path) -> str:
         except Exception:
             snapshot = None
 
-    metadata = load_pack_metadata(root)
-    freshness = task_freshness(root, metadata)
+    metadata = load_pack_metadata(root, scoped.metadata if scoped else None)
+    freshness = task_freshness(root, metadata) if scoped is None else None
     auto_refresh_reason = ""
-    if freshness.is_stale and freshness.current_task:
+    scoped_task = _task_md_body(root, scoped.thread_id if scoped else None)
+    if scoped and metadata and scoped_task and scoped_task != metadata.get("task"):
+        auto_refresh_reason = ".agentpack thread task differs from packed task"
+    elif freshness and freshness.is_stale and freshness.current_task:
         auto_refresh_reason = (
             f"{freshness.reason} (packed: {freshness.packed_task}; current: {freshness.current_task})"
         )
@@ -122,7 +127,10 @@ def _get_context_impl(root: Path) -> str:
 
     if auto_refresh_reason:
         try:
-            refreshed = _pack_context_impl(root, task="", max_tokens=20000)
+            if scoped:
+                refreshed = _pack_context_impl(root, task="", max_tokens=20000, thread_id=scoped.thread_id)
+            else:
+                refreshed = _pack_context_impl(root, task="", max_tokens=20000)
             return f"> Context auto-refreshed because {auto_refresh_reason}.\n\n{refreshed}"
         except Exception as exc:
             content = pack_path.read_text(encoding="utf-8")
@@ -145,9 +153,9 @@ def _get_context_impl(root: Path) -> str:
         current_sha = git.current_sha(root) if git.is_git_repo(root) else None
         if saved_sha and current_sha and saved_sha != current_sha:
             stale_reasons.append("git HEAD changed")
-        task_md = _task_md_body(root)
+        task_md = _task_md_body(root, scoped.thread_id if scoped else None)
         if task_md and task_md != metadata.get("task"):
-            stale_reasons.append(".agentpack/task.md differs")
+            stale_reasons.append(".agentpack task differs")
 
     if stale_reasons:
         reason_text = ", ".join(stale_reasons)
@@ -161,20 +169,29 @@ def _get_context_impl(root: Path) -> str:
     return header + content
 
 
-def _task_md_body(root: Path) -> str | None:
+def _task_md_body(root: Path, thread_id: str | None = None) -> str | None:
+    scoped = thread_paths(root, thread_id)
+    if scoped and scoped.task.exists():
+        raw = scoped.task.read_text(encoding="utf-8").strip()
+        return raw or None
     return read_task_md(root)
 
 
-def _write_task_md(root: Path, task: str) -> None:
+def _write_task_md(root: Path, task: str, thread_id: str | None = None) -> None:
+    scoped = thread_paths(root, thread_id)
+    if scoped:
+        scoped.task.parent.mkdir(parents=True, exist_ok=True)
+        scoped.task.write_text(task.rstrip() + "\n", encoding="utf-8")
+        return
     write_task_md(root, task)
 
 
-def _resolve_mcp_task(root: Path, task: str = "") -> str:
+def _resolve_mcp_task(root: Path, task: str = "", thread_id: str | None = None) -> str:
     task = " ".join(task.strip().split())
     if task:
-        _write_task_md(root, task)
+        _write_task_md(root, task, thread_id)
         return task
-    task_md = _task_md_body(root)
+    task_md = _task_md_body(root, thread_id)
     if task_md:
         return task_md
     inferred, _source = git.infer_task_with_source(root) if git.is_git_repo(root) else ("general", "fallback")
@@ -188,6 +205,7 @@ def _pack_context_impl(
     mode: str = "balanced",
     budget: int = 0,
     max_tokens: int = 20000,
+    thread_id: str = "",
 ) -> str:
     """Write task.md when task is provided, pack context, and return markdown."""
     from agentpack.application.pack_service import PackService, PackRequest
@@ -195,8 +213,8 @@ def _pack_context_impl(
     from agentpack.renderers.markdown import render_claude
 
     provided_task = bool(task.strip())
-    had_task_md = _task_md_body(root) is not None
-    resolved_task = _resolve_mcp_task(root, task)
+    had_task_md = _task_md_body(root, thread_id or None) is not None
+    resolved_task = _resolve_mcp_task(root, task, thread_id or None)
     agent = detect_agent(root)
     result = PackService().run(PackRequest(
         root=root,
@@ -207,6 +225,7 @@ def _pack_context_impl(
         since=None,
         refresh=False,
         task_source="mcp" if provided_task else ("task.md" if had_task_md else "git"),
+        thread_id=thread_id or None,
     ))
     return _truncate_to_budget(render_claude(result.pack), max_tokens)
 
@@ -461,7 +480,7 @@ def serve() -> None:
     mcp = FastMCP("agentpack")
 
     @mcp.tool()
-    def start_task(task: str, mode: str = "balanced", budget: int = 0, max_tokens: int = 20000) -> str:
+    def start_task(task: str, mode: str = "balanced", budget: int = 0, max_tokens: int = 20000, thread_id: str = "") -> str:
         """Start a new coding task: write task.md, pack context, and return it.
 
         This is the recommended MCP-first entry point at the start of a task.
@@ -472,17 +491,18 @@ def serve() -> None:
             mode=mode,
             budget=budget,
             max_tokens=max_tokens,
+            thread_id=resolve_thread_option(thread_id) or "",
         )
 
     @mcp.tool()
-    def pack_context(task: str = "", mode: str = "balanced", budget: int = 0, max_tokens: int = 20000) -> str:
+    def pack_context(task: str = "", mode: str = "balanced", budget: int = 0, max_tokens: int = 20000, thread_id: str = "") -> str:
         """Generate a ranked context pack.
 
         Args:
             task: Optional task text. If provided, AgentPack writes it to .agentpack/task.md.
                   If omitted, AgentPack reads task.md or infers from git.
             mode: minimal | balanced (default) | deep
-            budget: Token budget, 0 = config default (usually 25000).
+            budget: Token budget, 0 = config default (usually 40000).
             max_tokens: Maximum tokens to return (default 20000). Increase for deep context.
 
         Returns the packed context as a markdown string.
@@ -493,6 +513,7 @@ def serve() -> None:
             mode=mode,
             budget=budget,
             max_tokens=max_tokens,
+            thread_id=resolve_thread_option(thread_id) or "",
         )
 
     @mcp.tool()
@@ -515,13 +536,13 @@ def serve() -> None:
         return _explain_route_impl(_repo_root(), task)
 
     @mcp.tool()
-    def get_context() -> str:
+    def get_context(thread_id: str = "") -> str:
         """Return the latest context pack, auto-refreshing when task.md changed.
 
         Fast for fresh packs. Blocks for one refresh if the current task differs from the packed task.
         Returns empty string if no pack exists yet.
         """
-        return _get_context_impl(_repo_root())
+        return _get_context_impl(_repo_root(), resolve_thread_option(thread_id))
 
     @mcp.tool()
     def refresh() -> str:

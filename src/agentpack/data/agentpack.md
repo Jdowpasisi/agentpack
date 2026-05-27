@@ -77,6 +77,24 @@ agentpack guard --agent claude --repair-stale --refresh-context --mode balanced
 
 Then read `.agentpack/context.claude.md` in full.
 
+## Thread Mode (explicit opt-in)
+
+Plain `agentpack pack`, `agentpack status`, and `agentpack guard` use the legacy global files:
+`.agentpack/task.md`, `.agentpack/context.md`, and `.agentpack/pack_metadata.json`.
+
+When multiple agents work in the same repo, opt into scoped state:
+
+```bash
+export AGENTPACK_THREAD_ID=codex-local
+agentpack guard --agent claude --repair-stale --refresh-context --thread auto
+```
+
+Thread mode writes `.agentpack/threads/<id>/task.md`, `context.md`, `context.claude.md`,
+`task_state.md`, and `pack_metadata.json`, then appends `.agentpack/thread_index.jsonl`.
+If another active thread on the same branch/worktree overlaps files, the context and terminal
+output warn without blocking edits. Use `agentpack threads --active` and
+`agentpack state show --thread auto` for coordination.
+
 ## Process
 
 ### Step 1: Check agentpack is installed

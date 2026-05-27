@@ -61,6 +61,9 @@ def save_pack_metadata(
     freshness: dict[str, Any] | None = None,
     freshness_warnings: list[str] | None = None,
     selected_files: list[dict[str, Any]] | None = None,
+    execution_state: dict[str, Any] | None = None,
+    concurrent_context: dict[str, Any] | None = None,
+    metadata_path: Path | None = None,
 ) -> None:
     generated_at = (
         freshness.get("generated_at")
@@ -81,16 +84,20 @@ def save_pack_metadata(
         "selected_files_meta": selected_files or [],
         "freshness": freshness or {},
         "freshness_warnings": freshness_warnings or [],
+        "execution_state": execution_state or {},
+        "concurrent_context": concurrent_context or {},
     }
     if freshness:
         for key in ("git_sha", "git_branch", "task_source", "changed_files_source", "task_class"):
             if key in freshness:
                 meta[key] = freshness[key]
-    _metadata_path(root).write_text(json.dumps(meta, indent=2))
+    path = metadata_path or _metadata_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(meta, indent=2))
 
 
-def load_pack_metadata(root: Path) -> dict[str, Any] | None:
-    path = _metadata_path(root)
+def load_pack_metadata(root: Path, metadata_path: Path | None = None) -> dict[str, Any] | None:
+    path = metadata_path or _metadata_path(root)
     if not path.exists():
         return None
     try:
@@ -322,6 +329,57 @@ def _selection_priority(
     return changed_priority, signal_priority, score + role_bonus + value_bonus, score
 
 
+_RESERVED_BUCKET_ORDER = ("changed", "tests", "docs", "deps")
+
+
+def _selection_bucket(fi: FileInfo, reasons: list[str], changed_paths: set[str]) -> str:
+    path = fi.path
+    if path in changed_paths:
+        return "changed"
+    if path.startswith(("tests/", "test/")) or "/tests/" in path or any(
+        "test for" in reason or "related test" in reason for reason in reasons
+    ):
+        return "tests"
+    if path.startswith(("docs/", "doc/")) or path.endswith((".md", ".mdx", ".rst")) or any(
+        "knowledge/architecture doc" in reason for reason in reasons
+    ):
+        return "docs"
+    if any(
+        reason.startswith(("direct dependency", "reverse dependency", "cross-layer related"))
+        or reason == "has related tests"
+        for reason in reasons
+    ):
+        return "deps"
+    return "other"
+
+
+def _reserve_bucket_order(
+    ordered: list[tuple[FileInfo, float, list[str]]],
+    changed_paths: set[str],
+    budget: int,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Seed top changed/test/doc/dependency files before normal rank order."""
+    if budget < 1000 or len(ordered) < 4:
+        return ordered
+
+    selected_indexes: set[int] = set()
+    seeded: list[tuple[FileInfo, float, list[str]]] = []
+    for bucket in _RESERVED_BUCKET_ORDER:
+        for index, item in enumerate(ordered):
+            if index in selected_indexes:
+                continue
+            fi, _score, reasons = item
+            if _selection_bucket(fi, reasons, changed_paths) == bucket:
+                seeded.append(item)
+                selected_indexes.add(index)
+                break
+
+    if not seeded:
+        return ordered
+    seeded.extend(item for index, item in enumerate(ordered) if index not in selected_indexes)
+    return seeded
+
+
 _WEAK_SIGNAL_REASONS = {
     "broad-task weak-signal dampening",
     "no-live filename-only dampening",
@@ -372,7 +430,8 @@ def select_files(
     unrelated_changed_used = 0
     weak_signal_used = 0
 
-    ordered = sorted(scored, key=lambda item: _selection_priority(item, changed_paths, max_file_tokens), reverse=True)
+    ranked = sorted(scored, key=lambda item: _selection_priority(item, changed_paths, max_file_tokens), reverse=True)
+    ordered = _reserve_bucket_order(ranked, changed_paths, budget)
     for fi, score, reasons in ordered:
         if fi.ignored or fi.binary:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="ignored or binary"))

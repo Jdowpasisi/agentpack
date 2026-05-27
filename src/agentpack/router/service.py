@@ -50,6 +50,7 @@ class RouteService:
             selected_paths=selected_paths,
             max_selected=cfg.skills.max_selected,
             allow_external=cfg.skills.allow_external_side_effects,
+            always_recommend=cfg.skills.always_recommend,
         )
         applied_rules = _apply_rules(inventory, selected_paths)
         commands = _suggest_commands(task, selected_paths)
@@ -77,6 +78,7 @@ class RouteService:
             selected_paths=selected_paths,
             max_selected=max(len(inventory.skills), cfg.skills.max_selected),
             allow_external=True,
+            always_recommend=cfg.skills.always_recommend,
         )
         return RouteExplanation(**result.model_dump(), skill_scores=all_scores)
 

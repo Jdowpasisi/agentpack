@@ -20,6 +20,8 @@ At the start of every coding task:
 6. Use selected files as starting points, but verify with actual code before editing.
 
 When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the guard command before editing.
+
+For multiple agent threads in one repo, keep legacy global mode unless a thread is explicit. Use `AGENTPACK_THREAD_ID=<stable-id> agentpack guard --agent codex --repair-stale --refresh-context --thread auto` to write/read `.agentpack/threads/<id>/...` and get overlap warnings.
 <!-- agentpack:end -->"""
 
 _BLOCK_RE = re.compile(

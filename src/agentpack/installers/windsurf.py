@@ -16,6 +16,7 @@ At the start of every coding task:
 5. Use files listed in context as starting points, but verify with actual code before editing.
 When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the guard command before editing.
 If context is missing: write `.agentpack/task.md`, then run `agentpack guard --agent windsurf --repair-stale --refresh-context`.
+For multiple agent threads in one repo, keep legacy global mode unless a thread is explicit. Use `AGENTPACK_THREAD_ID=<stable-id> agentpack guard --agent windsurf --repair-stale --refresh-context --thread auto` or pass `thread_id` to AgentPack MCP tools to use `.agentpack/threads/<id>/...` and get overlap warnings.
 <!-- agentpack:rule:end -->"""
 
 _RULE_RE = re.compile(

@@ -1,10 +1,10 @@
 from pathlib import Path
 import subprocess
 import json
-from agentpack.application.pack_service import _summary_cap_for_mode, _summary_score_floor
+from agentpack.application.pack_service import _settle_rendered_token_estimate, _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import save_pack_metadata, select_files, _selection_priority
-from agentpack.core.models import ContextPack, FileInfo
+from agentpack.core.models import ContextPack, FileInfo, Receipt, SelectedFile
 from agentpack.renderers.markdown import render_claude
 
 
@@ -129,6 +129,37 @@ def test_budget_respected():
         max_file_tokens=4000,
     )
     assert len(selected) <= 3
+
+
+def test_reserve_bucket_order_seeds_tests_docs_and_deps():
+    changed = _fi("src/noise.py", tokens=100)
+    test = _fi("tests/test_auth.py", tokens=100)
+    doc = _fi("docs/auth.md", tokens=100)
+    dep = _fi("src/auth_service.py", tokens=100)
+    other = _fi("src/other.py", tokens=100)
+
+    selected, _ = select_files(
+        files=[changed, test, doc, dep, other],
+        scored=[
+            (changed, 500.0, ["modified"]),
+            (other, 490.0, ["filename keyword match"]),
+            (test, 120.0, ["test for high-scoring src/auth.py"]),
+            (doc, 110.0, ["knowledge/architecture doc"]),
+            (dep, 100.0, ["direct dependency of changed file"]),
+        ],
+        changed_paths={"src/noise.py"},
+        summaries={},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+    )
+
+    assert [sf.path for sf in selected[:4]] == [
+        "src/noise.py",
+        "tests/test_auth.py",
+        "docs/auth.md",
+        "src/auth_service.py",
+    ]
 
 
 def test_summary_score_floor_excludes_weak_unchanged_files():
@@ -322,6 +353,37 @@ def test_render_includes_freshness_metadata():
             "dirty_files_count": 2,
         },
         freshness_warnings=["Task terms are broad/generic; pack tightened weak-summary selection."],
+        execution_state={
+            "task": {
+                "status": "in_progress",
+                "summary": "Budget done.",
+                "state_file": ".agentpack/task_state.md",
+                "checklist": {"done": 1, "open": 2, "blocked": 0},
+            },
+            "git": {
+                "branch": "main",
+                "sha": "abc123456789",
+                "staged_count": 1,
+                "unstaged_count": 2,
+                "untracked_count": 3,
+                "ahead": 1,
+                "behind": 0,
+            },
+            "runtime": {"docker": "running", "compose_file": "docker-compose.yml"},
+        },
+        concurrent_context={
+            "thread_id": "thread-a",
+            "active_threads": 2,
+            "conflicts": [
+                {
+                    "thread_id": "thread-b",
+                    "task": "edit auth",
+                    "status": "in_progress",
+                    "overlap": ["src/auth.py"],
+                    "overlap_count": 1,
+                }
+            ],
+        },
     )
 
     rendered = render_claude(pack)
@@ -339,8 +401,76 @@ def test_render_includes_freshness_metadata():
     assert "**Task source:** task.md" in rendered
     assert "**Workspaces:** apps/dashboard, packages/core" in rendered
     assert "Refresh recommended" in rendered
+    assert "## Execution State" in rendered
+    assert "**Task status:** in_progress" in rendered
+    assert "## Concurrent Context" in rendered
+    assert "`thread-b`" in rendered
     assert "If this pack's task does not match the user's current task" in rendered
     assert "agentpack pack --task auto" in rendered
+
+
+def test_render_compresses_excluded_receipts_and_lists_token_consumers():
+    selected = SelectedFile(
+        path="src/big.py",
+        language="python",
+        score=100,
+        include_mode="full",
+        reasons=["modified"],
+        content="print('x')\n" * 100,
+    )
+    pack = ContextPack(
+        task="fix auth",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=["src/big.py"],
+        selected_files=[selected],
+        receipts=[
+            Receipt(path="src/big.py", action="included", reason="modified"),
+            *[
+                Receipt(path=f"src/omitted_{i}.py", action="excluded", reason="budget exhausted")
+                for i in range(12)
+            ],
+        ],
+    )
+
+    rendered = render_claude(pack)
+
+    assert "## Largest Token Consumers" in rendered
+    assert "| `src/big.py` | full |" in rendered
+    assert "12 file(s) excluded because budget exhausted" in rendered
+    assert "`src/omitted_9.py`" in rendered
+    assert "`src/omitted_10.py`" not in rendered
+    assert "+2 more" in rendered
+
+
+def test_rendered_token_estimate_includes_markdown_overhead():
+    pack = ContextPack(
+        task="fix auth",
+        agent="generic",
+        mode="balanced",
+        budget=1000,
+        token_estimate=1,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+    )
+
+    class Adapter:
+        def render(self, current_pack: ContextPack) -> str:
+            return f"# Context\nToken estimate: {current_pack.token_estimate}\n" + ("overhead " * 80)
+
+    rendered_tokens = _settle_rendered_token_estimate(pack, Adapter())
+
+    assert rendered_tokens > 1
+    assert pack.token_estimate == rendered_tokens
 
 
 def test_render_loud_stale_task_warning():

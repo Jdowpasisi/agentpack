@@ -17,6 +17,7 @@ from rich import box
 
 from agentpack.commands._shared import console, _root
 from agentpack.commands.pack import _resolve_task
+from agentpack.core import git
 
 
 @dataclass
@@ -516,6 +517,28 @@ def _load_history_cases(root: Path, n: int) -> list[BenchmarkCase]:
         except json.JSONDecodeError:
             pass
     return [BenchmarkCase(task=t, mode=m, task_type="history") for t, m in seen]
+
+
+def _append_benchmark_cases(root: Path, cases: list[BenchmarkCase]) -> Path:
+    out = root / ".agentpack" / "benchmark.toml"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    prefix = out.read_text(encoding="utf-8").rstrip() + "\n\n" if out.exists() and out.read_text(encoding="utf-8").strip() else ""
+    blocks: list[str] = []
+    for case in cases:
+        lines = [
+            "[[cases]]",
+            f"task = {json.dumps(case.task)}",
+            f"mode = {json.dumps(case.mode)}",
+            f"task_type = {json.dumps(case.task_type)}",
+        ]
+        if case.workspace:
+            lines.append(f"workspace = {json.dumps(case.workspace)}")
+        if case.budget:
+            lines.append(f"budget = {case.budget}")
+        lines.append("expected_files = [" + ", ".join(json.dumps(path) for path in case.expected_files) + "]")
+        blocks.append("\n".join(lines))
+    out.write_text(prefix + "\n\n".join(blocks) + "\n", encoding="utf-8")
+    return out
 
 
 def _random_baseline(
@@ -1039,241 +1062,138 @@ def _copy_fixture(source: Path, destination: Path) -> None:
     )
 
 
+benchmark_app = typer.Typer(help="Benchmark file selection quality and token efficiency.")
+
+
 def register(app: typer.Typer) -> None:
-    @app.command()
-    def benchmark(
-        task: str = typer.Option("", "--task", help="Single task to benchmark (skips cases file)."),
-        mode: str = typer.Option("balanced", "--mode", help="Mode for single-task run (minimal|balanced|deep)."),
-        workspace: str = typer.Option("", "--workspace", help="Restrict benchmark packs to a workspace, e.g. apps/web."),
-        cases: str = typer.Option("", "--cases", help="Path to TOML cases file (default: .agentpack/benchmark.toml)."),
-        compare: bool = typer.Option(False, "--compare", is_flag=True, help="Compare minimal/balanced/deep for each task."),
-        init: bool = typer.Option(False, "--init", is_flag=True, help="Scaffold a benchmark.toml and exit."),
-        results_template: bool = typer.Option(False, "--results-template", is_flag=True, help="Create benchmarks/results/YYYY-MM-DD.md for publishing benchmark evidence."),
-        from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
-        sample_fixtures: bool = typer.Option(False, "--sample-fixtures", is_flag=True, help="Run bundled FastAPI/Next.js/mixed-repo fixture evals from a source checkout."),
-        public_repos: bool = typer.Option(False, "--public-repos", is_flag=True, help="Run real public-repo commit cases from benchmarks/public-repos.toml."),
-        public_repos_file: str = typer.Option("", "--public-repos-file", help="Path to public repo benchmark manifest."),
-        public_repos_cache: str = typer.Option("", "--public-repos-cache", help="Directory for cached public repo clones."),
-        refresh_public_repos: bool = typer.Option(False, "--refresh-public-repos", is_flag=True, help="Delete and reclone public repo benchmark cache before running."),
-        public_table: bool = typer.Option(False, "--public-table", is_flag=True, help="Write a publishable Markdown benchmark table under benchmarks/results/."),
-        misses: bool = typer.Option(False, "--misses", is_flag=True, help="Show diagnostics for expected files that were not selected."),
-        prove_targets: bool = typer.Option(False, "--prove-targets", is_flag=True, help="Exit non-zero unless recall/token precision targets pass."),
-        min_recall: float = typer.Option(0.60, "--min-recall", help="Recall target for --prove-targets."),
-        min_token_precision: float = typer.Option(0.50, "--min-token-precision", help="Token precision target for --prove-targets."),
-    ) -> None:
-        """Benchmark file selection quality and token efficiency across tasks."""
-        root = _root()
+    app.add_typer(benchmark_app, name="benchmark")
 
-        if init:
-            out = _scaffold_cases(root)
-            console.print(f"[green]✓[/] Created [bold]{out}[/]")
-            console.print("  Edit the file to add your tasks and expected files, then run [bold]agentpack benchmark[/].")
-            return
 
-        if results_template:
-            out = _write_results_template(root)
-            console.print(f"[green]✓[/] Created [bold]{out}[/]")
-            console.print("  Fill it with `agentpack benchmark --compare --misses` results from real historical tasks.")
-            return
+@benchmark_app.command("capture")
+def capture_benchmark_case(
+    since: str = typer.Option(..., "--since", help="Git ref to diff against."),
+    task: str = typer.Option(..., "--task", help="Task text for the captured benchmark case."),
+    mode: str = typer.Option("balanced", "--mode", help="Benchmark mode."),
+    workspace: str = typer.Option("", "--workspace", help="Optional workspace."),
+    allow_empty: bool = typer.Option(False, "--allow-empty", help="Allow appending a case with no expected files."),
+) -> None:
+    """Append a benchmark case from git diff expected files."""
+    root = _root()
+    expected = sorted(git.changed_files_since(root, since))
+    if not expected and not allow_empty:
+        console.print(f"[yellow]No files changed since {since}. Use --allow-empty to append anyway.[/]")
+        raise typer.Exit(1)
+    case = BenchmarkCase(task=task.strip(), mode=mode, expected_files=expected, workspace=workspace or None)
+    out = _append_benchmark_cases(root, [case])
+    console.print(f"[green]✓[/] Appended benchmark case to [bold]{out}[/]")
+    console.print(f"  expected_files: {len(expected)}")
 
-        if sample_fixtures:
-            fixtures_root = root / "tests" / "fixtures"
-            fixture_cases = _sample_fixture_cases(fixtures_root)
-            if not fixture_cases:
-                console.print(f"[yellow]No bundled fixture repos found at {fixtures_root}[/]")
-                console.print("  This demo is available from an AgentPack source checkout. For your own repo, run [bold]agentpack benchmark --init[/].")
-                raise typer.Exit(1)
 
-            if compare:
-                expanded_fixtures: list[FixtureCase] = []
-                for fixture_case in fixture_cases:
-                    for fixture_mode in ("minimal", "balanced", "deep"):
-                        expanded_fixtures.append(
-                            FixtureCase(
-                                fixture=fixture_case.fixture,
-                                root=fixture_case.root,
-                                case=BenchmarkCase(
-                                    task=fixture_case.case.task,
-                                    mode=fixture_mode,
-                                    expected_files=fixture_case.case.expected_files,
-                        task_type=fixture_case.case.task_type,
-                        workspace=fixture_case.case.workspace,
-                        budget=fixture_case.case.budget,
-                                ),
-                            )
-                        )
-                fixture_cases = expanded_fixtures
+@benchmark_app.callback(invoke_without_command=True)
+def benchmark(
+    ctx: typer.Context,
+    task: str = typer.Option("", "--task", help="Single task to benchmark (skips cases file)."),
+    mode: str = typer.Option("balanced", "--mode", help="Mode for single-task run (minimal|balanced|deep)."),
+    workspace: str = typer.Option("", "--workspace", help="Restrict benchmark packs to a workspace, e.g. apps/web."),
+    cases: str = typer.Option("", "--cases", help="Path to TOML cases file (default: .agentpack/benchmark.toml)."),
+    compare: bool = typer.Option(False, "--compare", is_flag=True, help="Compare minimal/balanced/deep for each task."),
+    init: bool = typer.Option(False, "--init", is_flag=True, help="Scaffold a benchmark.toml and exit."),
+    results_template: bool = typer.Option(False, "--results-template", is_flag=True, help="Create benchmarks/results/YYYY-MM-DD.md for publishing benchmark evidence."),
+    from_history: int = typer.Option(0, "--from-history", help="Sample last N unique tasks from metrics.jsonl history."),
+    write_cases: bool = typer.Option(False, "--write-cases", help="Append --from-history cases to .agentpack/benchmark.toml."),
+    sample_fixtures: bool = typer.Option(False, "--sample-fixtures", is_flag=True, help="Run bundled FastAPI/Next.js/mixed-repo fixture evals from a source checkout."),
+    release_gate: bool = typer.Option(False, "--release-gate", is_flag=True, help="Run the public real-repo release gate."),
+    public_repos: bool = typer.Option(False, "--public-repos", is_flag=True, help="Run real public-repo commit cases from benchmarks/public-repos.toml."),
+    public_repos_file: str = typer.Option("", "--public-repos-file", help="Path to public repo benchmark manifest."),
+    public_repos_cache: str = typer.Option("", "--public-repos-cache", help="Directory for cached public repo clones."),
+    refresh_public_repos: bool = typer.Option(False, "--refresh-public-repos", is_flag=True, help="Delete and reclone public repo benchmark cache before running."),
+    public_table: bool = typer.Option(False, "--public-table", is_flag=True, help="Write a publishable Markdown benchmark table under benchmarks/results/."),
+    no_public_table: bool = typer.Option(False, "--no-public-table", help="Do not write a benchmark results markdown table."),
+    misses: bool = typer.Option(False, "--misses", is_flag=True, help="Show diagnostics for expected files that were not selected."),
+    prove_targets: bool = typer.Option(False, "--prove-targets", is_flag=True, help="Exit non-zero unless recall/token precision targets pass."),
+    min_recall: float = typer.Option(0.60, "--min-recall", help="Recall target for --prove-targets."),
+    min_token_precision: float = typer.Option(0.50, "--min-token-precision", help="Token precision target for --prove-targets."),
+) -> None:
+    """Benchmark file selection quality and token efficiency across tasks."""
+    if ctx.invoked_subcommand is not None:
+        return
+    root = _root()
+    if release_gate:
+        public_repos = True
+        prove_targets = True
+        misses = True
+        public_table = not no_public_table
+        console.print("[bold]Release gate:[/] public real-repo benchmark with target proof.")
 
-            console.print(f"\n[bold]Running {len(fixture_cases)} sample fixture benchmark case(s)...[/]\n")
+    if init:
+        out = _scaffold_cases(root)
+        console.print(f"[green]✓[/] Created [bold]{out}[/]")
+        console.print("  Edit the file to add your tasks and expected files, then run [bold]agentpack benchmark[/].")
+        return
 
-            results: list[CaseResult] = []
-            with tempfile.TemporaryDirectory(prefix="agentpack-benchmark-") as temp_dir:
-                temp_root = Path(temp_dir)
-                for i, fixture_case in enumerate(fixture_cases, 1):
-                    case_root = temp_root / f"{i:02d}-{fixture_case.fixture}"
-                    _copy_fixture(fixture_case.root, case_root)
-                    label = f"[{i}/{len(fixture_cases)}] {fixture_case.fixture}: {fixture_case.case.task[:42]}  mode={fixture_case.case.mode}"
-                    with console.status(f"[dim]{label}[/]"):
-                        try:
-                            result = _run_case(case_root, fixture_case.case)
-                            result.case.task = f"{fixture_case.fixture}: {result.case.task}"
-                            results.append(result)
-                        except Exception as e:
-                            console.print(f"[red]Error on fixture case '{fixture_case.case.task}': {e}[/]")
+    if results_template:
+        out = _write_results_template(root)
+        console.print(f"[green]✓[/] Created [bold]{out}[/]")
+        console.print("  Fill it with `agentpack benchmark --compare --misses` results from real historical tasks.")
+        return
 
-            if not results:
-                raise typer.Exit(1)
+    if sample_fixtures:
+        fixtures_root = root / "tests" / "fixtures"
+        fixture_cases = _sample_fixture_cases(fixtures_root)
+        if not fixture_cases:
+            console.print(f"[yellow]No bundled fixture repos found at {fixtures_root}[/]")
+            console.print("  This demo is available from an AgentPack source checkout. For your own repo, run [bold]agentpack benchmark --init[/].")
+            raise typer.Exit(1)
 
-            console.print("[dim]Sample fixtures are small source-checkout evals. Use your own benchmark.toml for true third-party repo scores.[/]")
-            fixture_names = ", ".join(sorted({fixture_case.fixture for fixture_case in fixture_cases}))
-            console.print(f"[dim]Fixtures:[/] {fixture_names}")
-            if len(results) == 1:
-                _print_case_detail(results[0], show_misses=misses)
-                _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
-            else:
-                console.print("\n[bold]Summary[/]")
-                _print_fixture_summary_table(results)
-                _print_task_type_summary(results)
-                if misses:
-                    _print_miss_details(results)
-                _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
-            if public_table:
-                from agentpack import __version__
-                out = _write_public_benchmark_table(
-                    root,
-                    results,
-                    suite=f"source-checkout fixtures ({fixture_names})",
-                    version=__version__,
-                    command="agentpack benchmark --sample-fixtures --misses --public-table",
-                )
-                console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
-            if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
-                raise typer.Exit(2)
-            return
-
-        if public_repos:
-            manifest = Path(public_repos_file) if public_repos_file else _default_public_repos_file(root)
-            if not manifest.exists():
-                console.print(f"[yellow]No public repo manifest found at {manifest}[/]")
-                console.print("  Use [bold]benchmarks/public-repos.toml[/] or pass [bold]--public-repos-file[/].")
-                raise typer.Exit(1)
-            specs = _load_public_repo_specs(manifest)
-            case_count = sum(len(spec.cases) for spec in specs)
-            if not specs or case_count == 0:
-                console.print(f"[yellow]No public repo cases found in {manifest}[/]")
-                raise typer.Exit(1)
-
-            console.print(f"\n[bold]Running {case_count} public real-repo benchmark case(s)...[/]")
-            console.print(f"[dim]Manifest:[/] {manifest}")
-            console.print("[dim]Each case checks out the parent of a real public commit and scores files changed by that commit.[/]\n")
-            cache = Path(public_repos_cache) if public_repos_cache else None
-            with console.status("[dim]Cloning/checking out public repo cases...[/]"):
-                results = _run_public_repo_suite(root, specs, cache_dir=cache, refresh=refresh_public_repos)
-
-            if not results:
-                raise typer.Exit(1)
-
-            console.print("\n[bold]Summary[/]")
-            _print_summary_table(results)
-            _print_task_type_summary(results)
-            if misses:
-                _print_miss_details(results)
-            _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
-            if public_table:
-                from agentpack import __version__
-                repo_names = ", ".join(spec.name for spec in specs)
-                out = _write_public_benchmark_table(
-                    root,
-                    results,
-                    suite=f"public real-repo commits ({repo_names})",
-                    version=__version__,
-                    command="agentpack benchmark --public-repos --prove-targets --misses --public-table",
-                )
-                console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
-            if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
-                raise typer.Exit(2)
-            return
-
-        # Build case list
-        if from_history > 0:
-            bench_cases = _load_history_cases(root, from_history)
-            if not bench_cases:
-                console.print("[yellow]No task history found in metrics.jsonl. Run agentpack pack first.[/]")
-                raise typer.Exit(1)
-        elif task:
-            resolved = _resolve_task(task) if task == "auto" else task
-            bench_cases = [BenchmarkCase(task=resolved, mode=mode, workspace=workspace or None)]
-        else:
-            cases_path = Path(cases) if cases else root / ".agentpack" / "benchmark.toml"
-            if not cases_path.exists():
-                console.print(f"[yellow]No cases file found at {cases_path}[/]")
-                console.print("  Run [bold]agentpack benchmark --init[/] to scaffold one, or use [bold]--task \"...\"[/]")
-                raise typer.Exit(1)
-            bench_cases = _load_cases(cases_path)
-            if not bench_cases:
-                console.print("[yellow]No cases defined in benchmark file.[/]")
-                raise typer.Exit(1)
-        if workspace and not compare:
-            bench_cases = [
-                BenchmarkCase(
-                    task=c.task,
-                    mode=c.mode,
-                    expected_files=c.expected_files,
-                    task_type=c.task_type,
-                    workspace=workspace,
-                    budget=c.budget,
-                )
-                for c in bench_cases
-            ]
-
-        # Expand for compare mode
         if compare:
-            expanded: list[BenchmarkCase] = []
-            for c in bench_cases:
-                for m in ("minimal", "balanced", "deep"):
-                    expanded.append(
-                        BenchmarkCase(
-                            task=c.task,
-                            mode=m,
-                            expected_files=c.expected_files,
-                            task_type=c.task_type,
-                            workspace=workspace or c.workspace,
-                            budget=c.budget,
+            expanded_fixtures: list[FixtureCase] = []
+            for fixture_case in fixture_cases:
+                for fixture_mode in ("minimal", "balanced", "deep"):
+                    expanded_fixtures.append(
+                        FixtureCase(
+                            fixture=fixture_case.fixture,
+                            root=fixture_case.root,
+                            case=BenchmarkCase(
+                                task=fixture_case.case.task,
+                                mode=fixture_mode,
+                                expected_files=fixture_case.case.expected_files,
+                                task_type=fixture_case.case.task_type,
+                                workspace=fixture_case.case.workspace,
+                                budget=fixture_case.case.budget,
+                            ),
                         )
                     )
-            bench_cases = expanded
+            fixture_cases = expanded_fixtures
 
-        console.print(f"\n[bold]Running {len(bench_cases)} benchmark case(s)...[/]\n")
+        console.print(f"\n[bold]Running {len(fixture_cases)} sample fixture benchmark case(s)...[/]\n")
 
         results: list[CaseResult] = []
-        for i, c in enumerate(bench_cases, 1):
-            label = f"[{i}/{len(bench_cases)}] {c.task[:50]}  mode={c.mode}"
-            with console.status(f"[dim]{label}[/]"):
-                try:
-                    r = _run_case(root, c)
-                    _persist_result(root, r)
-                    results.append(r)
-                except Exception as e:
-                    console.print(f"[red]Error on case '{c.task}': {e}[/]")
+        with tempfile.TemporaryDirectory(prefix="agentpack-benchmark-") as temp_dir:
+            temp_root = Path(temp_dir)
+            for i, fixture_case in enumerate(fixture_cases, 1):
+                case_root = temp_root / f"{i:02d}-{fixture_case.fixture}"
+                _copy_fixture(fixture_case.root, case_root)
+                label = f"[{i}/{len(fixture_cases)}] {fixture_case.fixture}: {fixture_case.case.task[:42]}  mode={fixture_case.case.mode}"
+                with console.status(f"[dim]{label}[/]"):
+                    try:
+                        result = _run_case(case_root, fixture_case.case)
+                        result.case.task = f"{fixture_case.fixture}: {result.case.task}"
+                        results.append(result)
+                    except Exception as e:
+                        console.print(f"[red]Error on fixture case '{fixture_case.case.task}': {e}[/]")
 
         if not results:
             raise typer.Exit(1)
 
-        # Output
-        if compare and len(set(r.case.task for r in results)) == 1:
-            _print_compare_table(results[0].case.task, results)
-            if misses:
-                _print_miss_details(results)
-            _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
-        elif len(results) == 1:
+        console.print("[dim]Sample fixtures are regression smoke evals for this source checkout, not the public release gate.[/]")
+        fixture_names = ", ".join(sorted({fixture_case.fixture for fixture_case in fixture_cases}))
+        console.print(f"[dim]Fixtures:[/] {fixture_names}")
+        if len(results) == 1:
             _print_case_detail(results[0], show_misses=misses)
             _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
         else:
-            if not compare:
-                for r in results:
-                    _print_case_detail(r, show_misses=misses)
             console.print("\n[bold]Summary[/]")
-            _print_summary_table(results)
+            _print_fixture_summary_table(results)
             _print_task_type_summary(results)
             if misses:
                 _print_miss_details(results)
@@ -1283,10 +1203,155 @@ def register(app: typer.Typer) -> None:
             out = _write_public_benchmark_table(
                 root,
                 results,
-                suite="current repo benchmark.toml",
+                suite=f"source-checkout fixtures ({fixture_names})",
                 version=__version__,
-                command="agentpack benchmark --misses --public-table",
+                command="agentpack benchmark --sample-fixtures --misses --public-table",
             )
             console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
         if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
             raise typer.Exit(2)
+        return
+
+    if public_repos:
+        manifest = Path(public_repos_file) if public_repos_file else _default_public_repos_file(root)
+        if not manifest.exists():
+            console.print(f"[yellow]No public repo manifest found at {manifest}[/]")
+            console.print("  Use [bold]benchmarks/public-repos.toml[/] or pass [bold]--public-repos-file[/].")
+            raise typer.Exit(1)
+        specs = _load_public_repo_specs(manifest)
+        case_count = sum(len(spec.cases) for spec in specs)
+        if not specs or case_count == 0:
+            console.print(f"[yellow]No public repo cases found in {manifest}[/]")
+            raise typer.Exit(1)
+
+        console.print(f"\n[bold]Running {case_count} public real-repo benchmark case(s)...[/]")
+        console.print(f"[dim]Manifest:[/] {manifest}")
+        console.print("[dim]Each case checks out the parent of a real public commit and scores files changed by that commit.[/]\n")
+        cache = Path(public_repos_cache) if public_repos_cache else None
+        with console.status("[dim]Cloning/checking out public repo cases...[/]"):
+            results = _run_public_repo_suite(root, specs, cache_dir=cache, refresh=refresh_public_repos)
+
+        if not results:
+            raise typer.Exit(1)
+
+        console.print("\n[bold]Summary[/]")
+        _print_summary_table(results)
+        _print_task_type_summary(results)
+        if misses:
+            _print_miss_details(results)
+        _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+        if public_table:
+            from agentpack import __version__
+            repo_names = ", ".join(spec.name for spec in specs)
+            out = _write_public_benchmark_table(
+                root,
+                results,
+                suite=f"public real-repo commits ({repo_names})",
+                version=__version__,
+                command="agentpack benchmark --release-gate",
+            )
+            console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
+        if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
+            raise typer.Exit(2)
+        return
+
+    # Build case list
+    if from_history > 0:
+        bench_cases = _load_history_cases(root, from_history)
+        if not bench_cases:
+            console.print("[yellow]No task history found in metrics.jsonl. Run agentpack pack first.[/]")
+            raise typer.Exit(1)
+        if write_cases:
+            out = _append_benchmark_cases(root, bench_cases)
+            console.print(f"[green]✓[/] Appended {len(bench_cases)} history case(s) to [bold]{out}[/]")
+            console.print("[yellow]History cases do not prove recall until expected_files are filled.[/]")
+    elif task:
+        resolved = _resolve_task(task) if task == "auto" else task
+        bench_cases = [BenchmarkCase(task=resolved, mode=mode, workspace=workspace or None)]
+    else:
+        cases_path = Path(cases) if cases else root / ".agentpack" / "benchmark.toml"
+        if not cases_path.exists():
+            console.print(f"[yellow]No cases file found at {cases_path}[/]")
+            console.print("  Run [bold]agentpack benchmark --init[/] to scaffold one, or use [bold]--task \"...\"[/]")
+            raise typer.Exit(1)
+        bench_cases = _load_cases(cases_path)
+        if not bench_cases:
+            console.print("[yellow]No cases defined in benchmark file.[/]")
+            raise typer.Exit(1)
+    if workspace and not compare:
+        bench_cases = [
+            BenchmarkCase(
+                task=c.task,
+                mode=c.mode,
+                expected_files=c.expected_files,
+                task_type=c.task_type,
+                workspace=workspace,
+                budget=c.budget,
+            )
+            for c in bench_cases
+        ]
+
+    # Expand for compare mode
+    if compare:
+        expanded: list[BenchmarkCase] = []
+        for c in bench_cases:
+            for m in ("minimal", "balanced", "deep"):
+                expanded.append(
+                    BenchmarkCase(
+                        task=c.task,
+                        mode=m,
+                        expected_files=c.expected_files,
+                        task_type=c.task_type,
+                        workspace=workspace or c.workspace,
+                        budget=c.budget,
+                    )
+                )
+        bench_cases = expanded
+
+    console.print(f"\n[bold]Running {len(bench_cases)} benchmark case(s)...[/]\n")
+
+    results: list[CaseResult] = []
+    for i, c in enumerate(bench_cases, 1):
+        label = f"[{i}/{len(bench_cases)}] {c.task[:50]}  mode={c.mode}"
+        with console.status(f"[dim]{label}[/]"):
+            try:
+                r = _run_case(root, c)
+                _persist_result(root, r)
+                results.append(r)
+            except Exception as e:
+                console.print(f"[red]Error on case '{c.task}': {e}[/]")
+
+    if not results:
+        raise typer.Exit(1)
+
+    # Output
+    if compare and len(set(r.case.task for r in results)) == 1:
+        _print_compare_table(results[0].case.task, results)
+        if misses:
+            _print_miss_details(results)
+        _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+    elif len(results) == 1:
+        _print_case_detail(results[0], show_misses=misses)
+        _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+    else:
+        if not compare:
+            for r in results:
+                _print_case_detail(r, show_misses=misses)
+        console.print("\n[bold]Summary[/]")
+        _print_summary_table(results)
+        _print_task_type_summary(results)
+        if misses:
+            _print_miss_details(results)
+        _print_quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)
+    if public_table:
+        from agentpack import __version__
+        out = _write_public_benchmark_table(
+            root,
+            results,
+            suite="current repo benchmark.toml",
+            version=__version__,
+            command="agentpack benchmark --misses --public-table",
+        )
+        console.print(f"[green]✓[/] Wrote public benchmark table: [bold]{out}[/]")
+    if prove_targets and not _quality_status(results, min_recall=min_recall, min_token_precision=min_token_precision)[0]:
+        raise typer.Exit(2)

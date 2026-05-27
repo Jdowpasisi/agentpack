@@ -89,6 +89,32 @@ class TestPyFastapiApp:
         result = _pack(root)
         assert result.packed_tokens <= 50000
 
+    def test_thread_pack_writes_scoped_context_and_metadata(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        scoped = root / ".agentpack" / "threads" / "codex-local"
+        scoped.mkdir(parents=True)
+        (scoped / "task.md").write_text("fix auth in thread\n", encoding="utf-8")
+
+        result = PackService().run(PackRequest(
+            root=root,
+            agent="claude",
+            task="fix auth in thread",
+            mode="balanced",
+            budget=50000,
+            since=None,
+            refresh=False,
+            thread_id="codex-local",
+        ))
+
+        assert result.out_path == scoped / "context.claude.md"
+        assert (scoped / "context.md").exists()
+        assert (scoped / "pack_metadata.json").exists()
+        assert not (root / ".agentpack" / "context.claude.md").exists()
+        assert (root / ".agentpack" / "thread_index.jsonl").exists()
+        metadata = load_pack_metadata(root, scoped / "pack_metadata.json")
+        assert metadata["freshness"]["thread_id"] == "codex-local"
+        assert metadata["execution_state"]["task"]["status"] in {"in_progress", "committed", "unknown"}
+
     def test_workspace_pack_writes_workspace_output(self, tmp_path: Path) -> None:
         root = tmp_path / "mono"
         app_dir = root / "apps" / "web"

@@ -94,8 +94,7 @@ def dirty_files(root: Path) -> set[str]:
         return set()
     paths: set[str] = set()
     for line in out.splitlines():
-        line = line.strip()
-        if not line:
+        if not line.strip():
             continue
         # Handles ordinary status lines and simple renames.
         raw_path = line[3:].strip() if len(line) > 3 else line
@@ -104,6 +103,76 @@ def dirty_files(root: Path) -> set[str]:
         if raw_path:
             paths.add(raw_path)
     return paths
+
+
+def working_tree_summary(root: Path) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "branch": None,
+        "sha": current_sha(root) if is_git_repo(root) else None,
+        "upstream": None,
+        "ahead": 0,
+        "behind": 0,
+        "staged_count": 0,
+        "unstaged_count": 0,
+        "untracked_count": 0,
+        "dirty_sample": [],
+    }
+    out = _run(["git", "status", "--porcelain=v1", "--branch"], root)
+    if not out:
+        return summary
+    dirty: list[str] = []
+    for line in out.splitlines():
+        if line.startswith("## "):
+            branch, upstream, ahead, behind = _parse_branch_status(line[3:].strip())
+            summary["branch"] = branch
+            summary["upstream"] = upstream
+            summary["ahead"] = ahead
+            summary["behind"] = behind
+            continue
+        if not line:
+            continue
+        status = line[:2]
+        path = line[3:].strip() if len(line) > 3 else ""
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        if status == "??":
+            summary["untracked_count"] = int(summary["untracked_count"]) + 1
+        else:
+            if status[0] != " ":
+                summary["staged_count"] = int(summary["staged_count"]) + 1
+            if len(status) > 1 and status[1] != " ":
+                summary["unstaged_count"] = int(summary["unstaged_count"]) + 1
+        if path:
+            dirty.append(path)
+    summary["dirty_sample"] = dirty[:8]
+    if summary["branch"] is None:
+        summary["branch"] = current_branch(root)
+    return summary
+
+
+def _parse_branch_status(value: str) -> tuple[str | None, str | None, int, int]:
+    if "..." not in value:
+        return (None if value == "HEAD (no branch)" else value), None, 0, 0
+    branch_part, rest = value.split("...", 1)
+    branch = branch_part.strip() or None
+    upstream = rest.split(" ", 1)[0].strip() or None
+    ahead = behind = 0
+    if "[" in rest and "]" in rest:
+        meta = rest.split("[", 1)[1].split("]", 1)[0]
+        for part in meta.split(","):
+            item = part.strip()
+            if item.startswith("ahead "):
+                ahead = _safe_int(item.split(" ", 1)[1])
+            elif item.startswith("behind "):
+                behind = _safe_int(item.split(" ", 1)[1])
+    return branch, upstream, ahead, behind
+
+
+def _safe_int(value: str) -> int:
+    try:
+        return int(value)
+    except ValueError:
+        return 0
 
 
 def file_churn_counts(root: Path, max_commits: int = 200) -> dict[str, int]:

@@ -311,7 +311,7 @@ def register(app: typer.Typer) -> None:
     def init(
         force: bool = typer.Option(False, "--force", help="Overwrite existing files."),
         mode: Optional[str] = typer.Option(None, "--mode", help="Default pack mode (minimal|balanced|deep)."),
-        budget: int = typer.Option(0, "--budget", help="Default token budget (0 = keep default 25000)."),
+        budget: int = typer.Option(0, "--budget", help="Default token budget (0 = keep default 40000)."),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive prompts, use defaults."),
         silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
         share_cache: bool = typer.Option(False, "--share-cache", help="Commit summary cache to git (recommended for teams)."),
@@ -386,7 +386,7 @@ def register(app: typer.Typer) -> None:
             )
             if budget > 0:
                 config_toml = config_toml.replace(
-                    "default_budget = 25000",
+                    "default_budget = 40000",
                     f"default_budget = {cfg.context.default_budget}",
                 )
             action = _write_text(root, config_path_file, config_toml, force=force, backups=backups)

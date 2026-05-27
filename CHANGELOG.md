@@ -10,6 +10,22 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.12] — 2026-05-27
+
+### Added
+- Added thread-scoped task, context, metadata, and execution-state tracking for concurrent agent work, including overlap warnings from `.agentpack/thread_index.jsonl`.
+- Added rendered-token budget accounting, largest token consumer reporting, compressed receipts, and reserve buckets for changed files, tests, docs, and dependencies.
+- Added CLI automation commands for repeated developer workflows: `work`, `finish`, `start`, `task`, `next`, `threads`, `state`, `diagnose-selection`, `dev-check`, `verify-wheel`, `release prepare`, and `ci init`.
+- Added benchmark capture helpers, release gate wrappers, wheel verification, CI scaffolding, and a public benchmark proof artifact.
+- Added enforce-lite skill recommendations so safe always-recommended coding skills can be selected for coding tasks without enabling external side-effect skills.
+
+### Changed
+- Split the oversized README into focused documentation pages while keeping the root README as a compact package landing page.
+- Agent integrations now document explicit thread mode and avoid silently adopting ambient host session ids unless `--thread auto` is used.
+- Release and PR automation now use current task-file based pack semantics.
+
+---
+
 ## [0.3.11] — 2026-05-25
 
 ### Added
