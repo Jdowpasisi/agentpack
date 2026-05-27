@@ -112,3 +112,61 @@ def test_general_coding_guideline_skill_matches_coding_tasks():
     assert warnings == []
     assert [item.skill.name for item in selected] == ["karpathy-guidelines"]
     assert "general coding guidance match" in all_scores[0].reasons
+
+
+def test_always_recommend_boosts_safe_skill_for_coding_tasks():
+    skills = [
+        SkillArtifact(
+            name="team-quality-bar",
+            path="skills/team-quality-bar/SKILL.md",
+            source="skills",
+            description="Internal behavior guide.",
+            side_effect_level="none",
+        ),
+        SkillArtifact(
+            name="rca-writer",
+            path="skills/rca-writer/SKILL.md",
+            source="skills",
+            description="Use for incident postmortems.",
+            triggers=["incident", "postmortem"],
+            side_effect_level="none",
+        ),
+    ]
+
+    selected, warnings, all_scores = score_skills(
+        skills,
+        task="fix auth token expiry bug",
+        selected_paths=["src/auth/session.py"],
+        max_selected=1,
+        allow_external=False,
+        always_recommend=["team-quality-bar"],
+    )
+
+    assert warnings == []
+    assert [item.skill.name for item in selected] == ["team-quality-bar"]
+    assert "always-recommend skill" in all_scores[0].reasons
+
+
+def test_always_recommend_does_not_boost_external_skills():
+    skills = [
+        SkillArtifact(
+            name="prod-deploy",
+            path="skills/prod-deploy/SKILL.md",
+            source="skills",
+            description="Deploy production and notify Slack.",
+            side_effect_level="external",
+        )
+    ]
+
+    selected, warnings, all_scores = score_skills(
+        skills,
+        task="fix auth token expiry bug",
+        selected_paths=["src/auth/session.py"],
+        max_selected=1,
+        allow_external=False,
+        always_recommend=["prod-deploy"],
+    )
+
+    assert selected == []
+    assert warnings
+    assert "always-recommend skill" not in all_scores[0].reasons

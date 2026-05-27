@@ -54,6 +54,7 @@ class SkillsConfig(BaseModel):
         ".cursor/rules",
     ])
     max_selected: int = 3
+    always_recommend: list[str] = Field(default_factory=lambda: ["karpathy-guidelines"])
     allow_external_side_effects: bool = False
 
 
@@ -148,6 +149,7 @@ blocking_task_refresh = true
 # Skill/rule sources used by `agentpack route` and MCP `route_task`.
 paths = ["skills", ".claude-plugin", ".claude/skills", "~/.claude/skills", "~/.codex/skills", "~/.agents/skills", ".agentpack/skills", ".cursor/rules"]
 max_selected = 3
+always_recommend = ["karpathy-guidelines"]
 allow_external_side_effects = false
 
 [scoring]

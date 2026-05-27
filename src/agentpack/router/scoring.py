@@ -28,8 +28,13 @@ def score_skills(
     selected_paths: list[str],
     max_selected: int,
     allow_external: bool,
+    always_recommend: list[str] | None = None,
 ) -> tuple[list[SelectedSkill], list[str], list[SelectedSkill]]:
-    scored = [_score_skill(skill, task=task, selected_paths=selected_paths) for skill in skills]
+    pinned = _always_recommend_keys(always_recommend or [])
+    scored = [
+        _score_skill(skill, task=task, selected_paths=selected_paths, always_recommend=pinned)
+        for skill in skills
+    ]
     scored = [
         item for item in scored
         if item.score > 0 or (item.skill.side_effect_level == "external" and item.reasons)
@@ -49,10 +54,17 @@ def score_skills(
     return selected, warnings, scored
 
 
-def _score_skill(skill: SkillArtifact, *, task: str, selected_paths: list[str]) -> SelectedSkill:
+def _score_skill(
+    skill: SkillArtifact,
+    *,
+    task: str,
+    selected_paths: list[str],
+    always_recommend: set[str],
+) -> SelectedSkill:
     task_terms = _terms(task)
     skill_terms = set(skill.triggers) | _terms(skill.name) | _terms(skill.description)
     selected_path_terms = set().union(*(_terms(path) for path in selected_paths)) if selected_paths else set()
+    has_coding_intent = _has_coding_intent(task, selected_paths)
 
     reasons: list[str] = []
     score = 0.0
@@ -84,9 +96,13 @@ def _score_skill(skill: SkillArtifact, *, task: str, selected_paths: list[str]) 
         score += 18
         reasons.append("test task match")
 
-    if _is_general_coding_skill(skill, skill_terms) and _has_coding_intent(task, selected_paths):
+    if _is_general_coding_skill(skill, skill_terms) and has_coding_intent:
         score += 22
         reasons.append("general coding guidance match")
+
+    if _is_always_recommended(skill, always_recommend) and has_coding_intent:
+        score += 36
+        reasons.append("always-recommend skill")
 
     if skill.side_effect_level == "none":
         score += 4
@@ -117,6 +133,25 @@ def _is_general_coding_skill(skill: SkillArtifact, skill_terms: set[str]) -> boo
     if skill.name.lower() in {"karpathy-guidelines", "karpathy behavioral guidelines"}:
         return True
     return len(skill_terms & _GENERAL_CODING_SKILL_TERMS) >= 4
+
+
+def _always_recommend_keys(values: list[str]) -> set[str]:
+    return {_normalize_skill_key(value) for value in values if value.strip()}
+
+
+def _is_always_recommended(skill: SkillArtifact, always_recommend: set[str]) -> bool:
+    if not always_recommend or skill.side_effect_level == "external":
+        return False
+    keys = {
+        _normalize_skill_key(skill.name),
+        _normalize_skill_key(skill.path),
+        _normalize_skill_key(skill.path.rsplit("/", 1)[0]),
+    }
+    return bool(keys & always_recommend)
+
+
+def _normalize_skill_key(value: str) -> str:
+    return value.strip().lower().replace("\\", "/").rstrip("/")
 
 
 def _has_coding_intent(task: str, selected_paths: list[str]) -> bool:
