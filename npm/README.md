@@ -5,19 +5,64 @@
 [![PyPI core](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-> **Status: alpha (v0.3.11).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
->
-> **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
+**Local MCP context router for AI coding agents.**
 
-**Local context engine for AI coding agents.**
+Claude Code, Codex, Cursor, and other coding agents can waste tool calls rediscovering your repo before they make the edit you asked for.
 
-AgentPack analyzes your repo locally, finds the relevant files for a task, and packages compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools and workflows, CI jobs, and other agent workflows.
+AgentPack analyzes your repo locally, finds the relevant files, tests, rules, and skills for a task, and packages compact context for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools and workflows, CI jobs, and other agent workflows.
 
-Use it when the repo is too large to paste and you want faster, more consistent context around the files, routes, services, tests, configs, and recent changes that actually matter.
+Use it when the repo is too large to paste and you want faster, more consistent context around the routes, services, tests, configs, and recent changes that actually matter.
 
 This npm package is a launcher and wrapper for the Python CLI [`agentpack-cli`](https://pypi.org/project/agentpack-cli/), giving JavaScript-heavy teams a familiar install path while keeping the Python implementation as the source of truth.
 
 AgentPack is a context preparation tool, not a coding agent. It stays local, deterministic, and explainable: no hosted LLM calls, no embeddings, and no vector database for scan, summarize, rank, pack, stats, or benchmark.
+
+Try the read-only task router without writing context files:
+
+```bash
+npx @vishal2612200/agentpack route --task "fix auth token expiry"
+```
+
+![AgentPack route demo](https://raw.githubusercontent.com/vishal2612200/agentpack/main/docs/assets/agentpack-route-demo.svg)
+
+> **Status: alpha (v0.3.12).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+>
+> **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
+>
+> **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
+
+## Before vs After
+
+Without AgentPack, a cold coding-agent session often starts with manual repo orientation:
+
+```text
+Task: fix auth token expiry
+
+Agent:
+- searches for auth files
+- opens nearby middleware and config
+- may miss related tests
+- spends early turns building a repo map
+```
+
+With AgentPack:
+
+```bash
+agentpack route --task "fix auth token expiry"
+```
+
+```text
+Task:
+fix auth token expiry
+
+Relevant files:
+- tests/test_auth.py
+- src/app/auth.py
+- src/app/users.py
+
+Suggested commands:
+- pytest tests/test_auth.py -q
+```
 
 ## Features
 

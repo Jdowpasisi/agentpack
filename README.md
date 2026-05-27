@@ -8,15 +8,60 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
+**Local MCP context router for AI coding agents.**
+
+Claude Code, Codex, Cursor, and other coding agents can waste tool calls rediscovering your repo before they make the edit you asked for.
+
+AgentPack gives them the right files, tests, rules, and skills for each task. It analyzes your repo locally, ranks what matters, and packages compact context for CLI and MCP workflows.
+
+No cloud indexing. No embeddings required. No API calls for scan, summarize, rank, pack, stats, or benchmark. AgentPack is a context preparation tool, not a coding agent.
+
+Try the read-only task router without writing context files:
+
+```bash
+pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
+```
+
+![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
+
 > **Status: alpha (v0.3.12).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
+>
+> **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
-**Local context engine for AI coding agents.**
+## Before vs After
 
-AgentPack gives Claude Code, Codex, Cursor, Windsurf, Antigravity, CI jobs, and other agent workflows a better starting point. It analyzes your repo locally, finds the files most relevant to a task, and packages them into compact context packs for CLI and MCP workflows.
+Without AgentPack, a cold coding-agent session often starts with manual repo orientation:
 
-Use AgentPack when a repo is too large to paste and you want faster, more consistent context preparation before an agent starts working. It works offline and is a context preparation tool, not a coding agent.
+```text
+Task: fix auth token expiry
+
+Agent:
+- searches for auth files
+- opens nearby middleware and config
+- may miss related tests
+- spends early turns building a repo map
+```
+
+With AgentPack:
+
+```bash
+agentpack route --task "fix auth token expiry"
+```
+
+```text
+Task:
+fix auth token expiry
+
+Relevant files:
+- tests/test_auth.py
+- src/app/auth.py
+- src/app/users.py
+
+Suggested commands:
+- pytest tests/test_auth.py -q
+```
 
 ## Features
 
@@ -42,6 +87,17 @@ Latest public release gate: 8 real commits from Pallets Click, ItsDangerous, and
 | Pack p95 | 3,805 tokens |
 
 Full table: [`benchmarks/results/2026-05-27-public.md`](benchmarks/results/2026-05-27-public.md). This is public smoke proof, not a claim of universal ranking quality; expand cases for your own repo with `agentpack benchmark capture`.
+
+## Use Cases
+
+- [Claude Code context engine](docs/claude-code-context-engine.md)
+- [MCP context engine](docs/mcp-context-engine.md)
+- [Cursor context packing](docs/cursor-context-packing.md)
+- [AI coding agent context packing](docs/ai-coding-agent-context.md)
+- [Reduce Claude Code token usage](docs/reduce-claude-code-token-usage.md)
+- [AgentPack vs Repomix](docs/agentpack-vs-repomix.md)
+- [AgentPack vs Augment Context Engine](docs/agentpack-vs-augment-context-engine.md)
+- [Docs index](docs/index.md)
 
 ## Install
 

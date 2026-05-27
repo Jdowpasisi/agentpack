@@ -1,7 +1,7 @@
 {
   "name": "@vishal2612200/agentpack",
   "version": "0.3.12",
-  "description": "npm launcher for the Python AgentPack CLI, a local context engine for AI coding agents that ranks relevant files and builds task-focused context packs.",
+  "description": "npm launcher for AgentPack, a local MCP context router for Claude Code, Codex, Cursor, and AI coding agents.",
   "license": "MIT",
   "homepage": "https://github.com/vishal2612200/agentpack#readme",
   "repository": {
@@ -29,11 +29,18 @@
   },
   "keywords": [
     "ai-coding-agents",
+    "coding-agent",
+    "ai-agent",
+    "claude-code",
     "developer-tools",
     "repo-analysis",
+    "repo-context",
     "context-engine",
+    "mcp-context-engine",
+    "context-router",
     "context-packing",
     "prompt-context",
+    "reduce-token-usage",
     "mcp",
     "ci",
     "codex",

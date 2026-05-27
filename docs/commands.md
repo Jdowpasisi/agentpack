@@ -499,6 +499,7 @@ Route a task without writing context files. This is the CLI debug/admin surface 
 ```bash
 agentpack route --task "fix flaky payment webhook test"
 agentpack route --task "fix flaky payment webhook test" --format json
+pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 ```
 
 Output includes relevant files, applied rules, recommended skills, suggested commands, safety warnings, and an agent prompt. It uses the existing AgentPack file ranker in memory and does not write `.agentpack/context.md`.
@@ -1066,7 +1067,7 @@ the installed `agentpack` command through the benchmark release gate.
 
 ```bash
 agentpack verify-wheel
-agentpack verify-wheel --wheel dist/agentpack_cli-0.3.11-py3-none-any.whl
+agentpack verify-wheel --wheel dist/agentpack_cli-0.3.12-py3-none-any.whl
 agentpack verify-wheel --skip-build --json
 ```
 
