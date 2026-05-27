@@ -26,6 +26,27 @@ def test_parse_skill_frontmatter_name_description(tmp_path):
     assert skill.side_effect_level == "command"
 
 
+def test_parse_karpathy_skill_frontmatter(tmp_path):
+    path = tmp_path / "skills" / "karpathy-guidelines" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        "name: karpathy-guidelines\n"
+        "description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.\n"
+        "license: MIT\n"
+        "---\n\n"
+        "# Karpathy Guidelines\n\n"
+        "Behavioral guidelines to reduce common LLM coding mistakes.\n",
+        encoding="utf-8",
+    )
+
+    skill = parse_skill_file(path, root=tmp_path)
+
+    assert skill.name == "karpathy-guidelines"
+    assert "refactoring" in skill.triggers
+    assert skill.side_effect_level == "none"
+
+
 def test_parse_skill_h1_fallback_and_dangerous_external(tmp_path):
     path = tmp_path / ".agentpack" / "skills" / "deploy" / "SKILL.md"
     path.parent.mkdir(parents=True)

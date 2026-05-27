@@ -33,3 +33,27 @@ def test_discovery_ignores_missing_directories(tmp_path):
 
     assert inventory.skills == []
     assert inventory.rules == []
+
+
+def test_discovery_finds_claude_plugin_manifest_skills(tmp_path):
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    plugin_dir.joinpath("plugin.json").write_text(
+        '{"name": "andrej-karpathy-skills", "skills": ["./skills/karpathy-guidelines"]}\n',
+        encoding="utf-8",
+    )
+    skill = tmp_path / "skills" / "karpathy-guidelines" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\n"
+        "name: karpathy-guidelines\n"
+        "description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code.\n"
+        "---\n\n"
+        "# Karpathy Guidelines\n",
+        encoding="utf-8",
+    )
+
+    inventory = discover_inventory(tmp_path, paths=[".claude-plugin"])
+
+    assert [item.name for item in inventory.skills] == ["karpathy-guidelines"]
+    assert inventory.skills[0].source == "claude-plugin:andrej-karpathy-skills"

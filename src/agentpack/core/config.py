@@ -44,6 +44,8 @@ class HooksConfig(BaseModel):
 
 class SkillsConfig(BaseModel):
     paths: list[str] = Field(default_factory=lambda: [
+        "skills",
+        ".claude-plugin",
         ".claude/skills",
         "~/.claude/skills",
         "~/.codex/skills",
@@ -144,7 +146,7 @@ blocking_task_refresh = true
 
 [skills]
 # Skill/rule sources used by `agentpack route` and MCP `route_task`.
-paths = [".claude/skills", "~/.claude/skills", "~/.codex/skills", "~/.agents/skills", ".agentpack/skills", ".cursor/rules"]
+paths = ["skills", ".claude-plugin", ".claude/skills", "~/.claude/skills", "~/.codex/skills", "~/.agents/skills", ".agentpack/skills", ".cursor/rules"]
 max_selected = 3
 allow_external_side_effects = false
 

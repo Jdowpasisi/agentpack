@@ -71,3 +71,44 @@ def test_external_skill_warned_not_selected_by_default():
     assert selected == []
     assert warnings
     assert "production-deploy-checklist" in warnings[0]
+
+
+def test_general_coding_guideline_skill_matches_coding_tasks():
+    skills = [
+        SkillArtifact(
+            name="karpathy-guidelines",
+            path="skills/karpathy-guidelines/SKILL.md",
+            source="skills",
+            description=(
+                "Behavioral guidelines to reduce common LLM coding mistakes. "
+                "Use when writing, reviewing, or refactoring code to avoid "
+                "overcomplication, make surgical changes, surface assumptions, "
+                "and define verifiable success criteria."
+            ),
+            triggers=[
+                "behavioral",
+                "coding",
+                "guidelines",
+                "mistakes",
+                "overcomplication",
+                "refactoring",
+                "reviewing",
+                "surgical",
+                "verifiable",
+                "writing",
+            ],
+            side_effect_level="none",
+        )
+    ]
+
+    selected, warnings, all_scores = score_skills(
+        skills,
+        task="fix auth token expiry bug",
+        selected_paths=["src/auth/session.py"],
+        max_selected=3,
+        allow_external=False,
+    )
+
+    assert warnings == []
+    assert [item.skill.name for item in selected] == ["karpathy-guidelines"]
+    assert "general coding guidance match" in all_scores[0].reasons

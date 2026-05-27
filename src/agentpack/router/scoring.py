@@ -6,6 +6,15 @@ import re
 from agentpack.router.models import SelectedSkill, SkillArtifact
 
 _TEST_TERMS = {"test", "tests", "pytest", "flaky", "fixture", "mock", "failing", "fail"}
+_CODING_INTENT_TERMS = {
+    "add", "bug", "build", "change", "code", "debug", "fix", "implement", "patch",
+    "refactor", "review", "test", "update",
+}
+_GENERAL_CODING_SKILL_TERMS = {
+    "assumption", "assumptions", "coding", "guideline", "guidelines", "mistake",
+    "mistakes", "overcomplication", "refactoring", "reviewing", "success",
+    "surgical", "verification", "verifiable", "writing",
+}
 _STOPWORDS = {
     "and", "are", "but", "for", "from", "into", "the", "this", "that", "then",
     "with", "your", "fix", "add", "make", "debug",
@@ -75,6 +84,10 @@ def _score_skill(skill: SkillArtifact, *, task: str, selected_paths: list[str]) 
         score += 18
         reasons.append("test task match")
 
+    if _is_general_coding_skill(skill, skill_terms) and _has_coding_intent(task, selected_paths):
+        score += 22
+        reasons.append("general coding guidance match")
+
     if skill.side_effect_level == "none":
         score += 4
         reasons.append("safe read-only skill")
@@ -98,6 +111,26 @@ def _tool_terms(task: str) -> set[str]:
     if terms & _TEST_TERMS:
         terms.add("pytest")
     return terms
+
+
+def _is_general_coding_skill(skill: SkillArtifact, skill_terms: set[str]) -> bool:
+    if skill.name.lower() in {"karpathy-guidelines", "karpathy behavioral guidelines"}:
+        return True
+    return len(skill_terms & _GENERAL_CODING_SKILL_TERMS) >= 4
+
+
+def _has_coding_intent(task: str, selected_paths: list[str]) -> bool:
+    task_words = set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,}", task.lower().replace("_", "-")))
+    if task_words & _CODING_INTENT_TERMS:
+        return True
+    return any(_looks_like_code_path(path) for path in selected_paths)
+
+
+def _looks_like_code_path(path: str) -> bool:
+    return bool(re.search(
+        r"\.(py|pyi|js|jsx|ts|tsx|go|rs|rb|php|java|kt|kts|swift|c|cc|cpp|h|hpp|cs|m|mm)$",
+        path,
+    ))
 
 
 def _path_matches(path: str, pattern: str) -> bool:
