@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 import pytest
+from typer.testing import CliRunner
 
+from agentpack.cli import app
 from agentpack.core.models import Receipt
 from agentpack.commands.benchmark import (
     BenchmarkCase,
@@ -172,6 +175,24 @@ def test_write_public_benchmark_table(tmp_path: Path) -> None:
 
     assert out == tmp_path / "benchmarks" / "results" / "2026-05-15-public.md"
     assert "real repos" in out.read_text(encoding="utf-8")
+
+
+def test_benchmark_release_gate_maps_to_public_repo_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "benchmarks").mkdir()
+    (tmp_path / "benchmarks" / "public-repos.toml").write_text("[[repos]]\nname='empty'\nurl='x'\n", encoding="utf-8")
+    mocked = _make_result(["a.py"], ["a.py"], noise_pct=0.0)
+    mocked.case.task = "repo: fix thing"
+    mocked.case.task_type = "python"
+    with patch("agentpack.commands.benchmark._load_public_repo_specs", return_value=[SimpleNamespace(name="repo", cases=[object()])]), \
+         patch("agentpack.commands.benchmark._run_public_repo_suite", return_value=[mocked]) as run_suite, \
+         patch("agentpack.commands.benchmark._write_public_benchmark_table") as write_table:
+        result = CliRunner().invoke(app, ["benchmark", "--release-gate", "--no-public-table"])
+
+    assert result.exit_code == 0, result.output
+    assert "Release gate" in result.output
+    assert run_suite.called
+    assert not write_table.called
 
 
 # ---------------------------------------------------------------------------

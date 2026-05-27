@@ -45,6 +45,10 @@ agentpack pack --agent claude --task auto
 ```
 
 Then read `.agentpack/context.claude.md`.
+
+For multiple agent threads in one repo, stay in legacy global mode unless a thread is explicit. Use
+`AGENTPACK_THREAD_ID=<stable-id> agentpack guard --agent claude --repair-stale --refresh-context --thread auto`
+or pass `thread_id` to AgentPack MCP tools to use `.agentpack/threads/<id>/...` and get overlap warnings.
 <!-- agentpack:end -->"""
 
 _BLOCK_RE = re.compile(

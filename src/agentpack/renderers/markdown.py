@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import json
 
 from agentpack.core.models import ContextPack, SelectedFile, Symbol
+from agentpack.core.token_estimator import estimate_tokens
 
 
 def _lang_fence(lang: str | None) -> str:
@@ -22,10 +24,103 @@ def _symbols_block(symbols: list[Symbol], lang: str | None) -> str:
     return "\n".join(lines)
 
 
+def _selected_file_tokens(sf: SelectedFile) -> int:
+    if sf.content:
+        return estimate_tokens(sf.content)
+    parts: list[str] = []
+    if sf.summary:
+        parts.append(sf.summary)
+    for sym in sf.symbols:
+        if sym.signature:
+            parts.append(sym.signature)
+    return estimate_tokens("\n".join(parts)) if parts else 50
+
+
+def _receipt_lines(pack: ContextPack) -> list[str]:
+    included = [r for r in pack.receipts if r.action != "excluded"]
+    excluded = [r for r in pack.receipts if r.action == "excluded"]
+    lines: list[str] = []
+
+    for r in included:
+        lines.append(f"- `{r.path}` {r.action} because {r.reason}")
+
+    by_reason: dict[str, list[str]] = defaultdict(list)
+    for r in excluded:
+        by_reason[r.reason].append(r.path)
+
+    for reason, paths in sorted(by_reason.items(), key=lambda item: (-len(item[1]), item[0])):
+        shown = ", ".join(f"`{path}`" for path in paths[:10])
+        suffix = f"; top {min(10, len(paths))}: {shown}" if shown else ""
+        if len(paths) > 10:
+            suffix += f"; +{len(paths) - 10} more"
+        lines.append(f"- {len(paths)} file(s) excluded because {reason}{suffix}")
+
+    return lines
+
+
 def _freshness_value(value: object) -> str:
     if isinstance(value, list):
         return ", ".join(str(item) for item in value)
     return str(value)
+
+
+def _execution_state_lines(state: dict[str, object]) -> list[str]:
+    task = state.get("task") if isinstance(state.get("task"), dict) else {}
+    git = state.get("git") if isinstance(state.get("git"), dict) else {}
+    runtime = state.get("runtime") if isinstance(state.get("runtime"), dict) else {}
+    checklist = task.get("checklist") if isinstance(task.get("checklist"), dict) else {}
+    lines = ["## Execution State", ""]
+    lines.append(f"- **Task status:** {task.get('status') or 'unknown'}")
+    if task.get("summary"):
+        lines.append(f"- **Task summary:** {task['summary']}")
+    if task.get("state_file"):
+        lines.append(f"- **Task state file:** `{task['state_file']}`")
+    if checklist:
+        lines.append(
+            "- **Checklist:** "
+            f"{checklist.get('done', 0)} done, {checklist.get('open', 0)} open, {checklist.get('blocked', 0)} blocked"
+        )
+    branch = git.get("branch") or "unknown"
+    sha = str(git.get("sha") or "")[:12] or "unknown"
+    lines.append(f"- **Git:** {branch} @ {sha}")
+    lines.append(
+        "- **Working tree:** "
+        f"{git.get('staged_count', 0)} staged, {git.get('unstaged_count', 0)} unstaged, "
+        f"{git.get('untracked_count', 0)} untracked"
+    )
+    lines.append(f"- **Remote delta:** ahead {git.get('ahead', 0)}, behind {git.get('behind', 0)}")
+    lines.append(f"- **Runtime:** docker={runtime.get('docker', 'unknown')}, compose={runtime.get('compose_file') or 'none'}")
+    lines.append("")
+    return lines
+
+
+def _concurrent_context_lines(context: dict[str, object]) -> list[str]:
+    conflicts = context.get("conflicts") if isinstance(context.get("conflicts"), list) else []
+    conflict_count = context.get("conflict_count", len(conflicts))
+    if not context.get("thread_id") and not conflicts and not conflict_count:
+        return []
+    lines = ["## Concurrent Context", ""]
+    lines.append(f"- **Current thread:** {context.get('thread_id') or 'none'}")
+    lines.append(f"- **Active threads:** {context.get('active_threads', 0)}")
+    if conflict_count and not conflicts:
+        lines.append(f"- **Overlap warning:** {conflict_count} conflicting thread(s).")
+    elif conflicts:
+        lines.append("- **Overlap warning:** coordinate before editing overlapping files or use a separate worktree.")
+        for item in conflicts[:5]:
+            if not isinstance(item, dict):
+                continue
+            overlap = item.get("overlap") if isinstance(item.get("overlap"), list) else []
+            shown = ", ".join(f"`{path}`" for path in overlap[:6])
+            more = int(item.get("overlap_count") or len(overlap)) - min(len(overlap), 6)
+            suffix = f"; +{more} more" if more > 0 else ""
+            lines.append(
+                f"- `{item.get('thread_id')}` ({item.get('status') or 'unknown'}): "
+                f"{item.get('task') or 'no task'}; overlap {shown}{suffix}"
+            )
+    else:
+        lines.append("- **Overlap warning:** none detected.")
+    lines.append("")
+    return lines
 
 
 def _machine_freshness_block(pack: ContextPack) -> str:
@@ -140,6 +235,12 @@ def render_claude(pack: ContextPack) -> str:
     sections.append(pack.task)
     sections.append("")
 
+    if pack.execution_state:
+        sections.extend(_execution_state_lines(pack.execution_state))
+
+    if pack.concurrent_context:
+        sections.extend(_concurrent_context_lines(pack.concurrent_context))
+
     sections.append("## Instructions for Claude")
     sections.append("")
     sections.append(
@@ -204,11 +305,19 @@ def render_claude(pack: ContextPack) -> str:
         sections.append(f"| `{sf.path}` | {sf.include_mode} | {sf.score:.0f} | {why} |")
     sections.append("")
 
+    if pack.selected_files:
+        sections.append("## Largest Token Consumers")
+        sections.append("")
+        sections.append("| File | Mode | Tokens |")
+        sections.append("|---|---|---:|")
+        for sf in sorted(pack.selected_files, key=_selected_file_tokens, reverse=True)[:10]:
+            sections.append(f"| `{sf.path}` | {sf.include_mode} | {_selected_file_tokens(sf):,} |")
+        sections.append("")
+
     if pack.receipts:
         sections.append("## Context Receipts")
         sections.append("")
-        for r in pack.receipts:
-            sections.append(f"- `{r.path}` {r.action} because {r.reason}")
+        sections.extend(_receipt_lines(pack))
         sections.append("")
 
     sections.append("## File Context")

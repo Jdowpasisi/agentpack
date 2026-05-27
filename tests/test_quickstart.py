@@ -17,6 +17,7 @@ def test_quickstart_state_for_new_repo(tmp_path: Path) -> None:
 
     steps = state["steps"]
     assert ("agentpack init --yes --mode balanced", "create config, cache dir, session, and task file") in steps
+    assert any("agentpack start 'fix auth token expiry'" in cmd for cmd, _ in steps)
     assert any("agentpack pack --task auto" in cmd for cmd, _ in steps)
     assert any("agentpack benchmark --init" in cmd for cmd, _ in steps)
 

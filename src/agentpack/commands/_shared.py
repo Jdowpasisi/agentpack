@@ -9,6 +9,7 @@ from typing import Optional
 
 from rich.console import Console
 
+from agentpack.core.thread_context import thread_paths
 from agentpack.session.state import CONTEXT_FILE, COMPACT_FILE, TASK_FILE
 
 console = Console()
@@ -54,6 +55,7 @@ def run_refresh(
     agent: str,
     mode: str,
     budget: int,
+    thread_id: str | None = None,
 ) -> Optional[dict]:
     """Run PackService and write context + compact files. Returns stats dict or None on error."""
     try:
@@ -62,7 +64,8 @@ def run_refresh(
         from agentpack.renderers.compact import render_compact
         from agentpack.renderers.markdown import render_generic, render_claude
 
-        task_path = root / TASK_FILE
+        scoped = thread_paths(root, thread_id)
+        task_path = scoped.task if scoped else root / TASK_FILE
         if task_path.exists():
             raw = task_path.read_text(encoding="utf-8").strip()
             lines = [line for line in raw.splitlines() if line.strip() and not line.startswith("#")]
@@ -84,14 +87,20 @@ def run_refresh(
             budget=budget,
             since=None,
             refresh=False,
+            thread_id=thread_id,
         ))
 
-        context_path = root / CONTEXT_FILE
-        context_path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(context_path, render_generic(result.pack))
-        _atomic_write(root / ".agentpack/context.claude.md", render_claude(result.pack))
+        if scoped:
+            scoped.context.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(scoped.context, render_generic(result.pack))
+            _atomic_write(scoped.context_claude, render_claude(result.pack))
+        else:
+            context_path = root / CONTEXT_FILE
+            context_path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(context_path, render_generic(result.pack))
+            _atomic_write(root / ".agentpack/context.claude.md", render_claude(result.pack))
 
-        compact_path = root / COMPACT_FILE
+        compact_path = (scoped.base / "context.compact.md") if scoped else root / COMPACT_FILE
         _atomic_write(compact_path, render_compact(result.pack))
 
         return {

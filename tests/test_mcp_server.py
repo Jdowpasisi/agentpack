@@ -125,6 +125,24 @@ def test_get_context_fresh_when_hashes_match(tmp_path):
     assert "# pack content" in result
 
 
+def test_get_context_reads_thread_scoped_pack(tmp_path):
+    scoped = tmp_path / ".agentpack" / "threads" / "codex-local"
+    scoped.mkdir(parents=True)
+    (scoped / "context.claude.md").write_text("# scoped pack")
+    (scoped / "pack_metadata.json").write_text(json.dumps({
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "snapshot_root_hash": "abc123",
+        "task": "thread task",
+        "token_estimate": 100,
+    }))
+    _write_snapshot(tmp_path, root_hash="abc123")
+
+    result = _get_context_impl(tmp_path, thread_id="codex-local")
+
+    assert "Context is fresh" in result
+    assert "# scoped pack" in result
+
+
 def test_get_context_auto_refreshes_when_hashes_differ(tmp_path):
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "context.claude.md").write_text("# pack content")

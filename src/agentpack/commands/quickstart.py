@@ -89,13 +89,13 @@ def _quickstart_state(root: Path, task: str, mode: str, *, written: bool = False
     if written:
         notes.append(f"Saved task: {task}")
     elif task:
-        steps.append((f"printf '%s\\n' {_shell_single_quote(task)} > .agentpack/task.md", "make ranking task-specific"))
+        steps.append((f"agentpack start {_shell_single_quote(task)}", "write task and refresh context in one command"))
     elif not has_task:
-        steps.append(("edit .agentpack/task.md", "write one concrete task, e.g. 'fix auth token expiry'"))
+        steps.append(("agentpack start 'fix auth token expiry'", "write one concrete task and refresh context"))
     else:
         notes.append(f"Current task: {current_task}")
 
-    steps.append(("agentpack pack --task auto", "generate the first focused context pack"))
+    steps.append(("agentpack pack --task auto", "regenerate context later without changing the task"))
     steps.append(("agentpack stats", "check compression, selected files, and token precision"))
     steps.append(("agentpack watch", "keep context fresh while you work"))
     steps.append(("agentpack benchmark --init", "start measuring selection quality on your own real tasks"))

@@ -9,6 +9,7 @@ from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
 from agentpack.core.snapshot import build_snapshot
 from agentpack.core.task_freshness import task_freshness
+from agentpack.core.thread_context import resolve_thread_option, thread_paths
 from agentpack.application.pack_service import AdapterRegistry
 from agentpack.integrations.agents import (
     SUPPORTED_AGENTS,
@@ -38,6 +39,7 @@ def register(app: typer.Typer) -> None:
         ),
         mode: str = typer.Option("balanced", "--mode", help="Refresh mode (minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Refresh token budget (0 = config default)."),
+        thread: str = typer.Option("", "--thread", help="Use thread-scoped context state."),
     ) -> None:
         """Executable pre-edit gate for agents before they trust packed context."""
         if agent not in SUPPORTED_AGENTS:
@@ -48,6 +50,7 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
 
         root = _root()
+        resolved_thread_id = resolve_thread_option(thread)
         agents = expand_agents(agent, root)
         ok = True
 
@@ -68,15 +71,15 @@ def register(app: typer.Typer) -> None:
             else:
                 console.print(f"[green]✓[/] Agent integration current: {selected}")
 
-        context_ok, context_reason = _context_is_fresh(root)
+        context_ok, context_reason = _context_is_fresh(root, thread_id=resolved_thread_id)
         if not context_ok and refresh_context:
             selected_agent = agents[0] if agents else "generic"
             console.print(f"[yellow]Refreshing context: {context_reason}[/]")
-            stats = run_refresh(root, selected_agent, mode, budget)
+            stats = run_refresh(root, selected_agent, mode, budget, thread_id=resolved_thread_id)
             if stats is None:
                 ok = False
             else:
-                context_ok, context_reason = _context_is_fresh(root)
+                context_ok, context_reason = _context_is_fresh(root, thread_id=resolved_thread_id)
 
         if context_ok:
             console.print("[green]✓[/] Context pack fresh")
@@ -101,14 +104,21 @@ def _repair_agent(root, agent: str) -> None:
     )
 
 
-def _context_is_fresh(root) -> tuple[bool, str]:
-    meta = load_pack_metadata(root)
+def _context_is_fresh(root, thread_id: str | None = None) -> tuple[bool, str]:
+    scoped = thread_paths(root, thread_id)
+    meta = load_pack_metadata(root, scoped.metadata if scoped else None)
     if not meta:
         return False, "missing context pack metadata"
 
-    task_state = task_freshness(root, meta)
-    if task_state.is_stale:
-        return False, ".agentpack/task.md differs from packed task"
+    if scoped:
+        if scoped.task.exists():
+            current_task = scoped.task.read_text(encoding="utf-8").strip()
+            if current_task and current_task != meta.get("task"):
+                return False, ".agentpack thread task differs from packed task"
+    else:
+        task_state = task_freshness(root, meta)
+        if task_state.is_stale:
+            return False, ".agentpack/task.md differs from packed task"
 
     try:
         cfg = load_config(root)

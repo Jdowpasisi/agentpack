@@ -36,6 +36,38 @@ def test_untracked_graceful(tmp_path):
     assert isinstance(result, set)
 
 
+def test_working_tree_summary_counts_statuses(tmp_path):
+    repo = _make_git_repo(tmp_path)
+    (repo / "tracked.py").write_text("v1")
+    subprocess.run(["git", "add", "tracked.py"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+
+    (repo / "staged.py").write_text("new")
+    subprocess.run(["git", "add", "staged.py"], cwd=repo, check=True, capture_output=True)
+    (repo / "tracked.py").write_text("v2")
+    (repo / "untracked.py").write_text("new")
+
+    summary = git.working_tree_summary(repo)
+
+    assert summary["branch"] in {"main", "master"}
+    assert summary["staged_count"] == 1
+    assert summary["unstaged_count"] == 1
+    assert summary["untracked_count"] == 1
+    assert "untracked.py" in summary["dirty_sample"]
+
+
+def test_dirty_files_preserves_modified_tracked_path(tmp_path):
+    repo = _make_git_repo(tmp_path)
+    (repo / "README.md").write_text("v1")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+
+    (repo / "README.md").write_text("v2")
+
+    assert "README.md" in git.dirty_files(repo)
+    assert "EADME.md" not in git.dirty_files(repo)
+
+
 def test_infer_task_non_git_returns_fallback(tmp_path):
     result = git.infer_task_from_git(tmp_path)
     assert result == "general development"

@@ -20,7 +20,8 @@ from agentpack.commands._shared import console, _root
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.ignore import agentignore_sync_status, format_import_summary
 from agentpack.core.task_freshness import task_freshness
-from agentpack.integrations.agents import SUPPORTED_AGENTS, check_agent_integration, expand_agents
+from agentpack.core.thread_context import detect_conflicts, list_thread_rows
+from agentpack.integrations.agents import SUPPORTED_AGENTS, check_agent_integration, expand_agents, install_agent_integration
 
 
 def register(app: typer.Typer) -> None:
@@ -31,12 +32,16 @@ def register(app: typer.Typer) -> None:
             "--agent",
             help=f"Agent integration to audit ({' | '.join(SUPPORTED_AGENTS)}). Use all for the full matrix.",
         ),
+        fix: bool = typer.Option(False, "--fix", help="Apply safe AgentPack repairs before reporting."),
     ) -> None:
         """Diagnose agentpack installation state — global hooks, per-repo config, agent setup."""
         ok = True
         if agent not in SUPPORTED_AGENTS:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
+        root = _root()
+        if fix:
+            _safe_fix(root, agent)
 
         # --- CLI binary ---
         console.print("[bold]CLI[/]")
@@ -267,6 +272,16 @@ def register(app: typer.Typer) -> None:
                     f"agentpack guard --agent {selected} --repair-stale --refresh-context"
                 )
 
+        # --- Concurrent threads ---
+        console.print("\n[bold]Concurrent threads[/]")
+        thread_conflicts = _thread_conflict_findings(root)
+        if thread_conflicts:
+            for finding in thread_conflicts:
+                console.print(f"  [yellow]![/] {finding}")
+            ok = False
+        else:
+            console.print("  [green]✓[/] no active same-branch/worktree overlaps")
+
         # --- Release hygiene ---
         console.print("\n[bold]Release hygiene[/]")
         findings = _release_hygiene_findings(root)
@@ -300,6 +315,36 @@ def register(app: typer.Typer) -> None:
             console.print("  [dim]-[/] Slash command not installed globally — run: agentpack install --agent claude --global")
 
         _print_summary(ok)
+
+
+def _safe_fix(root: Path, agent: str) -> None:
+    console.print("[bold]Safe fixes[/]")
+    status = agentignore_sync_status(root)
+    if status.action != "unchanged":
+        status.path.parent.mkdir(parents=True, exist_ok=True)
+        status.path.write_text(status.desired_content, encoding="utf-8")
+        console.print(f"  [green]✓[/] {status.action} .agentignore")
+    for selected in expand_agents(agent, root):
+        if selected == "generic":
+            continue
+        failing = [check for check in check_agent_integration(root, selected) if not check.ok]
+        if failing:
+            from agentpack.commands.install import _install_slash_command
+
+            install_agent_integration(root, selected, install_slash_command=_install_slash_command)
+            console.print(f"  [green]✓[/] repaired {selected} integration")
+
+
+def _thread_conflict_findings(root: Path) -> list[str]:
+    findings: list[str] = []
+    for row in list_thread_rows(root, active_only=True):
+        context = detect_conflicts(root, row)
+        for conflict in context.get("conflicts") or []:
+            findings.append(
+                f"{row.get('thread_id')} overlaps {conflict.get('thread_id')} "
+                f"on {conflict.get('overlap_count', 0)} file(s); run `agentpack threads --conflicts`."
+            )
+    return sorted(set(findings))[:5]
 
 
 def _check_agent_file(root: Path, filename: str, agent: str) -> None:

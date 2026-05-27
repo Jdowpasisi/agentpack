@@ -107,6 +107,8 @@ class ContextPack(BaseModel):
     stale: bool = False
     freshness: dict[str, Any] = Field(default_factory=dict)
     freshness_warnings: list[str] = Field(default_factory=list)
+    execution_state: dict[str, Any] = Field(default_factory=dict)
+    concurrent_context: dict[str, Any] = Field(default_factory=dict)
 
 
 class DependencyNode(BaseModel):

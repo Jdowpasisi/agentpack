@@ -12,6 +12,7 @@ from rich import box
 
 from agentpack.core import git
 from agentpack.core.ignore import SENSITIVE_PATTERNS
+from agentpack.core.thread_context import resolve_thread_option, thread_paths
 from agentpack.analysis.ranking import suggest_task_rewrite
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
 from agentpack.commands._shared import console, _root, _file_hash, _now_iso
@@ -35,6 +36,7 @@ def register(app: typer.Typer) -> None:
         refresh: bool = typer.Option(False, "--refresh", help="Rebuild summaries before packing."),
         watch: bool = typer.Option(False, "--watch", help="Watch for file changes and re-pack automatically."),
         session: bool = typer.Option(False, "--session", help="Keep re-packing on changes for the whole session (alias for --watch)."),
+        thread: str = typer.Option("", "--thread", help="Use thread-scoped task/context state."),
     ) -> None:
         """Generate a context pack for an AI coding agent."""
         if mode not in ("minimal", "balanced", "deep"):
@@ -42,11 +44,12 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
 
         resolved_agent = _resolve_agent(agent)
-        resolved_task, task_source = _resolve_task_with_source(task)
+        resolved_thread_id = resolve_thread_option(thread)
+        resolved_task, task_source = _resolve_task_with_source(task, thread_id=resolved_thread_id)
 
         if watch or session:
             _pack_watch(agent=resolved_agent, task=resolved_task, mode=mode, budget=budget,
-                        since=since, workspace=workspace or None)
+                        since=since, workspace=workspace or None, thread_id=resolved_thread_id)
             return
 
         result = PackService().run(PackRequest(
@@ -59,6 +62,7 @@ def register(app: typer.Typer) -> None:
             refresh=refresh,
             task_source=task_source,
             workspace=workspace or None,
+            thread_id=resolved_thread_id,
         ))
         _mark_session_refreshed(_root(), result)
         _auto_repair_stale_agent_rules(result.pack.agent)
@@ -79,7 +83,7 @@ def _resolve_task(task: str) -> str:
     return resolved
 
 
-def _resolve_task_with_source(task: str) -> tuple[str, str]:
+def _resolve_task_with_source(task: str, thread_id: str | None = None) -> tuple[str, str]:
     if task != "auto":
         console.print(
             "[red]`agentpack pack --task \"...\"` is no longer supported.[/]\n"
@@ -88,6 +92,14 @@ def _resolve_task_with_source(task: str) -> tuple[str, str]:
         )
         raise typer.Exit(2)
     root = _root()
+    scoped = thread_paths(root, thread_id)
+    if scoped and scoped.task.exists():
+        content = scoped.task.read_text(encoding="utf-8").strip()
+        lines = [ln for ln in content.splitlines() if ln.strip() and not ln.startswith("#")]
+        body = lines[0].strip() if lines else ""
+        if body:
+            console.print(f"[dim]Auto task (thread {scoped.thread_id}): {body}[/]")
+            return body, "thread_task.md"
     # task.md takes priority over all git heuristics
     task_md_path = root / ".agentpack" / "task.md"
     if task_md_path.exists():
@@ -175,6 +187,8 @@ def _print_pack_summary(result: PackResult) -> None:
             padding=(0, 1),
         ))
 
+    _print_concurrent_context_warning(result)
+
     if changed_files:
         console.print(f"\n[bold]Changed files[/] ({len(changed_files)}):")
         console.print(changed_lines)
@@ -201,6 +215,28 @@ def _print_pack_summary(result: PackResult) -> None:
     console.print("\n[bold]Next step:[/]")
     console.print(f"  [bold white]claude < {out_path}[/]")
     console.print()
+
+
+def _print_concurrent_context_warning(result: PackResult) -> None:
+    conflicts = result.pack.concurrent_context.get("conflicts") or []
+    if not conflicts:
+        return
+    lines: list[str] = []
+    for conflict in conflicts[:5]:
+        files = ", ".join(conflict.get("overlap") or [])
+        if conflict.get("overlap_count", 0) > len(conflict.get("overlap") or []):
+            files += f", +{conflict['overlap_count'] - len(conflict.get('overlap') or [])} more"
+        lines.append(
+            f"  [yellow]![/] {conflict.get('thread_id')} ({conflict.get('status') or 'unknown'}): "
+            f"{conflict.get('task') or '(no task)'}"
+        )
+        lines.append(f"      overlaps {conflict.get('overlap_count', 0)} file(s): {files or '(none)'}")
+    console.print(Panel(
+        "\n".join(lines),
+        title="[bold yellow]Concurrent context warning[/]",
+        border_style="yellow",
+        padding=(0, 1),
+    ))
 
 
 def _mark_session_refreshed(root: Path, result: PackResult) -> None:
@@ -303,6 +339,7 @@ def _pack_watch(
     budget: int,
     since: str | None,
     workspace: str | None = None,
+    thread_id: str | None = None,
 ) -> None:
     try:
         from watchdog.observers import Observer
@@ -321,7 +358,7 @@ def _pack_watch(
     def _run_pack() -> None:
         result = PackService().run(PackRequest(
             root=root, agent=agent, task=task, mode=mode, budget=budget,
-            since=since, refresh=False, task_source="watch", workspace=workspace,
+            since=since, refresh=False, task_source="watch", workspace=workspace, thread_id=thread_id,
         ))
         _mark_session_refreshed(root, result)
         _print_pack_summary(result)

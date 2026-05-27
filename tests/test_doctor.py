@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 
 from agentpack.commands.doctor import (
     _agentignore_sync_findings,
     _latest_context_path,
     _publish_secret_findings,
     _release_hygiene_findings,
+    _safe_fix,
     _source_checkout_warning,
+    _thread_conflict_findings,
 )
+from agentpack.core.thread_context import append_thread_index, build_thread_index_row
 
 
 def test_source_checkout_warning_when_importing_installed_package(tmp_path: Path) -> None:
@@ -104,3 +108,45 @@ def test_agentignore_sync_findings_report_synced_imports(tmp_path: Path, monkeyp
 
     assert findings
     assert findings[0].startswith("synced: Imported 1 generated/noisy rules")
+
+
+def test_doctor_safe_fix_syncs_agentignore(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("agentpack.core.ignore._git_config_excludesfile", lambda: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / ".gitignore").write_text("backend/.serverless/\n", encoding="utf-8")
+
+    _safe_fix(tmp_path, "generic")
+
+    content = (tmp_path / ".agentignore").read_text(encoding="utf-8")
+    assert "backend/.serverless/" in content
+
+
+def test_doctor_thread_conflict_findings_report_overlap(tmp_path: Path) -> None:
+    current = build_thread_index_row(
+        root=tmp_path,
+        thread_id="thread-a",
+        task="fix auth",
+        branch="main",
+        selected_files=["src/auth.py"],
+        dirty_files=[],
+        status="in_progress",
+    )
+    other = build_thread_index_row(
+        root=tmp_path,
+        thread_id="thread-b",
+        task="fix auth tests",
+        branch="main",
+        selected_files=["src/auth.py", "tests/test_auth.py"],
+        dirty_files=[],
+        status="in_progress",
+    )
+    stamp = datetime.now(timezone.utc).isoformat()
+    current["updated_at"] = stamp
+    other["updated_at"] = stamp
+    append_thread_index(tmp_path, current)
+    append_thread_index(tmp_path, other)
+
+    findings = _thread_conflict_findings(tmp_path)
+
+    assert findings
+    assert "thread-a overlaps thread-b" in findings[0] or "thread-b overlaps thread-a" in findings[0]

@@ -15,10 +15,18 @@ from agentpack.core.snapshot import build_snapshot, save_snapshot, load_snapshot
 from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
 from agentpack.core.context_pack import select_files, save_pack_metadata, load_pack_metadata
+from agentpack.core.execution_state import build_execution_state, compact_execution_state
 from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
 from agentpack.core.task_freshness import read_task_md, task_metadata
+from agentpack.core.thread_context import (
+    append_thread_index,
+    build_thread_index_row,
+    detect_conflicts,
+    resolve_thread_id,
+    thread_paths,
+)
 from agentpack.core.token_estimator import estimate_tokens
-from agentpack.renderers.markdown import render_generic
+from agentpack.renderers.markdown import render_claude, render_generic
 from agentpack.analysis.ranking import (
     build_keyword_plan,
     persist_keyword_plan_stats,
@@ -54,6 +62,7 @@ class PackRequest:
     refresh: bool
     task_source: str = "explicit"
     workspace: str | None = None
+    thread_id: str | None = None
 
 
 @dataclass
@@ -454,13 +463,15 @@ class PackService:
     def run(self, request: PackRequest) -> PackResult:
         root = request.root
         cfg = load_config(root)
+        resolved_thread_id = resolve_thread_id(request.thread_id, env={})
+        scoped_paths = thread_paths(root, resolved_thread_id)
 
         plan = PackPlanner().plan(request)
 
         packable = plan.scan_result.packable
         all_tokens = sum(f.estimated_tokens for f in plan.scan_result.all_files)
         raw_tokens = sum(f.estimated_tokens for f in packable)
-        previous_metadata = load_pack_metadata(root)
+        previous_metadata = load_pack_metadata(root, scoped_paths.metadata if scoped_paths else None)
         delta_summary = _compute_delta_summary(previous_metadata, plan.selected, plan.all_changed)
         packed_tokens = (
             sum(_sf_tokens(sf) for sf in plan.selected)
@@ -479,6 +490,23 @@ class PackService:
         if delta_summary:
             freshness["delta_summary"] = delta_summary
         freshness_warnings = _freshness_warnings(root, request, freshness)
+        execution_state = build_execution_state(root, scoped_paths)
+        if scoped_paths:
+            freshness["thread_id"] = scoped_paths.thread_id
+            freshness["thread_paths"] = scoped_paths.as_relative_dict(root)
+        thread_row = None
+        concurrent_context: dict[str, Any] = {}
+        if scoped_paths:
+            thread_row = build_thread_index_row(
+                root=root,
+                thread_id=scoped_paths.thread_id,
+                task=request.task,
+                branch=str((execution_state.get("git") or {}).get("branch") or ""),
+                selected_files=[sf.path for sf in plan.selected],
+                dirty_files=sorted(git.dirty_files(root)) if git.is_git_repo(root) else [],
+                status=str((execution_state.get("task") or {}).get("status") or "unknown"),
+            )
+            concurrent_context = detect_conflicts(root, thread_row)
 
         pack_obj = ContextPack(
             task=request.task,
@@ -499,14 +527,22 @@ class PackService:
             stale=False,
             freshness=freshness,
             freshness_warnings=freshness_warnings,
+            execution_state=execution_state,
+            concurrent_context=concurrent_context,
         )
 
         adapter = AdapterRegistry.get(request.agent, cfg)
+        packed_tokens = _fit_rendered_budget(pack_obj, adapter)
+        saving_pct = max(0.0, (1 - packed_tokens / all_tokens) * 100) if all_tokens > 0 else 0.0
+        pack_obj.estimated_savings_percent = saving_pct
 
         t0 = time.perf_counter()
-        out_path = adapter.write(pack_obj, root)
-        _write_canonical_context(pack_obj, root, out_path)
-        if plan.workspace:
+        if scoped_paths:
+            out_path = _write_thread_context(pack_obj, root, scoped_paths, request.agent)
+        else:
+            out_path = adapter.write(pack_obj, root)
+            _write_canonical_context(pack_obj, root, out_path)
+        if plan.workspace and not scoped_paths:
             out_path = _write_workspace_context(pack_obj, root, plan.workspace)
         plan.phase_times["render"] = time.perf_counter() - t0
         persist_keyword_plan_stats(root, request.task, plan.keyword_plan)
@@ -522,13 +558,18 @@ class PackService:
             requested_mode=plan.requested_mode,
             budget=plan.budget,
             token_estimate=packed_tokens,
-            freshness=freshness,
-            freshness_warnings=freshness_warnings,
-            selected_files=_selected_file_metadata(plan.selected),
+            freshness=pack_obj.freshness,
+            freshness_warnings=pack_obj.freshness_warnings,
+            selected_files=_selected_file_metadata(pack_obj.selected_files),
+            execution_state=pack_obj.execution_state,
+            concurrent_context=pack_obj.concurrent_context,
+            metadata_path=scoped_paths.metadata if scoped_paths else None,
         )
-        excluded_receipts = [r for r in plan.receipts if r.action == "excluded"]
+        if thread_row:
+            append_thread_index(root, thread_row)
+        excluded_receipts = [r for r in pack_obj.receipts if r.action == "excluded"]
         # Budget-cut: files that scored OK but didn't fit — more useful signal than "score too low"
-        budget_cut = [r.path for r in plan.receipts if r.reason == "budget exhausted"][:10]
+        budget_cut = [r.path for r in pack_obj.receipts if r.reason == "budget exhausted"][:10]
         _record_metrics(
             root,
             task=request.task,
@@ -537,12 +578,12 @@ class PackService:
             packed_tokens=packed_tokens,
             raw_tokens=all_tokens,
             saving_pct=saving_pct,
-            selected_count=len(plan.selected),
+            selected_count=len(pack_obj.selected_files),
             changed_count=len(plan.all_changed),
-            selected_paths=[sf.path for sf in plan.selected],
-            selected_tokens={sf.path: _sf_tokens(sf) for sf in plan.selected},
-            selected_modes={sf.path: sf.include_mode for sf in plan.selected},
-            selected_hints=[{"path": sf.path, "why": sf.reasons[0] if sf.reasons else ""} for sf in plan.selected[:8]],
+            selected_paths=[sf.path for sf in pack_obj.selected_files],
+            selected_tokens={sf.path: _sf_tokens(sf) for sf in pack_obj.selected_files},
+            selected_modes={sf.path: sf.include_mode for sf in pack_obj.selected_files},
+            selected_hints=[{"path": sf.path, "why": sf.reasons[0] if sf.reasons else ""} for sf in pack_obj.selected_files[:8]],
             current_changed=plan.all_changed,
             task_class=plan.task_class,
             workspace=plan.workspace,
@@ -574,6 +615,13 @@ def _write_canonical_context(pack: ContextPack, root: Path, out_path: Path) -> N
             return
     canonical_path.parent.mkdir(parents=True, exist_ok=True)
     canonical_path.write_text(render_generic(pack), encoding="utf-8")
+
+
+def _write_thread_context(pack: ContextPack, root: Path, paths: Any, agent: str) -> Path:
+    paths.base.mkdir(parents=True, exist_ok=True)
+    paths.context.write_text(render_generic(pack), encoding="utf-8")
+    paths.context_claude.write_text(render_claude(pack), encoding="utf-8")
+    return paths.context if agent == "generic" else paths.context_claude
 
 
 def _write_workspace_context(pack: ContextPack, root: Path, workspace: str) -> Path:
@@ -624,6 +672,70 @@ def _sf_tokens(sf: SelectedFile) -> int:
         if sym.signature:
             parts.append(sym.signature)
     return estimate_tokens("\n".join(parts)) if parts else 50
+
+
+def _settle_rendered_token_estimate(pack: ContextPack, adapter: Any, passes: int = 3) -> int:
+    """Measure final markdown, including tables, receipts, and renderer overhead."""
+    token_estimate = pack.token_estimate
+    for _ in range(passes):
+        rendered_tokens = estimate_tokens(adapter.render(pack))
+        if rendered_tokens == token_estimate:
+            break
+        pack.token_estimate = rendered_tokens
+        token_estimate = rendered_tokens
+    return token_estimate
+
+
+def _fit_rendered_budget(pack: ContextPack, adapter: Any) -> int:
+    token_estimate = _settle_rendered_token_estimate(pack, adapter)
+    if token_estimate <= pack.budget:
+        return token_estimate
+
+    if pack.receipts:
+        pack.receipts = []
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    if pack.repo_map:
+        pack.repo_map = ""
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    if pack.delta_summary:
+        pack.delta_summary = ""
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    if pack.execution_state:
+        pack.execution_state = compact_execution_state(pack.execution_state)
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    if (pack.concurrent_context.get("conflicts") or []):
+        pack.concurrent_context = {
+            "thread_id": pack.concurrent_context.get("thread_id"),
+            "active_threads": pack.concurrent_context.get("active_threads", 0),
+            "conflict_count": len(pack.concurrent_context.get("conflicts") or []),
+            "warning": True,
+        }
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    while pack.selected_files and token_estimate > pack.budget:
+        pack.selected_files.pop()
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+
+    if token_estimate > pack.budget and (pack.freshness or pack.freshness_warnings):
+        pack.freshness = {}
+        pack.freshness_warnings = []
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+
+    return token_estimate
 
 
 def _repo_map_budget_for_mode(mode: str, effective_budget: int) -> int:

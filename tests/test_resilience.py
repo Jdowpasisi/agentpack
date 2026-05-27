@@ -22,7 +22,7 @@ def test_corrupt_config_returns_defaults(tmp_path):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         cfg = load_config(tmp_path)
-    assert cfg.context.default_budget == 25000
+    assert cfg.context.default_budget == 40000
     assert any("Failed to parse" in str(warning.message) for warning in w)
 
 

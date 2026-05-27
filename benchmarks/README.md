@@ -32,7 +32,8 @@ That suite is defined in `benchmarks/public-repos.toml`. It uses real Pallets
 Click, ItsDangerous, and MarkupSafe commits: AgentPack checks out each commit's
 parent, uses the commit subject as the task, and scores against files actually
 changed by that commit. The current proof artifact is
-`benchmarks/results/2026-05-15-public.md`.
+`benchmarks/results/2026-05-27-public.md`, generated from the locally built
+wheel before release.
 
 For additional repo-specific proof, create `.agentpack/benchmark.toml` with real
 historical tasks and files that were actually changed:
@@ -48,9 +49,14 @@ Quality gates for a serious local eval:
 |---|---|
 | Recall | 60%+ across task types |
 | Token precision | 50%+ |
-| Pack size | under 25k tokens for `balanced` |
+| Pack size | within the configured budget |
 | Miss diagnostics | every miss has status, rank, score, and reasons |
 | Mode comparison | `minimal`, `balanced`, and `deep` all reported |
+
+The synthetic `--sample-fixtures` suite is a regression smoke test over small
+committed fixtures. It is intentionally separate from the public proof gate and
+may fail the default `--prove-targets` thresholds while still producing useful
+miss diagnostics.
 
 Before publishing benchmark claims, add a results file with this shape:
 

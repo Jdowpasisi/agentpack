@@ -19,7 +19,7 @@ class ProjectConfig(BaseModel):
 
 
 class ContextConfig(BaseModel):
-    default_budget: int = 25000
+    default_budget: int = 40000
     default_mode: str = "balanced"
     max_file_tokens: int = 4000
     min_summary_score: float = 60
@@ -122,7 +122,7 @@ include_globs = []
 exclude_globs = []
 
 [context]
-default_budget = 25000   # token budget per pack
+default_budget = 40000   # token budget per pack
 default_mode = "balanced"  # minimal | balanced | deep
 max_file_tokens = 4000   # files larger than this are summarised, not inlined
 min_summary_score = 60   # unchanged summary files below this score are excluded
