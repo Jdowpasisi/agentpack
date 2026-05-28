@@ -7,10 +7,12 @@ secret redaction, cache behaviour, and stale status detection.
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 
 from agentpack.application.pack_service import PackRequest, PackService
+from agentpack.core.changed_paths import record_changed_paths, read_changed_paths
 from agentpack.core.config import load_config
 from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
@@ -53,6 +55,14 @@ def _pack(root: Path, task: str = "fix auth token", agent: str = "claude") -> ob
     ))
 
 
+def _init_git_repo(root: Path) -> None:
+    subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "agentpack@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "AgentPack Tests"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "initial"], cwd=root, check=True)
+
+
 class TestPyFastapiApp:
     def test_critical_files_selected(self, tmp_path: Path) -> None:
         root = _setup_repo(tmp_path, "py_fastapi_app")
@@ -83,6 +93,84 @@ class TestPyFastapiApp:
 
         result2 = _pack(root, task="fix auth token freshness", agent="antigravity")
         assert ".agent/skills/agentpack/SKILL.md" not in result2.changed_files
+
+    def test_second_pack_uses_incremental_scan_for_dirty_paths(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        _init_git_repo(root)
+
+        first = _pack(root, task="fix auth token refresh")
+        (root / "src" / "app" / "auth.py").write_text(
+            (root / "src" / "app" / "auth.py").read_text() + "\n# changed\n",
+            encoding="utf-8",
+        )
+        second = _pack(root, task="fix auth token refresh")
+
+        assert first.scan_result.scan_mode == "full"
+        assert first.scan_result.full_scan_reason == "no previous snapshot"
+        assert second.scan_result.scan_mode == "incremental"
+        assert second.scan_result.rehashed_count == 1
+        assert second.scan_result.reused_count > 0
+        assert second.pack.freshness["scan_mode"] == "incremental"
+
+    def test_incremental_scan_includes_untracked_file(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        _init_git_repo(root)
+
+        _pack(root, task="add settings helper")
+        new_file = root / "src" / "app" / "new_settings.py"
+        new_file.write_text("SETTING = 'x'\n", encoding="utf-8")
+        result = _pack(root, task="add settings helper")
+
+        assert result.scan_result.scan_mode == "incremental"
+        assert "src/app/new_settings.py" in {fi.path for fi in result.scan_result.packable}
+        assert "src/app/new_settings.py" in result.changed_files
+
+    def test_incremental_scan_removes_deleted_file(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        _init_git_repo(root)
+
+        _pack(root, task="remove users helper")
+        target = root / "src" / "app" / "users.py"
+        target.unlink()
+        result = _pack(root, task="remove users helper")
+
+        assert result.scan_result.scan_mode == "incremental"
+        assert "src/app/users.py" not in {fi.path for fi in result.scan_result.packable}
+        assert "src/app/users.py" in result.changed_files
+
+    def test_incremental_scan_uses_changed_path_ledger(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        _init_git_repo(root)
+
+        _pack(root, task="track hook changed file")
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "save snapshot"], cwd=root, check=True)
+        target = root / "src" / "app" / "auth.py"
+        target.write_text(target.read_text(encoding="utf-8") + "\n# ledger\n", encoding="utf-8")
+        record_changed_paths(root, ["src/app/auth.py"], source="test")
+        subprocess.run(["git", "add", "src/app/auth.py"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "commit outside pack"], cwd=root, check=True)
+
+        result = _pack(root, task="track hook changed file")
+
+        assert result.scan_result.scan_mode == "incremental"
+        assert result.scan_result.rehashed_count == 1
+        assert read_changed_paths(root) == set()
+
+    def test_config_change_forces_full_scan(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        _init_git_repo(root)
+
+        _pack(root, task="fix auth token refresh")
+        config_path = root / ".agentpack" / "config.toml"
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8").replace("max_file_tokens = 4000", "max_file_tokens = 3000"),
+            encoding="utf-8",
+        )
+        result = _pack(root, task="fix auth token refresh")
+
+        assert result.scan_result.scan_mode == "full"
+        assert result.scan_result.full_scan_reason == "scan config or ignore rules changed"
 
     def test_token_budget_respected(self, tmp_path: Path) -> None:
         root = _setup_repo(tmp_path, "py_fastapi_app")

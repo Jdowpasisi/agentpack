@@ -11,6 +11,8 @@ from agentpack.analysis.go_imports import extract_imports as go_imports
 from agentpack.analysis.rust_imports import extract_imports as rust_imports
 from agentpack.analysis.java_imports import extract_imports as java_imports
 
+_GRAPH_CACHE: dict[tuple[tuple[tuple[str, str | None], ...], bool], DependencyGraph] = {}
+
 
 def build(
     files: list[FileInfo],
@@ -28,6 +30,14 @@ def build(
         DependencyGraph with typed DependencyNode entries. Caller fills tests
         via find_related_tests after construction.
     """
+    cache_key = (
+        tuple(sorted((fi.path, fi.hash) for fi in files)),
+        bool(summaries),
+    )
+    cached_graph = _GRAPH_CACHE.get(cache_key)
+    if cached_graph is not None:
+        return cached_graph.model_copy(deep=True)
+
     graph = DependencyGraph(
         nodes={fi.path: DependencyNode(path=fi.path) for fi in files}
     )
@@ -66,6 +76,7 @@ def build(
             if dep in graph:
                 graph.nodes[dep].imported_by.append(fi.path)
 
+    _GRAPH_CACHE[cache_key] = graph.model_copy(deep=True)
     return graph
 
 

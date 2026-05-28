@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import time
 from dataclasses import dataclass, field
@@ -9,14 +10,23 @@ from pathlib import Path
 from typing import Any
 
 from agentpack.core.config import load_config
-from agentpack.core.ignore import load_spec
-from agentpack.core.scanner import scan
+from agentpack.core.changed_paths import clear_changed_paths, read_changed_paths
+from agentpack.core.ignore import DEFAULT_AGENTIGNORE, load_spec
+from agentpack.core.scanner import scan, scan_incremental
 from agentpack.core.snapshot import build_snapshot, save_snapshot, load_snapshot
 from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
-from agentpack.core.context_pack import select_files, save_pack_metadata, load_pack_metadata
+from agentpack.core.context_pack import enrich_call_site_scores, select_files, save_pack_metadata, load_pack_metadata
 from agentpack.core.execution_state import build_execution_state, compact_execution_state
-from agentpack.core.models import ContextPack, DependencyGraph, FileInfo, ScanResult, SelectedFile, Receipt
+from agentpack.core.models import (
+    ContextPack,
+    DependencyGraph,
+    FileInfo,
+    OmittedRelevantFile,
+    Receipt,
+    ScanResult,
+    SelectedFile,
+)
 from agentpack.core.task_freshness import read_task_md, task_metadata
 from agentpack.core.thread_context import (
     append_thread_index,
@@ -126,6 +136,7 @@ class PackPlan:
     scored: list[tuple[Any, float, list[str]]]
     selected: list[SelectedFile]
     receipts: list[Receipt]
+    omitted_relevant_files: list[OmittedRelevantFile]
     phase_times: dict[str, float]
     mode_warning: str | None = None
     current_snap: dict[str, Any] = field(default_factory=dict)
@@ -146,9 +157,11 @@ class ChangeDetector:
             previous_snap = load_snapshot(root)
         if previous_snap is None:
             changed_from_snap: set[str] = set()
+            deleted_from_snap: set[str] = set()
         else:
             snap_diff = diff_snapshots(previous_snap, current_snap)
             changed_from_snap = set(snap_diff.added + snap_diff.modified)
+            deleted_from_snap = set(snap_diff.deleted)
 
         git_changed: set[str] = set()
         git_staged: set[str] = set()
@@ -162,7 +175,9 @@ class ChangeDetector:
             git_staged = git_changed
             recently_modified = git.recently_modified_files(root)
         packable_paths = {fi.path for fi in packable}
-        all_changed = (changed_from_snap | git_changed) & packable_paths
+        previous_paths = set((previous_snap or {}).get("files", {}))
+        deleted_changed = deleted_from_snap | {path for path in git_changed if path in previous_paths and path not in packable_paths}
+        all_changed = ((changed_from_snap | git_changed) & packable_paths) | deleted_changed
         git_staged = git_staged & packable_paths
         recently_modified = [path for path in recently_modified if path in packable_paths]
 
@@ -263,6 +278,94 @@ class FileRanker:
         )
 
 
+def _scan_metadata(
+    root: Path,
+    cfg: Any,
+    *,
+    include_globs: list[str],
+    exclude_globs: list[str],
+    generated_paths: set[str],
+    workspace: str | None,
+) -> dict[str, Any]:
+    ignore_path = root / cfg.project.ignore_file
+    ignore_text = ignore_path.read_text(encoding="utf-8") if ignore_path.exists() else DEFAULT_AGENTIGNORE
+    scan_config = {
+        "ignore_file": cfg.project.ignore_file,
+        "ignore_hash": _hash_text(ignore_text),
+        "include_globs": include_globs,
+        "exclude_globs": exclude_globs,
+        "generated_paths": sorted(generated_paths),
+        "max_file_tokens": cfg.context.max_file_tokens,
+        "workspace": workspace,
+    }
+    return {
+        "scan_fingerprint": _hash_json(scan_config),
+        "git_branch": git.current_branch(root) if git.is_git_repo(root) else None,
+        "git_sha": git.current_sha(root) if git.is_git_repo(root) else None,
+        "scan_config": scan_config,
+    }
+
+
+def _full_scan_reason(
+    root: Path,
+    cfg: Any,
+    previous_snap: dict[str, Any] | None,
+    scan_metadata: dict[str, Any],
+    dirty_paths: set[str],
+    ledger_paths: set[str],
+    *,
+    force_refresh: bool,
+) -> str | None:
+    if not cfg.context.incremental_scan:
+        return "incremental scan disabled"
+    if force_refresh:
+        return "refresh requested"
+    if previous_snap is None:
+        return "no previous snapshot"
+    previous_files = previous_snap.get("files") if isinstance(previous_snap.get("files"), dict) else {}
+    if not previous_files:
+        return "previous snapshot has no files"
+    if not git.is_git_repo(root):
+        return "git unavailable"
+
+    previous_meta = previous_snap.get("metadata") if isinstance(previous_snap.get("metadata"), dict) else {}
+    if previous_meta.get("scan_fingerprint") != scan_metadata.get("scan_fingerprint"):
+        return "scan config or ignore rules changed"
+    if previous_meta.get("git_branch") != scan_metadata.get("git_branch"):
+        return "git branch changed"
+    if previous_meta.get("git_sha") != scan_metadata.get("git_sha") and not ledger_paths:
+        return "git HEAD changed"
+    if len(dirty_paths) > cfg.context.max_incremental_changed_files:
+        return f"too many dirty paths ({len(dirty_paths)})"
+    if _snapshot_age_seconds(previous_snap) > cfg.context.full_scan_interval_seconds:
+        return "periodic full scan interval reached"
+    return None
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _hash_json(value: dict[str, Any]) -> str:
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return _hash_text(raw)
+
+
+def _snapshot_age_seconds(snapshot: dict[str, Any]) -> float:
+    created_at = snapshot.get("created_at")
+    if not isinstance(created_at, str):
+        return float("inf")
+    try:
+        if created_at.endswith("Z"):
+            created_at = created_at[:-1] + "+00:00"
+        created = datetime.fromisoformat(created_at)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - created).total_seconds())
+    except ValueError:
+        return float("inf")
+
+
 class PackPlanner:
     """Runs scan → summarize → graph → rank → select; shared by pack and explain."""
 
@@ -279,13 +382,46 @@ class PackPlanner:
         workspace = _resolve_workspace(root, request.workspace, workspace_roots)
         workspace_dependency_edges = detect_workspace_dependency_edges(root, workspace_roots)
         include_globs = _workspace_include_globs(workspace, cfg.project.include_globs or [])
-        scan_result = scan(
-            root, ignore_spec, cfg.context.max_file_tokens,
-            previous_snapshot=previous_snap,
-            include_globs=include_globs or None,
-            exclude_globs=cfg.project.exclude_globs or None,
-            always_skip_paths=AdapterRegistry.generated_output_paths(root, cfg),
+        generated_paths = AdapterRegistry.generated_output_paths(root, cfg)
+        scan_metadata = _scan_metadata(
+            root,
+            cfg,
+            include_globs=include_globs or [],
+            exclude_globs=cfg.project.exclude_globs or [],
+            generated_paths=generated_paths,
+            workspace=workspace,
         )
+        ledger_paths = read_changed_paths(root)
+        dirty_paths = (git.dirty_files(root) if git.is_git_repo(root) else set()) | ledger_paths
+        full_scan_reason = _full_scan_reason(
+            root,
+            cfg,
+            previous_snap,
+            scan_metadata,
+            dirty_paths,
+            ledger_paths,
+            force_refresh=request.refresh,
+        )
+        if full_scan_reason:
+            scan_result = scan(
+                root, ignore_spec, cfg.context.max_file_tokens,
+                previous_snapshot=previous_snap,
+                include_globs=include_globs or None,
+                exclude_globs=cfg.project.exclude_globs or None,
+                always_skip_paths=generated_paths,
+            )
+            scan_result.full_scan_reason = full_scan_reason
+        else:
+            scan_result = scan_incremental(
+                root,
+                ignore_spec,
+                changed_paths=dirty_paths,
+                max_file_tokens=cfg.context.max_file_tokens,
+                previous_snapshot=previous_snap,
+                include_globs=include_globs or None,
+                exclude_globs=cfg.project.exclude_globs or None,
+                always_skip_paths=generated_paths,
+            )
         phase_times["scan"] = time.perf_counter() - t0
 
         packable = scan_result.packable
@@ -301,6 +437,13 @@ class PackPlanner:
 
         t0 = time.perf_counter()
         changes = ChangeDetector().detect(packable, root, request.since, previous_snap=previous_snap)
+        changes.current_snap["metadata"] = {
+            **scan_metadata,
+            "scan_mode": scan_result.scan_mode,
+            "rehashed_count": scan_result.rehashed_count,
+            "reused_count": scan_result.reused_count,
+            "full_scan_reason": scan_result.full_scan_reason,
+        }
         phase_times["changes"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -352,6 +495,7 @@ class PackPlanner:
         selection_budget = max(0, effective_budget - estimate_tokens(repo_map))
 
         t0 = time.perf_counter()
+        omitted_relevant_files: list[OmittedRelevantFile] = []
         selected, receipts = select_files(
             files=packable,
             scored=rank_result.scored,
@@ -383,7 +527,50 @@ class PackPlanner:
                 root,
                 no_live_changes=not changes.all_changed,
             ),
+            omitted_relevant_files=omitted_relevant_files,
         )
+        expanded_scored, call_site_count = enrich_call_site_scores(
+            rank_result.scored,
+            selected,
+            summaries,
+            changes.all_changed,
+        )
+        if call_site_count:
+            omitted_relevant_files = []
+            selected, receipts = select_files(
+                files=packable,
+                scored=expanded_scored,
+                changed_paths=changes.all_changed,
+                summaries=summaries,
+                mode=effective_mode,  # type: ignore[arg-type]
+                budget=selection_budget,
+                max_file_tokens=cfg.context.max_file_tokens,
+                keywords=rank_result.keywords,
+                min_summary_score=_guarded_summary_score_floor(
+                    root, cfg, effective_mode, rank_result.generic_ratio, no_live_changes=not changes.all_changed
+                ),
+                max_summary_files=_guarded_summary_cap(
+                    root,
+                    cfg,
+                    effective_mode,
+                    rank_result.generic_ratio,
+                    no_live_changes=not changes.all_changed,
+                    effective_budget=effective_budget,
+                ),
+                max_weak_signal_files=_guarded_weak_signal_cap(
+                    root,
+                    effective_mode,
+                    rank_result.generic_ratio,
+                    no_live_changes=not changes.all_changed,
+                    effective_budget=effective_budget,
+                ),
+                strict_summary_selection=_strict_summary_selection(
+                    root,
+                    no_live_changes=not changes.all_changed,
+                ),
+                omitted_relevant_files=omitted_relevant_files,
+            )
+            rank_result.scored = expanded_scored
         phase_times["select"] = time.perf_counter() - t0
 
         return PackPlan(
@@ -411,6 +598,7 @@ class PackPlanner:
             scored=rank_result.scored,
             selected=selected,
             receipts=receipts,
+            omitted_relevant_files=omitted_relevant_files,
             phase_times=phase_times,
             mode_warning=mode_warning,
             current_snap=changes.current_snap,
@@ -523,6 +711,7 @@ class PackService:
             changed_files=sorted(plan.all_changed),
             selected_files=plan.selected,
             receipts=plan.receipts if cfg.context.include_receipts else [],
+            omitted_relevant_files=plan.omitted_relevant_files,
             redaction_warnings=all_redaction_warnings,
             stale=False,
             freshness=freshness,
@@ -548,6 +737,7 @@ class PackService:
         persist_keyword_plan_stats(root, request.task, plan.keyword_plan)
 
         save_snapshot(plan.current_snap, root)
+        clear_changed_paths(root)
         save_pack_metadata(
             root,
             context_path=str(out_path.relative_to(root)),
@@ -590,6 +780,10 @@ class PackService:
             workspace_roots=plan.workspace_roots,
             excluded_count=len(excluded_receipts),
             excluded_paths=budget_cut,
+            scan_mode=plan.scan_result.scan_mode,
+            scan_rehashed_count=plan.scan_result.rehashed_count,
+            scan_reused_count=plan.scan_result.reused_count,
+            full_scan_reason=plan.scan_result.full_scan_reason,
         )
 
         return PackResult(
@@ -726,6 +920,18 @@ def _fit_rendered_budget(pack: ContextPack, adapter: Any) -> int:
         if token_estimate <= pack.budget:
             return token_estimate
 
+    if len(pack.omitted_relevant_files) > 5:
+        pack.omitted_relevant_files = _rank_omitted_relevant_files(pack.omitted_relevant_files)[:5]
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    if pack.omitted_relevant_files:
+        pack.omitted_relevant_files = []
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
     while pack.selected_files and token_estimate > pack.budget:
         pack.selected_files.pop()
         token_estimate = _settle_rendered_token_estimate(pack, adapter)
@@ -736,6 +942,11 @@ def _fit_rendered_budget(pack: ContextPack, adapter: Any) -> int:
         token_estimate = _settle_rendered_token_estimate(pack, adapter)
 
     return token_estimate
+
+
+def _rank_omitted_relevant_files(files: list[OmittedRelevantFile]) -> list[OmittedRelevantFile]:
+    risk_rank = {"high": 0, "medium": 1, "low": 2}
+    return sorted(files, key=lambda item: (risk_rank.get(item.risk, 2), -item.score, item.path))
 
 
 def _repo_map_budget_for_mode(mode: str, effective_budget: int) -> int:
@@ -1255,7 +1466,12 @@ def _build_freshness_metadata(
         "dirty_files_count": len(dirty),
         "requested_mode": plan.requested_mode,
         "effective_mode": plan.mode,
+        "scan_mode": plan.scan_result.scan_mode,
+        "scan_rehashed_count": plan.scan_result.rehashed_count,
+        "scan_reused_count": plan.scan_result.reused_count,
     }
+    if plan.scan_result.full_scan_reason:
+        metadata["full_scan_reason"] = plan.scan_result.full_scan_reason
     if plan.mode_warning:
         metadata["mode_warning"] = plan.mode_warning
     metadata.update(task_metadata(root, request.task))
@@ -1442,6 +1658,10 @@ def _record_metrics(
     selected_hints: list[dict] | None = None,
     excluded_count: int = 0,
     excluded_paths: list[str] | None = None,
+    scan_mode: str = "full",
+    scan_rehashed_count: int = 0,
+    scan_reused_count: int = 0,
+    full_scan_reason: str | None = None,
 ) -> None:
     metrics_path = root / ".agentpack" / "metrics.jsonl"
     accuracy = _compute_selection_accuracy(root, metrics_path, selected_paths, current_changed)
@@ -1466,6 +1686,10 @@ def _record_metrics(
         "current_changed_paths": sorted(current_changed),
         "excluded_files": excluded_count,
         "excluded_paths": excluded_paths or [],
+        "scan_mode": scan_mode,
+        "scan_rehashed_count": scan_rehashed_count,
+        "scan_reused_count": scan_reused_count,
+        "full_scan_reason": full_scan_reason,
         "selected_paths": selected_paths,
         "selected_tokens": selected_tokens,
         "selected_modes": selected_modes,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any, Literal
 
 from agentpack.core.models import (
     FileInfo,
+    OmittedRelevantFile,
     Receipt,
     SelectedFile,
     Symbol,
@@ -331,6 +333,149 @@ def _selection_priority(
 
 _RESERVED_BUCKET_ORDER = ("changed", "tests", "docs", "deps")
 
+_CALL_TARGET_STOPWORDS = {
+    "build",
+    "check",
+    "close",
+    "create",
+    "delete",
+    "find",
+    "get",
+    "init",
+    "list",
+    "load",
+    "main",
+    "make",
+    "open",
+    "parse",
+    "read",
+    "render",
+    "run",
+    "save",
+    "set",
+    "test",
+    "update",
+    "write",
+}
+
+
+def classify_omission_risk(path: str, reasons: list[str], score: float) -> Literal["high", "medium", "low"]:
+    path_lc = path.lower()
+    reason_text = " ".join(reasons).lower()
+    if (
+        "reverse dependency" in reason_text
+        or "caller" in reason_text
+        or "related test" in reason_text
+        or "test for" in reason_text
+        or path_lc.startswith(("tests/", "test/"))
+        or "/tests/" in path_lc
+        or any(part in path_lc for part in ("route", "routes", "controller", "api/"))
+        or any(part in path_lc for part in ("schema", "migration", "model", "models"))
+    ):
+        return "high"
+    if (
+        "direct dependency" in reason_text
+        or "config" in reason_text
+        or any(part in path_lc for part in ("config", ".env", "deploy", "settings"))
+        or score > 150
+    ):
+        return "medium"
+    return "low"
+
+
+def enrich_call_site_scores(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    selected: list[SelectedFile],
+    summaries: dict[str, Any],
+    changed_paths: set[str],
+    *,
+    boost: float = 90.0,
+) -> tuple[list[tuple[FileInfo, float, list[str]]], int]:
+    """Boost files whose cached calls reference symbols from selected source files."""
+    targets = _selected_call_targets(selected, summaries, changed_paths)
+    if not targets:
+        return scored, 0
+
+    selected_paths = {sf.path for sf in selected}
+    expanded: list[tuple[FileInfo, float, list[str]]] = []
+    changed_count = 0
+    for fi, score, reasons in scored:
+        if fi.path in selected_paths:
+            expanded.append((fi, score, reasons))
+            continue
+        matched = _matched_called_symbols(summaries.get(fi.path), targets)
+        if not matched:
+            expanded.append((fi, score, reasons))
+            continue
+        caller_reasons = [f"caller of selected symbol `{name}`" for name in matched[:3]]
+        new_reasons = [*reasons, *[reason for reason in caller_reasons if reason not in reasons]]
+        expanded.append((fi, score + min(boost * len(matched), boost * 2), new_reasons))
+        changed_count += 1
+
+    return expanded, changed_count
+
+
+def _selected_call_targets(
+    selected: list[SelectedFile],
+    summaries: dict[str, Any],
+    changed_paths: set[str],
+    *,
+    limit: int = 40,
+) -> dict[str, str]:
+    targets: dict[str, str] = {}
+    for sf in selected:
+        if sf.include_mode not in ("full", "diff", "symbols") and sf.path not in changed_paths:
+            continue
+        summary_data = summaries.get(sf.path) or {}
+        for raw_name in _summary_symbol_names(summary_data):
+            base = _call_symbol_base(raw_name)
+            if not base or base in targets:
+                continue
+            targets[base] = raw_name
+            if len(targets) >= limit:
+                return targets
+    return targets
+
+
+def _summary_symbol_names(summary_data: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for raw in summary_data.get("symbols") or []:
+        name = raw.get("name") if isinstance(raw, dict) else getattr(raw, "name", None)
+        if isinstance(name, str):
+            names.append(name)
+    for name in summary_data.get("defines") or []:
+        if isinstance(name, str):
+            names.append(name)
+    return names
+
+
+def _call_symbol_base(name: str) -> str | None:
+    base = name.rsplit(".", 1)[-1].strip()
+    if not base:
+        return None
+    base_lc = base.lower()
+    if len(base_lc) < 4 or base_lc in _CALL_TARGET_STOPWORDS:
+        return None
+    if not re.search(r"[a-zA-Z]", base_lc):
+        return None
+    return base_lc
+
+
+def _matched_called_symbols(summary_data: dict[str, Any] | None, targets: dict[str, str]) -> list[str]:
+    if not summary_data:
+        return []
+    matched: list[str] = []
+    for raw_call in summary_data.get("calls") or []:
+        if not isinstance(raw_call, str):
+            continue
+        call_lc = raw_call.lower()
+        call_base = _call_symbol_base(raw_call)
+        for target_base, display_name in targets.items():
+            if call_base == target_base or call_lc.endswith(f".{target_base}"):
+                if display_name not in matched:
+                    matched.append(display_name)
+    return matched
+
 
 def _selection_bucket(fi: FileInfo, reasons: list[str], changed_paths: set[str]) -> str:
     path = fi.path
@@ -418,6 +563,7 @@ def select_files(
     max_summary_files: int = 0,
     max_weak_signal_files: int = 0,
     strict_summary_selection: bool = False,
+    omitted_relevant_files: list[OmittedRelevantFile] | None = None,
 ) -> tuple[list[SelectedFile], list[Receipt]]:
     opts = _MODE_WEIGHTS[mode]
     selected: list[SelectedFile] = []
@@ -570,6 +716,18 @@ def select_files(
             continue
 
         if tokens_used + tok > budget:
+            if omitted_relevant_files is not None:
+                omitted_relevant_files.append(
+                    OmittedRelevantFile(
+                        path=fi.path,
+                        score=score,
+                        reasons=reasons,
+                        estimated_tokens=fi.estimated_tokens,
+                        suggested_mode=mode_str,
+                        omission_reason="budget exhausted",
+                        risk=classify_omission_risk(fi.path, reasons, score),
+                    )
+                )
             receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
             continue
 

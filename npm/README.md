@@ -9,9 +9,9 @@
 
 Claude Code, Codex, Cursor, and other coding agents can waste tool calls rediscovering your repo before they make the edit you asked for.
 
-AgentPack analyzes your repo locally, finds the relevant files, tests, rules, and skills for a task, and packages compact context for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools and workflows, CI jobs, and other agent workflows.
+AgentPack analyzes your repo locally, ranks likely relevant files, tests, rules, and skills for a task, and packages compact context for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools and workflows, CI jobs, and other agent workflows.
 
-Use it when the repo is too large to paste and you want faster, more consistent context around the routes, services, tests, configs, and recent changes that actually matter.
+Use it when the repo is too large to paste and you want a repeatable context map around likely relevant routes, services, tests, configs, and recent changes.
 
 This npm package is a launcher and wrapper for the Python CLI [`agentpack-cli`](https://pypi.org/project/agentpack-cli/), giving JavaScript-heavy teams a familiar install path while keeping the Python implementation as the source of truth.
 
@@ -25,7 +25,7 @@ npx @vishal2612200/agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](https://raw.githubusercontent.com/vishal2612200/agentpack/main/docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.12).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.12).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
 >
@@ -148,11 +148,11 @@ AgentPack is not:
 
 ## Quality bar
 
-AgentPack is best treated as a ranked starting map. It should reduce repeated orientation work, but the agent and reviewer still own correctness.
+AgentPack is best treated as a ranked starting map. It can reduce repeated orientation work, but the agent and reviewer still own correctness.
 
 | Signal | What good looks like |
 |---|---|
-| Token reduction | 90-99% smaller than raw repo text on large repos |
+| Token reduction | Measure against raw repo text for your repo; savings depend on task, ignores, and budget |
 | Pack size | Usually 8k-25k tokens for a specific task |
 | Pack time | Seconds on a warm cache; first summarize pass is slower |
 | Recall | Expected files appear near the top; validate with `agentpack benchmark --misses` |

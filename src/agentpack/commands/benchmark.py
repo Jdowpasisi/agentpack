@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import random
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -17,7 +19,15 @@ from rich import box
 
 from agentpack.commands._shared import console, _root
 from agentpack.commands.pack import _resolve_task
+from agentpack.application.pack_service import PackRequest, PackService
 from agentpack.core import git
+from agentpack.core.config import load_config
+from agentpack.core.token_estimator import estimate_tokens
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 @dataclass
@@ -77,6 +87,41 @@ class PublicRepoSpec:
     url: str
     ref: str = "main"
     cases: list[PublicRepoCase] = field(default_factory=list)
+
+
+@dataclass
+class E2ECase:
+    name: str
+    repo: Path
+    task: str
+    test_command: str
+    setup_command: str = ""
+    protected_paths: list[str] = field(default_factory=list)
+    expected_edit_paths: list[str] = field(default_factory=list)
+
+
+@dataclass
+class E2EResult:
+    schema_version: int
+    case: str
+    strategy: str
+    trial: int
+    passed: bool
+    duration_s: float
+    input_tokens: int
+    agent_returncode: int
+    test_returncode: int
+    timed_out: bool
+    changed_files: list[str]
+    source_files_changed: list[str]
+    test_files_changed: list[str]
+    protected_files_changed: list[str]
+    expected_files_touched: list[str]
+    missing_expected_edits: list[str]
+    unexpected_files_touched: list[str]
+    agent_log_path: str
+    test_log_path: str
+    workdir: str
 
 
 def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
@@ -1087,6 +1132,557 @@ def capture_benchmark_case(
     out = _append_benchmark_cases(root, [case])
     console.print(f"[green]✓[/] Appended benchmark case to [bold]{out}[/]")
     console.print(f"  expected_files: {len(expected)}")
+
+
+@benchmark_app.command("scan-modes")
+def benchmark_scan_modes(
+    files: int = typer.Option(2000, "--files", help="Synthetic source file count."),
+    target_every: int = typer.Option(200, "--target-every", help="Put the target symbol in every Nth file."),
+    llm_command: str = typer.Option("", "--llm-command", help="Optional command that accepts a prompt file path as last arg."),
+) -> None:
+    """Compare grep baseline and AgentPack full/incremental scan on a synthetic repo."""
+    with tempfile.TemporaryDirectory(prefix="agentpack-bench-") as tmp:
+        root = Path(tmp)
+        _build_synthetic_repo(root, files=files, target_every=target_every)
+        _init_synthetic_git(root)
+
+        task = "fix target_symbol caller behavior"
+        grep_start = time.perf_counter()
+        grep = subprocess.run(
+            ["rg", "-n", "target_symbol", "src"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        grep_s = time.perf_counter() - grep_start
+
+        full_start = time.perf_counter()
+        full = PackService().run(PackRequest(
+            root=root,
+            agent="generic",
+            task=task,
+            mode="balanced",
+            budget=40000,
+            since=None,
+            refresh=False,
+            task_source="benchmark",
+        ))
+        full_s = time.perf_counter() - full_start
+
+        changed = root / "src" / "file_0000.py"
+        changed.write_text(changed.read_text(encoding="utf-8") + "\n# changed\n", encoding="utf-8")
+        incremental_start = time.perf_counter()
+        incremental = PackService().run(PackRequest(
+            root=root,
+            agent="generic",
+            task=task,
+            mode="balanced",
+            budget=40000,
+            since=None,
+            refresh=False,
+            task_source="benchmark",
+        ))
+        incremental_s = time.perf_counter() - incremental_start
+
+        llm_s: float | None = None
+        if llm_command:
+            prompt_path = root / "prompt.txt"
+            prompt_path.write_text(
+                "Find files relevant to fixing target_symbol caller behavior. Return file paths only.\n",
+                encoding="utf-8",
+            )
+            llm_start = time.perf_counter()
+            subprocess.run(
+                [*llm_command.split(), str(prompt_path)],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            llm_s = time.perf_counter() - llm_start
+
+        table = Table(box=box.SIMPLE, show_header=True)
+        table.add_column("method")
+        table.add_column("seconds", justify="right")
+        table.add_column("details")
+        table.add_row("grep rg", f"{grep_s:.3f}", f"{len(grep.stdout.splitlines())} matching lines")
+        table.add_row(
+            "agentpack full",
+            f"{full_s:.3f}",
+            (
+                f"{full.scan_result.rehashed_count} hashed, {full.packed_tokens:,}/{full.raw_tokens:,} tokens "
+                f"({full.saving_pct:.1f}% less)"
+            ),
+        )
+        table.add_row(
+            f"agentpack {incremental.scan_result.scan_mode}",
+            f"{incremental_s:.3f}",
+            (
+                f"{incremental.scan_result.rehashed_count} rehashed, {incremental.scan_result.reused_count} reused"
+                + (f"; {incremental.scan_result.full_scan_reason}" if incremental.scan_result.full_scan_reason else "")
+            ),
+        )
+        if llm_s is not None:
+            table.add_row("external llm/agent", f"{llm_s:.3f}", llm_command)
+        console.print(table)
+
+
+@benchmark_app.command("e2e")
+def benchmark_e2e(
+    cases: str = typer.Option(..., "--cases", help="TOML file with [[cases]] entries."),
+    agent_command: str = typer.Option(..., "--agent-command", help="Agent command. Use {prompt} and {repo} placeholders, or prompt path is appended."),
+    strategies: str = typer.Option("no-context,grep,agentpack-lite,hybrid,agentpack", "--strategies", help="Comma-separated: no-context,grep,agentpack-lite,hybrid,agentpack."),
+    trials: int = typer.Option(1, "--trials", help="Runs per case per strategy."),
+    timeout: int = typer.Option(300, "--timeout", help="Agent command timeout seconds."),
+    output: str = typer.Option("", "--output", help="JSONL output path. Default: .agentpack/e2e_results.jsonl"),
+    keep_workdirs: bool = typer.Option(False, "--keep-workdirs", help="Keep temp workdirs for failed-result inspection."),
+) -> None:
+    """Run real coding-agent E2E evals and judge by test command pass/fail."""
+    root = _root()
+    parsed_cases = _load_e2e_cases(root, Path(cases))
+    wanted_strategies = [item.strip() for item in strategies.split(",") if item.strip()]
+    unknown = set(wanted_strategies) - {"no-context", "grep", "agentpack-lite", "hybrid", "agentpack"}
+    if unknown:
+        raise typer.BadParameter(f"Unknown strategy: {', '.join(sorted(unknown))}")
+    if trials < 1:
+        raise typer.BadParameter("--trials must be >= 1")
+
+    out_path = Path(output) if output else root / ".agentpack" / "e2e_results.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    results: list[E2EResult] = []
+
+    for case in parsed_cases:
+        for strategy in wanted_strategies:
+            for trial in range(1, trials + 1):
+                result = _run_e2e_case(
+                    case,
+                    strategy=strategy,
+                    trial=trial,
+                    agent_command=agent_command,
+                    timeout=timeout,
+                    keep_workdir=keep_workdirs,
+                )
+                results.append(result)
+                with out_path.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(result.__dict__) + "\n")
+
+    _print_e2e_summary(results, out_path)
+
+
+def _load_e2e_cases(root: Path, path: Path) -> list[E2ECase]:
+    case_path = path if path.is_absolute() else root / path
+    data = tomllib.loads(case_path.read_text(encoding="utf-8"))
+    cases: list[E2ECase] = []
+    for raw in data.get("cases") or []:
+        repo_value = raw.get("repo")
+        if not repo_value:
+            raise ValueError(f"Case {raw.get('name') or '<unnamed>'} missing repo")
+        repo = Path(str(repo_value))
+        if not repo.is_absolute():
+            repo = (case_path.parent / repo).resolve()
+        cases.append(
+            E2ECase(
+                name=str(raw.get("name") or repo.name),
+                repo=repo,
+                task=str(raw.get("task") or ""),
+                test_command=str(raw.get("test_command") or ""),
+                setup_command=str(raw.get("setup_command") or ""),
+                protected_paths=[str(path) for path in raw.get("protected_paths", [])],
+                expected_edit_paths=[str(path) for path in raw.get("expected_edit_paths", [])],
+            )
+        )
+    if not cases:
+        raise ValueError(f"No [[cases]] found in {case_path}")
+    return cases
+
+
+def _run_e2e_case(
+    case: E2ECase,
+    *,
+    strategy: str,
+    trial: int,
+    agent_command: str,
+    timeout: int,
+    keep_workdir: bool,
+) -> E2EResult:
+    start = time.perf_counter()
+    work_root = Path(tempfile.mkdtemp(prefix=f"agentpack-e2e-{case.name}-{strategy}-"))
+    repo = work_root / "repo"
+    shutil.copytree(case.repo, repo, ignore=shutil.ignore_patterns(".git", ".agentpack", "__pycache__", ".pytest_cache"))
+    _init_e2e_git(repo)
+    if case.setup_command:
+        subprocess.run(case.setup_command, cwd=repo, shell=True, capture_output=True, text=True, timeout=timeout)
+    protected_hashes = _hash_protected_paths(repo, case.protected_paths)
+
+    prompt = _e2e_prompt(case, strategy, repo)
+    prompt_path = repo / ".agentpack_e2e_prompt.txt"
+    prompt_path.write_text(prompt, encoding="utf-8")
+    agent_args = _agent_args(agent_command, prompt_path, repo)
+    timed_out = False
+    try:
+        agent = subprocess.run(agent_args, cwd=repo, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        agent = _timeout_result(agent_args, exc)
+    agent_log_path = work_root / "agent.log"
+    test_log_path = work_root / "test.log"
+    _write_e2e_process_log(agent_log_path, agent)
+    try:
+        test = subprocess.run(case.test_command, cwd=repo, shell=True, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        test = _timeout_result(case.test_command, exc)
+    _write_e2e_process_log(test_log_path, test)
+    changed = sorted(git.dirty_files(repo)) if git.is_git_repo(repo) else []
+    public_changed = _public_changed_files(changed)
+    source_changed = [path for path in public_changed if not _is_test_path(path)]
+    test_changed = [path for path in public_changed if _is_test_path(path)]
+    protected_changed = _changed_protected_paths(repo, protected_hashes)
+    expected_touched = _expected_files_touched(public_changed, case.expected_edit_paths)
+    missing_expected = sorted(set(case.expected_edit_paths) - set(expected_touched))
+    unexpected_touched = _unexpected_files_touched(public_changed, case.expected_edit_paths)
+    duration = time.perf_counter() - start
+    passed = not timed_out and agent.returncode == 0 and test.returncode == 0 and not protected_changed
+
+    if not keep_workdir and passed:
+        shutil.rmtree(work_root, ignore_errors=True)
+
+    return E2EResult(
+        schema_version=2,
+        case=case.name,
+        strategy=strategy,
+        trial=trial,
+        passed=passed,
+        duration_s=round(duration, 3),
+        input_tokens=estimate_tokens(prompt),
+        agent_returncode=agent.returncode,
+        test_returncode=test.returncode,
+        timed_out=timed_out,
+        changed_files=changed,
+        source_files_changed=source_changed,
+        test_files_changed=test_changed,
+        protected_files_changed=protected_changed,
+        expected_files_touched=expected_touched,
+        missing_expected_edits=missing_expected,
+        unexpected_files_touched=unexpected_touched,
+        agent_log_path=str(agent_log_path),
+        test_log_path=str(test_log_path),
+        workdir=str(work_root),
+    )
+
+
+def _public_changed_files(changed: list[str]) -> list[str]:
+    internal = {".agentpack_e2e_prompt.txt"}
+    return sorted(path for path in changed if path not in internal and not _is_generated_e2e_path(path))
+
+
+def _is_generated_e2e_path(path: str) -> bool:
+    return (
+        path == ".agentpack"
+        or path.startswith(".agentpack/")
+        or path == ".agentpack/"
+        or "__pycache__/" in path
+        or path.endswith("__pycache__/")
+        or path.endswith(".pyc")
+    )
+
+
+def _is_test_path(path: str) -> bool:
+    name = Path(path).name
+    return (
+        path.startswith("tests/")
+        or "/tests/" in path
+        or name.startswith("test_")
+        or name.endswith("_test.py")
+        or name.endswith(".test.ts")
+        or name.endswith(".test.tsx")
+        or name.endswith(".spec.ts")
+        or name.endswith(".spec.tsx")
+    )
+
+
+def _expected_files_touched(changed: list[str], expected_edit_paths: list[str]) -> list[str]:
+    expected = set(expected_edit_paths)
+    return sorted(path for path in changed if path in expected)
+
+
+def _unexpected_files_touched(changed: list[str], expected_edit_paths: list[str]) -> list[str]:
+    if not expected_edit_paths:
+        return []
+    expected = set(expected_edit_paths)
+    return sorted(path for path in changed if path not in expected)
+
+
+def _hash_protected_paths(repo: Path, paths: list[str]) -> dict[str, str | None]:
+    return {path: _file_sha256(repo / path) for path in paths}
+
+
+def _changed_protected_paths(repo: Path, before: dict[str, str | None]) -> list[str]:
+    return [
+        path
+        for path, expected in before.items()
+        if _file_sha256(repo / path) != expected
+    ]
+
+
+def _file_sha256(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _write_e2e_process_log(path: Path, result: subprocess.CompletedProcess[str]) -> None:
+    path.write_text(
+        "\n".join([
+            f"returncode={result.returncode}",
+            "",
+            "STDOUT:",
+            result.stdout,
+            "",
+            "STDERR:",
+            result.stderr,
+        ]),
+        encoding="utf-8",
+    )
+
+
+def _timeout_result(
+    args: str | list[str],
+    exc: subprocess.TimeoutExpired,
+) -> subprocess.CompletedProcess[str]:
+    stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode(errors="replace")
+    stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode(errors="replace")
+    return subprocess.CompletedProcess(
+        args=args,
+        returncode=124,
+        stdout=stdout,
+        stderr=stderr + f"\nTimed out after {exc.timeout} seconds.",
+    )
+
+
+def _e2e_prompt(case: E2ECase, strategy: str, repo: Path) -> str:
+    base = (
+        f"Task: {case.task}\n\n"
+        "Edit the repository to complete the task. Keep changes minimal. "
+        f"After editing, the validation command should pass: `{case.test_command}`.\n"
+    )
+    if strategy == "no-context":
+        return base
+    if strategy == "grep":
+        return base + "\nRelevant grep output:\n" + _grep_context(case.task, repo)
+    if strategy == "agentpack-lite":
+        return base + "\nAgentPack lite context:\n" + _agentpack_lite_context(case, repo)
+    if strategy == "hybrid":
+        return (
+            base
+            + "\nRelevant grep output:\n"
+            + _grep_context(case.task, repo)
+            + "\n\nAgentPack lite context:\n"
+            + _agentpack_lite_context(case, repo)
+        )
+    if strategy == "agentpack":
+        result = PackService().run(PackRequest(
+            root=repo,
+            agent="generic",
+            task=case.task,
+            mode="balanced",
+            budget=40000,
+            since=None,
+            refresh=False,
+            task_source="e2e",
+        ))
+        context = result.out_path.read_text(encoding="utf-8") if result.out_path.exists() else ""
+        return base + "\nAgentPack context:\n" + context
+    raise ValueError(f"unknown strategy: {strategy}")
+
+
+def _agentpack_lite_context(case: E2ECase, repo: Path) -> str:
+    lite = load_config(repo).context_lite
+    result = PackService().run(PackRequest(
+        root=repo,
+        agent="generic",
+        task=case.task,
+        mode="minimal",
+        budget=lite.budget,
+        since=None,
+        refresh=False,
+        task_source="e2e-lite",
+    ))
+    pack = result.pack
+    lines = [
+        "Purpose: cheap repo situational awareness. Inspect files before editing; omitted paths are warnings, not evidence.",
+        "",
+        "## Selected File Map",
+        "| File | Mode | Score | Why |",
+        "|---|---|---:|---|",
+    ]
+    for selected in pack.selected_files[:lite.max_selected_files]:
+        why = ", ".join(selected.reasons[:3]) or "-"
+        lines.append(f"| `{selected.path}` | {selected.include_mode} | {selected.score:.0f} | {why} |")
+
+    if pack.omitted_relevant_files:
+        lines.extend([
+            "",
+            "## High-Risk Omitted Files",
+            "| File | Risk | Score | Why |",
+            "|---|---|---:|---|",
+        ])
+        for omitted in pack.omitted_relevant_files[:lite.max_omitted_files]:
+            why = ", ".join(omitted.reasons[:3]) or omitted.omission_reason
+            lines.append(f"| `{omitted.path}` | {omitted.risk.upper()} | {omitted.score:.0f} | {why} |")
+
+    if pack.changed_files:
+        lines.extend(["", "## Changed Files"])
+        lines.extend(f"- `{path}`" for path in pack.changed_files[:15])
+
+    stubs = _lite_file_stubs(pack.selected_files[:lite.max_stubs], summary_chars=lite.summary_chars)
+    if stubs:
+        lines.extend(["", "## File Stubs", *stubs])
+
+    return "\n".join(lines)
+
+
+def _lite_file_stubs(selected_files: list[Any], *, summary_chars: int = 500) -> list[str]:
+    lines: list[str] = []
+    for selected in selected_files:
+        parts = [f"### `{selected.path}`"]
+        if selected.summary:
+            parts.append(_truncate_line(selected.summary, summary_chars))
+        signatures = [
+            symbol.signature or f"{symbol.kind} {symbol.name}"
+            for symbol in selected.symbols[:8]
+        ]
+        if signatures:
+            parts.append("Symbols: " + "; ".join(signatures))
+        if len(parts) > 1:
+            lines.extend(parts)
+    return lines
+
+
+def _truncate_line(text: str, limit: int) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: limit - 1].rstrip() + "…"
+
+
+def _grep_context(task: str, repo: Path, *, max_lines: int = 120) -> str:
+    terms = [term for term in task.replace("_", " ").replace("-", " ").split() if len(term) >= 4]
+    if not terms:
+        return "(no grep terms)"
+    outputs: list[str] = []
+    for term in terms[:8]:
+        try:
+            result = subprocess.run(
+                ["rg", "-n", "--glob", "!.git", "--glob", "!.agentpack", term],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.stdout:
+            outputs.extend(result.stdout.splitlines())
+        if len(outputs) >= max_lines:
+            break
+    return "\n".join(outputs[:max_lines]) or "(no grep matches)"
+
+
+def _agent_args(command: str, prompt_path: Path, repo: Path) -> list[str]:
+    rendered = command.replace("{prompt}", str(prompt_path)).replace("{repo}", str(repo))
+    args = shlex.split(rendered)
+    if "{prompt}" not in command:
+        args.append(str(prompt_path))
+    return args
+
+
+def _init_e2e_git(repo: Path) -> None:
+    subprocess.run(["git", "init", "--quiet"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "agentpack@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "AgentPack E2E"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "initial"], cwd=repo, check=True)
+
+
+def _print_e2e_summary(results: list[E2EResult], out_path: Path) -> None:
+    table = Table(box=box.SIMPLE, show_header=True)
+    table.add_column("strategy")
+    table.add_column("runs", justify="right")
+    table.add_column("pass rate", justify="right")
+    table.add_column("timeouts", justify="right")
+    table.add_column("expected touch", justify="right")
+    table.add_column("avg tokens", justify="right")
+    table.add_column("avg seconds", justify="right")
+    table.add_column("pass/min", justify="right")
+    for strategy in sorted({result.strategy for result in results}):
+        subset = [result for result in results if result.strategy == strategy]
+        pass_rate = sum(1 for result in subset if result.passed) / len(subset)
+        timeout_rate = sum(1 for result in subset if result.timed_out) / len(subset)
+        expected_cases = [result for result in subset if result.expected_files_touched or result.missing_expected_edits]
+        expected_touch_rate = (
+            sum(1 for result in expected_cases if result.expected_files_touched) / len(expected_cases)
+            if expected_cases
+            else None
+        )
+        avg_tokens = sum(result.input_tokens for result in subset) / len(subset)
+        avg_seconds = sum(result.duration_s for result in subset) / len(subset)
+        total_seconds = sum(result.duration_s for result in subset)
+        pass_per_minute = (sum(1 for result in subset if result.passed) / total_seconds * 60) if total_seconds else 0.0
+        table.add_row(
+            strategy,
+            str(len(subset)),
+            f"{pass_rate:.0%}",
+            f"{timeout_rate:.0%}",
+            f"{expected_touch_rate:.0%}" if expected_touch_rate is not None else "-",
+            f"{avg_tokens:,.0f}",
+            f"{avg_seconds:.1f}",
+            f"{pass_per_minute:.2f}",
+        )
+    console.print(table)
+    console.print(f"[dim]JSONL: {out_path}[/]")
+
+
+def _build_synthetic_repo(root: Path, *, files: int, target_every: int) -> None:
+    src = root / "src"
+    src.mkdir(parents=True)
+    for index in range(files):
+        target = "\n    return target_symbol(value)\n" if index % max(1, target_every) == 0 else "\n    return value\n"
+        (src / f"file_{index:04d}.py").write_text(
+            f"def helper_{index}(value):{target}\n",
+            encoding="utf-8",
+        )
+    (root / ".agentpack").mkdir()
+    (root / ".gitignore").write_text(
+        "\n".join([
+            ".agentpack/cache/",
+            ".agentpack/snapshots/",
+            ".agentpack/context*.md",
+            ".agentpack/metrics.jsonl",
+            ".agentpack/pack_metadata.json",
+            ".agentpack/term_stats.json",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    (root / ".agentpack" / "config.toml").write_text(
+        "[context]\ndefault_budget = 40000\nincremental_scan = true\ninclude_receipts = true\n",
+        encoding="utf-8",
+    )
+    (root / ".agentpack" / "task.md").write_text("fix target_symbol caller behavior\n", encoding="utf-8")
+
+
+def _init_synthetic_git(root: Path) -> None:
+    subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "agentpack@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "AgentPack Benchmark"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "initial"], cwd=root, check=True)
 
 
 @benchmark_app.callback(invoke_without_command=True)

@@ -22,6 +22,9 @@ class ContextConfig(BaseModel):
     default_budget: int = 40000
     default_mode: str = "balanced"
     max_file_tokens: int = 4000
+    incremental_scan: bool = True
+    full_scan_interval_seconds: int = 3600
+    max_incremental_changed_files: int = 200
     min_summary_score: float = 60
     max_summary_files_minimal: int = 15
     max_summary_files_balanced: int = 40
@@ -29,6 +32,14 @@ class ContextConfig(BaseModel):
     include_tests: bool = True
     include_configs: bool = True
     include_receipts: bool = True
+
+
+class LiteContextConfig(BaseModel):
+    budget: int = 8000
+    max_selected_files: int = 12
+    max_omitted_files: int = 5
+    max_stubs: int = 8
+    summary_chars: int = 500
 
 
 class SummaryConfig(BaseModel):
@@ -103,6 +114,7 @@ class ScoringWeights(BaseModel):
 class Config(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    context_lite: LiteContextConfig = Field(default_factory=LiteContextConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
@@ -125,6 +137,9 @@ exclude_globs = []
 default_budget = 40000   # token budget per pack
 default_mode = "balanced"  # minimal | balanced | deep
 max_file_tokens = 4000   # files larger than this are summarised, not inlined
+incremental_scan = true  # reuse previous snapshot and re-hash only dirty paths when safe
+full_scan_interval_seconds = 3600  # periodic correctness backstop
+max_incremental_changed_files = 200  # fall back to full scan above this many dirty paths
 min_summary_score = 60   # unchanged summary files below this score are excluded
 max_summary_files_minimal = 15   # 0 = no cap
 max_summary_files_balanced = 40  # 0 = no cap
@@ -132,6 +147,13 @@ max_summary_files_deep = 0       # deep mode stays uncapped
 include_tests = true
 include_configs = true
 include_receipts = true
+
+[context_lite]
+budget = 8000
+max_selected_files = 12
+max_omitted_files = 5
+max_stubs = 8
+summary_chars = 500
 
 [summary]
 provider = "offline"

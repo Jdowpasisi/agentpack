@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
@@ -13,11 +14,14 @@ from agentpack.core.models import Receipt
 from agentpack.commands.benchmark import (
     BenchmarkCase,
     CaseResult,
+    E2ECase,
     _precision_recall,
     _sample_fixture_cases,
     _load_cases,
+    _load_e2e_cases,
     _scaffold_cases,
     _run_case,
+    _run_e2e_case,
     _persist_result,
     _load_history_cases,
     _random_baseline,
@@ -27,6 +31,12 @@ from agentpack.commands.benchmark import (
     _quality_status,
     _load_public_repo_specs,
     _run_public_repo_suite,
+    _public_changed_files,
+    _is_test_path,
+    _expected_files_touched,
+    _unexpected_files_touched,
+    _timeout_result,
+    _e2e_prompt,
 )
 
 
@@ -668,3 +678,144 @@ def test_benchmark_cli_misses_prints_diagnostics(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "miss details" in result.output
     assert "astrology.service.ts" in result.output
+
+
+def test_load_e2e_cases_reads_guard_and_expected_paths(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cases = tmp_path / "cases.toml"
+    cases.write_text(
+        f"""
+[[cases]]
+name = "guarded"
+repo = "{repo}"
+task = "fix guarded case"
+test_command = "pytest"
+protected_paths = ["tests/test_guard.py"]
+expected_edit_paths = ["src/guard.py"]
+""",
+        encoding="utf-8",
+    )
+
+    loaded = _load_e2e_cases(tmp_path, cases)
+
+    assert loaded[0].protected_paths == ["tests/test_guard.py"]
+    assert loaded[0].expected_edit_paths == ["src/guard.py"]
+
+
+def test_e2e_changed_file_classification_helpers() -> None:
+    changed = _public_changed_files([
+        ".agentpack_e2e_prompt.txt",
+        ".agentpack/",
+        "src/__pycache__/",
+        "src/app.py",
+        "tests/test_app.py",
+        "frontend/button.test.tsx",
+    ])
+
+    assert changed == ["frontend/button.test.tsx", "src/app.py", "tests/test_app.py"]
+    assert _is_test_path("tests/test_app.py")
+    assert _is_test_path("frontend/button.test.tsx")
+    assert not _is_test_path("src/app.py")
+    assert _expected_files_touched(changed, ["src/app.py"]) == ["src/app.py"]
+    assert _unexpected_files_touched(changed, ["src/app.py"]) == ["frontend/button.test.tsx", "tests/test_app.py"]
+    assert _unexpected_files_touched(changed, []) == []
+
+
+def test_timeout_result_records_failed_process() -> None:
+    exc = subprocess.TimeoutExpired(["agent"], timeout=7, output=b"partial", stderr=b"slow")
+
+    result = _timeout_result(["agent"], exc)
+
+    assert result.returncode == 124
+    assert result.stdout == "partial"
+    assert "Timed out after 7 seconds" in result.stderr
+
+
+def test_run_e2e_case_fails_when_protected_file_changes(tmp_path: Path) -> None:
+    repo = tmp_path / "source"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "tests" / "test_guard.py").write_text("def test_guard():\n    assert True\n", encoding="utf-8")
+    agent = tmp_path / "agent.py"
+    agent.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "Path(sys.argv[1], 'tests/test_guard.py').write_text('def test_guard():\\n    assert True\\n# edited\\n')\n",
+        encoding="utf-8",
+    )
+    case = E2ECase(
+        name="protected",
+        repo=repo,
+        task="do not edit tests",
+        test_command="python -c 'pass'",
+        protected_paths=["tests/test_guard.py"],
+        expected_edit_paths=["src/app.py"],
+    )
+
+    result = _run_e2e_case(
+        case,
+        strategy="no-context",
+        trial=1,
+        agent_command=f"python {agent} {{repo}} {{prompt}}",
+        timeout=10,
+        keep_workdir=True,
+    )
+
+    assert not result.passed
+    assert result.protected_files_changed == ["tests/test_guard.py"]
+    assert result.test_files_changed == ["tests/test_guard.py"]
+    assert result.missing_expected_edits == ["src/app.py"]
+
+
+def test_e2e_hybrid_prompt_combines_grep_and_lite(tmp_path: Path) -> None:
+    case = E2ECase(name="hybrid", repo=tmp_path, task="fix auth", test_command="pytest")
+
+    with patch("agentpack.commands.benchmark._grep_context", return_value="grep-hit"), \
+         patch("agentpack.commands.benchmark._agentpack_lite_context", return_value="lite-map"):
+        prompt = _e2e_prompt(case, "hybrid", tmp_path)
+
+    assert "grep-hit" in prompt
+    assert "lite-map" in prompt
+
+
+def test_e2e_agentpack_lite_prompt_uses_compact_map(tmp_path: Path) -> None:
+    case = E2ECase(name="lite", repo=tmp_path, task="fix refund", test_command="pytest")
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text(
+        "[context_lite]\nbudget = 1234\nmax_selected_files = 1\nmax_omitted_files = 1\nmax_stubs = 1\nsummary_chars = 50\n",
+        encoding="utf-8",
+    )
+    selected = SimpleNamespace(
+        path="src/refund.py",
+        include_mode="summary",
+        score=123.0,
+        reasons=["keyword match"],
+        summary="Refund service summary",
+        symbols=[SimpleNamespace(signature="def refund_order(order_id):")],
+    )
+    omitted = SimpleNamespace(
+        path="api/refund_route.py",
+        risk="high",
+        score=95.0,
+        reasons=["caller of refund_order"],
+        omission_reason="budget exhausted",
+    )
+    fake_result = SimpleNamespace(
+        pack=SimpleNamespace(
+            selected_files=[selected],
+            omitted_relevant_files=[omitted],
+            changed_files=["src/refund.py"],
+        )
+    )
+
+    with patch("agentpack.commands.benchmark.PackService") as service:
+        service.return_value.run.return_value = fake_result
+        prompt = _e2e_prompt(case, "agentpack-lite", tmp_path)
+
+    request = service.return_value.run.call_args.args[0]
+    assert request.budget == 1234
+    assert "Selected File Map" in prompt
+    assert "`src/refund.py`" in prompt
+    assert "High-Risk Omitted Files" in prompt
+    assert "`api/refund_route.py`" in prompt
+    assert "def refund_order(order_id):" in prompt

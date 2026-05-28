@@ -10,6 +10,10 @@ class ScanResult(BaseModel):
     packable: list["FileInfo"]
     ignored: list["FileInfo"]
     binary: list["FileInfo"]
+    scan_mode: Literal["full", "incremental"] = "full"
+    rehashed_count: int = 0
+    reused_count: int = 0
+    full_scan_reason: str | None = None
 
     @property
     def all_files(self) -> list["FileInfo"]:
@@ -88,6 +92,16 @@ class Receipt(BaseModel):
     reason: str
 
 
+class OmittedRelevantFile(BaseModel):
+    path: str
+    score: float
+    reasons: list[str] = Field(default_factory=list)
+    estimated_tokens: int
+    suggested_mode: Literal["full", "diff", "symbols", "skeleton", "summary"]
+    omission_reason: str = "budget exhausted"
+    risk: Literal["high", "medium", "low"] = "low"
+
+
 class ContextPack(BaseModel):
     task: str
     agent: str
@@ -103,6 +117,7 @@ class ContextPack(BaseModel):
     changed_files: list[str]
     selected_files: list[SelectedFile]
     receipts: list[Receipt]
+    omitted_relevant_files: list[OmittedRelevantFile] = Field(default_factory=list)
     redaction_warnings: list[str] = []
     stale: bool = False
     freshness: dict[str, Any] = Field(default_factory=dict)

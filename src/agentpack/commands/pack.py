@@ -16,6 +16,7 @@ from agentpack.core.thread_context import resolve_thread_option, thread_paths
 from agentpack.analysis.ranking import suggest_task_rewrite
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
 from agentpack.commands._shared import console, _root, _file_hash, _now_iso
+from agentpack.core.changed_paths import record_changed_paths
 from agentpack.integrations.agents import check_agent_integration, install_agent_integration
 from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
 
@@ -291,6 +292,13 @@ def _pack_diagnostics(result: PackResult) -> list[str]:
         diagnostics.append(f"{score_floor_excluded} weak summaries excluded by score floor.")
     if summary_cap_excluded:
         diagnostics.append(f"{summary_cap_excluded} summaries excluded by mode cap.")
+    if result.scan_result.scan_mode == "incremental":
+        diagnostics.append(
+            f"Incremental scan reused {result.scan_result.reused_count:,} file(s), "
+            f"rehashed {result.scan_result.rehashed_count:,}."
+        )
+    elif result.scan_result.full_scan_reason:
+        diagnostics.append(f"Full scan: {result.scan_result.full_scan_reason}.")
     return diagnostics[:5]
 
 
@@ -375,6 +383,11 @@ def _pack_watch(
             path = str(event.src_path)
             if ".agentpack" in path:
                 return
+            try:
+                rel = str(Path(path).relative_to(root)).replace("\\", "/")
+                record_changed_paths(root, [rel], source="watch")
+            except ValueError:
+                pass
             now = time.time()
             if now - _last_pack[0] < _DEBOUNCE:
                 return

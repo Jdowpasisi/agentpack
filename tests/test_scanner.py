@@ -2,7 +2,8 @@ import pathspec
 from typer.testing import CliRunner
 
 from agentpack.cli import app
-from agentpack.core.scanner import scan, file_hash
+from agentpack.core.scanner import scan, scan_incremental, file_hash
+from agentpack.core.snapshot import build_snapshot
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
 
 
@@ -164,3 +165,55 @@ def test_empty_globs_include_all(tmp_path):
     packable_paths = {f.path for f in result.packable}
     assert "src/a.py" in packable_paths
     assert "src/b.py" in packable_paths
+
+
+def test_incremental_scan_reuses_snapshot_and_rehashes_changed_paths(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("a = 1")
+    (tmp_path / "src" / "b.py").write_text("b = 1")
+    (tmp_path / "src" / "delete_me.py").write_text("gone = False")
+
+    spec = _spec()
+    full = scan(tmp_path, spec)
+    previous = build_snapshot(full.packable)
+    (tmp_path / "src" / "a.py").write_text("a = 2")
+    (tmp_path / "src" / "c.py").write_text("c = 1")
+    (tmp_path / "src" / "delete_me.py").unlink()
+
+    result = scan_incremental(
+        tmp_path,
+        spec,
+        changed_paths={"src/a.py", "src/c.py", "src/delete_me.py"},
+        previous_snapshot=previous,
+    )
+
+    by_path = {fi.path: fi for fi in result.packable}
+    assert result.scan_mode == "incremental"
+    assert result.reused_count == 1
+    assert result.rehashed_count == 2
+    assert set(by_path) == {"src/a.py", "src/b.py", "src/c.py"}
+    assert by_path["src/b.py"].content is None
+    assert by_path["src/a.py"].content == "a = 2"
+    assert by_path["src/a.py"].hash != previous["files"]["src/a.py"]["hash"]
+
+
+def test_incremental_scan_classifies_new_ignored_and_binary_files(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("a = 1")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pkg.js").write_text("ignored")
+    (tmp_path / "image.png").write_bytes(b"\x89PNG\x00")
+
+    spec = _spec()
+    previous = build_snapshot(scan(tmp_path, spec).packable)
+
+    result = scan_incremental(
+        tmp_path,
+        spec,
+        changed_paths={"node_modules/pkg.js", "image.png"},
+        previous_snapshot=previous,
+    )
+
+    assert "src/a.py" in {fi.path for fi in result.packable}
+    assert "node_modules/pkg.js" in {fi.path for fi in result.ignored}
+    assert "image.png" in {fi.path for fi in result.binary}

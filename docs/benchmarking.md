@@ -4,11 +4,11 @@ Benchmarking focuses on expected-file recall for real tasks. Public release evid
 
 ## Quality Bar
 
-AgentPack is best treated as a **ranked starting map**. It should reduce repeated orientation work, but the agent and reviewer still own correctness.
+AgentPack is best treated as a **ranked starting map**. It can reduce repeated orientation work, but the agent and reviewer still own correctness.
 
 | Signal | What good looks like |
 |---|---|
-| Token reduction | 90-99% smaller than raw repo text on large repos |
+| Token reduction | Measure against raw repo text for your repo; savings depend on task, ignores, and budget |
 | Pack size | Usually 8k-25k tokens for a specific task |
 | Pack time | Seconds on a warm cache; first summarize pass is slower |
 | Recall | Expected files appear near the top; validate with `agentpack benchmark --misses` |
@@ -31,7 +31,7 @@ agentpack benchmark capture --since HEAD~1 --task "describe the completed task"
 `benchmarks/public-repos.toml` by default, and can use `--public-repos-cache`
 or `--refresh-public-repos`.
 
-For public proof, use several real repositories or anonymized historical task
+For external claims, use several real repositories or anonymized historical task
 sets and publish the generated table from `benchmarks/results/*-public.md`.
 This repo includes a curated public smoke suite in
 `benchmarks/public-repos.toml`; it evaluates real commits from Pallets Click,

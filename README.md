@@ -12,7 +12,7 @@
 
 Claude Code, Codex, Cursor, and other coding agents can waste tool calls rediscovering your repo before they make the edit you asked for.
 
-AgentPack gives them the right files, tests, rules, and skills for each task. It analyzes your repo locally, ranks what matters, and packages compact context for CLI and MCP workflows.
+AgentPack gives them a ranked map of likely relevant files, tests, rules, and skills for each task. It analyzes your repo locally and packages compact context for CLI and MCP workflows.
 
 No cloud indexing. No embeddings required. No API calls for scan, summarize, rank, pack, stats, or benchmark. AgentPack is a context preparation tool, not a coding agent.
 
@@ -24,7 +24,7 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.12).** Works, tested, used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Public benchmark proof exists for the current suite, but broader repo coverage is still growing. API may change before 1.0.
+> **Status: alpha (v0.3.12).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
@@ -311,7 +311,7 @@ AGENTPACK_THREAD_ID=codex-local make context-thread
 
 ## Benchmark Proof
 
-AgentPack is best treated as a ranked starting map. It should reduce repeated orientation work, but the agent and reviewer still own correctness.
+AgentPack is best treated as a ranked starting map. It can reduce repeated orientation work, but the agent and reviewer still own correctness.
 
 Use real repo evals instead of trusting compression numbers:
 
@@ -319,7 +319,7 @@ Use real repo evals instead of trusting compression numbers:
 agentpack benchmark --release-gate
 ```
 
-Current public benchmark evidence is documented in [`benchmarks/README.md`](benchmarks/README.md) and the generated public table under `benchmarks/results/`.
+Current benchmark evidence is documented in [`benchmarks/README.md`](benchmarks/README.md) and the generated tables under `benchmarks/results/`. Treat these as scoped evidence for the included cases, not a universal performance claim.
 
 ## What A Pack Contains
 

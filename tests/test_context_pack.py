@@ -3,8 +3,8 @@ import subprocess
 import json
 from agentpack.application.pack_service import _settle_rendered_token_estimate, _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
-from agentpack.core.context_pack import save_pack_metadata, select_files, _selection_priority
-from agentpack.core.models import ContextPack, FileInfo, Receipt, SelectedFile
+from agentpack.core.context_pack import enrich_call_site_scores, save_pack_metadata, select_files, _selection_priority
+from agentpack.core.models import ContextPack, FileInfo, OmittedRelevantFile, Receipt, SelectedFile
 from agentpack.renderers.markdown import render_claude
 
 
@@ -129,6 +129,165 @@ def test_budget_respected():
         max_file_tokens=4000,
     )
     assert len(selected) <= 3
+
+
+def test_budget_exhausted_files_can_be_collected_as_omitted_relevant():
+    files = [
+        _fi("src/refund_service.py", tokens=100),
+        _fi("api/routes/refund.py", tokens=1000),
+    ]
+    omitted: list[OmittedRelevantFile] = []
+
+    selected, receipts = select_files(
+        files=files,
+        scored=[
+            (files[0], 250.0, ["filename keyword match"]),
+            (files[1], 210.0, ["reverse dependency of src/refund_service.py"]),
+        ],
+        changed_paths=set(),
+        summaries={},
+        mode="balanced",
+        budget=250,
+        max_file_tokens=4000,
+        omitted_relevant_files=omitted,
+    )
+
+    assert [sf.path for sf in selected] == ["src/refund_service.py"]
+    assert any(r.path == "api/routes/refund.py" and r.reason == "budget exhausted" for r in receipts)
+    assert omitted[0].path == "api/routes/refund.py"
+    assert omitted[0].score == 210.0
+    assert omitted[0].risk == "high"
+    assert omitted[0].suggested_mode == "summary"
+
+
+def test_call_site_expansion_boosts_files_calling_selected_symbols():
+    service = _fi("payments/refund_service.py", tokens=100)
+    route = _fi("api/routes/refund.py", tokens=100)
+    summaries = {
+        service.path: {
+            "summary": "Refund service.",
+            "symbols": [
+                {
+                    "name": "refund_order",
+                    "kind": "function",
+                    "start_line": 1,
+                    "end_line": 3,
+                    "signature": "def refund_order(order_id):",
+                }
+            ],
+            "defines": ["refund_order"],
+            "calls": [],
+        },
+        route.path: {
+            "summary": "Refund API route.",
+            "symbols": [],
+            "defines": [],
+            "calls": ["refund_order"],
+        },
+    }
+    selected = [
+        SelectedFile(
+            path=service.path,
+            language="python",
+            score=250,
+            include_mode="full",
+            reasons=["modified"],
+        )
+    ]
+
+    expanded, count = enrich_call_site_scores(
+        scored=[
+            (service, 250.0, ["modified"]),
+            (route, 20.0, ["score floor candidate"]),
+        ],
+        selected=selected,
+        summaries=summaries,
+        changed_paths={service.path},
+    )
+
+    route_item = next(item for item in expanded if item[0].path == route.path)
+    assert count == 1
+    assert route_item[1] > 20.0
+    assert "caller of selected symbol `refund_order`" in route_item[2]
+
+
+def test_call_site_omissions_are_high_risk_budget_exclusions():
+    service = _fi("payments/refund_service.py", tokens=100)
+    route = _fi("api/routes/refund.py", tokens=1000)
+    summaries = {
+        service.path: {
+            "summary": "Refund service.",
+            "symbols": [
+                {
+                    "name": "refund_order",
+                    "kind": "function",
+                    "start_line": 1,
+                    "end_line": 3,
+                    "signature": "def refund_order(order_id):",
+                }
+            ],
+            "defines": ["refund_order"],
+            "calls": [],
+        },
+        route.path: {
+            "summary": "Refund API route.",
+            "symbols": [
+                {
+                    "name": f"route_helper_{i}",
+                    "kind": "function",
+                    "start_line": i + 1,
+                    "end_line": i + 1,
+                    "signature": f"def route_helper_{i}(request, response, refund_context):",
+                }
+                for i in range(30)
+            ],
+            "defines": [],
+            "calls": ["controller.refund_order"],
+        },
+    }
+
+    selected, _receipts = select_files(
+        files=[service, route],
+        scored=[
+            (service, 250.0, ["modified"]),
+            (route, 80.0, ["score floor candidate"]),
+        ],
+        changed_paths={service.path},
+        summaries=summaries,
+        mode="balanced",
+        budget=300,
+        max_file_tokens=4000,
+        min_summary_score=100,
+    )
+    expanded, count = enrich_call_site_scores(
+        scored=[
+            (service, 250.0, ["modified"]),
+            (route, 80.0, ["score floor candidate"]),
+        ],
+        selected=selected,
+        summaries=summaries,
+        changed_paths={service.path},
+    )
+    omitted: list[OmittedRelevantFile] = []
+
+    selected, receipts = select_files(
+        files=[service, route],
+        scored=expanded,
+        changed_paths={service.path},
+        summaries=summaries,
+        mode="balanced",
+        budget=300,
+        max_file_tokens=4000,
+        min_summary_score=100,
+        omitted_relevant_files=omitted,
+    )
+
+    assert count == 1
+    assert [sf.path for sf in selected] == [service.path]
+    assert any(r.path == route.path and r.reason == "budget exhausted" for r in receipts)
+    assert omitted[0].path == route.path
+    assert omitted[0].risk == "high"
+    assert "caller of selected symbol `refund_order`" in omitted[0].reasons
 
 
 def test_reserve_bucket_order_seeds_tests_docs_and_deps():
@@ -446,6 +605,40 @@ def test_render_compresses_excluded_receipts_and_lists_token_consumers():
     assert "`src/omitted_9.py`" in rendered
     assert "`src/omitted_10.py`" not in rendered
     assert "+2 more" in rendered
+
+
+def test_render_lists_omitted_but_relevant_files_before_file_context():
+    pack = ContextPack(
+        task="fix refunds",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+        omitted_relevant_files=[
+            OmittedRelevantFile(
+                path="api/routes/refund.py",
+                score=210,
+                reasons=["reverse dependency of payments/refund_service.py"],
+                estimated_tokens=900,
+                suggested_mode="summary",
+                risk="high",
+            )
+        ],
+    )
+
+    rendered = render_claude(pack)
+
+    assert "## Omitted But Relevant Files" in rendered
+    assert rendered.index("## Omitted But Relevant Files") < rendered.index("## File Context")
+    assert "`api/routes/refund.py`" in rendered
+    assert "inspect caller" in rendered
+    assert "Do not assume omitted relevant files are safe" in rendered
 
 
 def test_rendered_token_estimate_includes_markdown_overhead():

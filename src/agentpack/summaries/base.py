@@ -9,21 +9,37 @@ from agentpack.core.models import FileInfo, FileSummary
 from agentpack.core import cache as summary_cache
 from agentpack.summaries import offline
 
+_SUMMARY_MEMORY_CACHE: dict[tuple[str, str, str, str], FileSummary] = {}
+
 
 def _build_one(path: str, abs_path_str: str, language: str | None, file_hash: str) -> FileSummary:
     return offline.summarize(path, Path(abs_path_str), language, file_hash)
+
+
+def _memory_key(root: Path, fi: FileInfo) -> tuple[str, str, str, str] | None:
+    if fi.hash is None:
+        return None
+    return (str(root.resolve()), fi.path, fi.hash, "offline")
 
 
 def get_or_build_summary(fi: FileInfo, root: Path) -> FileSummary:
     if fi.hash is None:
         return offline.summarize(fi.path, fi.abs_path, fi.language, "")
 
+    key = _memory_key(root, fi)
+    if key and key in _SUMMARY_MEMORY_CACHE:
+        return _SUMMARY_MEMORY_CACHE[key]
+
     cached = summary_cache.load_summary(root, fi.path, fi.hash, "offline")
     if cached:
+        if key:
+            _SUMMARY_MEMORY_CACHE[key] = cached
         return cached
 
     summary = offline.summarize(fi.path, fi.abs_path, fi.language, fi.hash)
     summary_cache.save_summary(root, summary)
+    if key:
+        _SUMMARY_MEMORY_CACHE[key] = summary
     return summary
 
 
@@ -38,21 +54,30 @@ def build_all_summaries(
 
     # Pass 1: check cache concurrently (I/O-bound)
     def _check_cache(fi: FileInfo) -> FileSummary | None:
+        key = _memory_key(root, fi)
+        if key and key in _SUMMARY_MEMORY_CACHE:
+            return _SUMMARY_MEMORY_CACHE[key]
         if fi.hash is None:
             return None
-        return summary_cache.load_summary(root, fi.path, fi.hash, "offline")
+        cached = summary_cache.load_summary(root, fi.path, fi.hash, "offline")
+        if cached and key:
+            _SUMMARY_MEMORY_CACHE[key] = cached
+        return cached
 
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(32, os.cpu_count() or 4)
-    ) as executor:
-        cache_futures = {executor.submit(_check_cache, fi): fi for fi in packable}
-        for fut in concurrent.futures.as_completed(cache_futures):
-            fi = cache_futures[fut]
-            cached = fut.result()
-            if cached is not None:
-                result[fi.path] = cached
-            else:
-                cache_misses.append(fi)
+    if not (root / ".agentpack" / "cache").exists():
+        cache_misses = packable
+    else:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(32, os.cpu_count() or 4)
+        ) as executor:
+            cache_futures = {executor.submit(_check_cache, fi): fi for fi in packable}
+            for fut in concurrent.futures.as_completed(cache_futures):
+                fi = cache_futures[fut]
+                cached = fut.result()
+                if cached is not None:
+                    result[fi.path] = cached
+                else:
+                    cache_misses.append(fi)
 
     if not cache_misses:
         return result
@@ -89,5 +114,8 @@ def build_all_summaries(
             result[fi.path] = summary
             if fi.hash is not None:
                 summary_cache.save_summary(root, summary)
+                key = _memory_key(root, fi)
+                if key:
+                    _SUMMARY_MEMORY_CACHE[key] = summary
 
     return result

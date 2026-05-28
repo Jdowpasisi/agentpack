@@ -20,7 +20,7 @@ def _latest_path(root: Path) -> Path:
     return _snapshots_dir(root) / "latest.json"
 
 
-def build_snapshot(files: list[FileInfo]) -> dict[str, Any]:
+def build_snapshot(files: list[FileInfo], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a snapshot from packable FileInfo objects. Skips ignored and binary entries defensively."""
     file_data: dict[str, Any] = {}
     hashes: dict[str, str] = {}
@@ -36,12 +36,15 @@ def build_snapshot(files: list[FileInfo]) -> dict[str, Any]:
         if f.hash:
             hashes[f.path] = f.hash
 
-    return {
+    snapshot = {
         "version": SNAPSHOT_VERSION,
         "root_hash": root_hash(hashes),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "files": file_data,
     }
+    if metadata:
+        snapshot["metadata"] = metadata
+    return snapshot
 
 
 def save_snapshot(snapshot: dict[str, Any], root: Path) -> None:

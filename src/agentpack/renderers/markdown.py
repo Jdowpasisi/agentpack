@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 import json
 
-from agentpack.core.models import ContextPack, SelectedFile, Symbol
+from agentpack.core.models import ContextPack, OmittedRelevantFile, SelectedFile, Symbol
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -34,6 +34,58 @@ def _selected_file_tokens(sf: SelectedFile) -> int:
         if sym.signature:
             parts.append(sym.signature)
     return estimate_tokens("\n".join(parts)) if parts else 50
+
+
+def _omitted_action(item: OmittedRelevantFile) -> str:
+    reason_text = " ".join(item.reasons).lower()
+    path = item.path.lower()
+    if "reverse dependency" in reason_text or "caller" in reason_text:
+        return "inspect caller"
+    if "related test" in reason_text or "test for" in reason_text or path.startswith(("tests/", "test/")):
+        return "inspect test"
+    if any(part in path for part in ("route", "routes", "controller", "api/")):
+        return "inspect API contract"
+    if any(part in path for part in ("schema", "migration", "model", "models")):
+        return "inspect data contract"
+    if "config" in reason_text or any(part in path for part in ("config", ".env", "deploy", "settings")):
+        return "inspect config"
+    return "inspect if touched"
+
+
+def _omitted_reason(item: OmittedRelevantFile) -> str:
+    if item.reasons:
+        return item.reasons[0]
+    return item.omission_reason
+
+
+def _omitted_relevant_lines(pack: ContextPack, limit: int = 10) -> list[str]:
+    if not pack.omitted_relevant_files:
+        return []
+    risk_rank = {"high": 0, "medium": 1, "low": 2}
+    omitted = sorted(
+        pack.omitted_relevant_files,
+        key=lambda item: (risk_rank.get(item.risk, 2), -item.score, item.path),
+    )[:limit]
+    lines = ["## Omitted But Relevant Files", ""]
+    lines.append("These files matched the task but were not included due to token budget.")
+    lines.append(
+        "Before finalizing changes, inspect high-risk omitted files if your fix changes shared behavior, "
+        "function signatures, data models, API contracts, or side effects."
+    )
+    lines.append("")
+    lines.append("| # | File | Risk | Score | Why | Suggested action |")
+    lines.append("|---:|---|---|---:|---|---|")
+    for index, item in enumerate(omitted, start=1):
+        lines.append(
+            f"| {index} | `{item.path}` | {item.risk.upper()} | {item.score:.0f} | "
+            f"{_omitted_reason(item)} | {_omitted_action(item)} |"
+        )
+    hidden = len(pack.omitted_relevant_files) - len(omitted)
+    if hidden > 0:
+        lines.append("")
+        lines.append(f"_+{hidden} more omitted relevant file(s) hidden._")
+    lines.append("")
+    return lines
 
 
 def _receipt_lines(pack: ContextPack) -> list[str]:
@@ -224,6 +276,10 @@ def render_claude(pack: ContextPack) -> str:
             ("Task class", "task_class"),
             ("Task source", "task_source"),
             ("Changed-file source", "changed_files_source"),
+            ("Scan mode", "scan_mode"),
+            ("Scan rehashed files", "scan_rehashed_count"),
+            ("Scan reused files", "scan_reused_count"),
+            ("Full scan reason", "full_scan_reason"),
             ("Workspaces", "workspace_roots"),
             ("Snapshot hash", "snapshot_root_hash"),
             ("Dirty files at pack time", "dirty_files_count"),
@@ -256,6 +312,11 @@ def render_claude(pack: ContextPack) -> str:
         "`.agentpack/task.md`, run `agentpack pack --task auto`, re-read the context, then proceed. "
         "If the pack looks stale (changed files list is empty but you expect changes), refresh the pack before editing."
     )
+    if pack.omitted_relevant_files:
+        sections.append(
+            "Do not assume omitted relevant files are safe. If a selected function/class has omitted callers, "
+            "tests, routes, schemas, or configs, inspect them before finalizing the fix."
+        )
     sections.append("")
 
     sections.append("## Token Stats")
@@ -319,6 +380,8 @@ def render_claude(pack: ContextPack) -> str:
         sections.append("")
         sections.extend(_receipt_lines(pack))
         sections.append("")
+
+    sections.extend(_omitted_relevant_lines(pack))
 
     sections.append("## File Context")
     sections.append("")
