@@ -358,6 +358,9 @@ agentpack learn --json
 agentpack learn --llm-prompt
 agentpack learn --pr-comment
 agentpack learn --provider-preview
+agentpack learn --provider-command "python scripts/learn_provider.py"
+agentpack learn --dashboard
+agentpack learn --team-export
 agentpack learn --ci
 agentpack learn --skills
 agentpack learn --drills
@@ -374,6 +377,8 @@ Default outputs:
 - `.agentpack/agent-lessons.md`
 - `.agentpack/learning.prompt.md` with `--llm-prompt`
 - `.agentpack/pr-learning-comment.md` with `--pr-comment`
+- `.agentpack/learning-dashboard.html` with `--dashboard`
+- `.agentpack/team-lessons.md` with `--team-export`
 - `.agentpack/learning-feedback.jsonl` with `--feedback`
 
 The command reads `.agentpack/task.md`, changed files, and bounded redacted
@@ -388,9 +393,14 @@ plus current dirty files. `--llm-prompt` writes a source-backed prompt for
 external LLM refinement without sending data anywhere. `--pr-comment` writes a
 short Markdown summary suitable for pasting into a pull request.
 `--provider-preview` prints the bounded provider payload without making a
-network call. `--ci` prints a quality report and exits non-zero when learning is
-too generic or lacks changed-file evidence. `--skills` and `--drills` turn the
-local skill map into a quick progress view and next-practice list.
+network call. `--provider-command` runs a local JSON-in/JSON-out command to
+enrich the report; AgentPack sends the bounded report JSON on stdin and accepts
+LearningReport-compatible JSON fields on stdout. `--dashboard` writes a static
+HTML learning dashboard. `--team-export` writes a shareable lessons file that
+omits personal skill history. `--ci` prints a quality report and exits non-zero
+when learning is too generic or lacks changed-file evidence. `--skills` and
+`--drills` turn the local skill map into a quick progress view and
+next-practice list.
 
 Feedback can be broad (`--feedback helpful`) or targeted. Supported targets are
 `skill:<name>`, `lesson:<text>`, `rename:<old=>new>`, and `merge:<old=>new>`.

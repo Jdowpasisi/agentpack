@@ -11,9 +11,11 @@ from agentpack.learning.collector import collect_learning_inputs
 from agentpack.learning.extractor import build_learning_report
 from agentpack.learning.feedback import apply_feedback_to_report, load_feedback_summary, record_learning_feedback
 from agentpack.learning.lesson_ranker import rank_agent_lessons
+from agentpack.learning.provider import LearningProviderError, run_provider_command
 from agentpack.learning.quality import score_learning_report
 from agentpack.learning.renderers import (
     learning_report_to_dict,
+    render_dashboard_html,
     render_agent_lessons_markdown,
     render_drills_markdown,
     render_llm_prompt_markdown,
@@ -21,6 +23,7 @@ from agentpack.learning.renderers import (
     render_pr_comment_markdown,
     render_provider_preview_markdown,
     render_quality_markdown,
+    render_team_lessons_markdown,
 )
 from agentpack.learning.skill_map import apply_skill_feedback, recommend_practice_drills, render_skill_summary, update_skill_map
 
@@ -36,6 +39,9 @@ def register(app: typer.Typer) -> None:
         llm_prompt: bool = typer.Option(False, "--llm-prompt", help="Write an LLM-ready learning prompt artifact."),
         pr_comment: bool = typer.Option(False, "--pr-comment", help="Write a PR-comment-ready learning summary artifact."),
         provider_preview: bool = typer.Option(False, "--provider-preview", help="Print the bounded provider payload without making a network call."),
+        provider_command: str = typer.Option("", "--provider-command", help="Run a local JSON-in/JSON-out provider command to enrich the report."),
+        dashboard: bool = typer.Option(False, "--dashboard", help="Write a static HTML learning dashboard artifact."),
+        team_export: bool = typer.Option(False, "--team-export", help="Write an opt-in team lesson export without personal skill history."),
         ci: bool = typer.Option(False, "--ci", help="Fail when learning quality is below the configured threshold."),
         skills: bool = typer.Option(False, "--skills", help="Print the local skill memory summary and exit."),
         drills: bool = typer.Option(False, "--drills", help="Print recommended practice drills from local skill memory and exit."),
@@ -103,6 +109,14 @@ def register(app: typer.Typer) -> None:
             typer.echo(render_provider_preview_markdown(report), nl=False)
             return
 
+        command = provider_command or cfg.learning.provider_command
+        if command:
+            try:
+                report = run_provider_command(command, report, timeout_seconds=cfg.learning.provider_timeout_seconds)
+            except LearningProviderError as exc:
+                console.print(f"[red]Provider command failed:[/] {exc}")
+                raise typer.Exit(1) from exc
+
         update_skill_map(skill_map_path, report.skill_evidence)
         agent_lessons_path = root / cfg.learning.agent_lessons_output
         agent_lessons_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +134,14 @@ def register(app: typer.Typer) -> None:
             pr_path = root / cfg.learning.pr_comment_output
             pr_path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(pr_path, render_pr_comment_markdown(report))
+        if dashboard:
+            dashboard_path = root / cfg.learning.dashboard_output
+            dashboard_path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(dashboard_path, render_dashboard_html(report))
+        if team_export:
+            team_path = root / cfg.learning.team_lessons_output
+            team_path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(team_path, render_team_lessons_markdown(report))
         if feedback:
             if feedback not in {"helpful", "not-helpful"}:
                 console.print("[red]--feedback must be helpful or not-helpful.[/]")

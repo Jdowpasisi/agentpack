@@ -151,6 +151,50 @@ def test_learn_writes_llm_prompt_and_pr_comment(tmp_path, monkeypatch):
     assert "## Learning Summary" in comment
 
 
+def test_learn_writes_dashboard_and_team_export(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--dashboard", "--team-export"])
+
+    assert result.exit_code == 0, result.output
+    dashboard = (repo / ".agentpack" / "learning-dashboard.html").read_text(encoding="utf-8")
+    team = (repo / ".agentpack" / "team-lessons.md").read_text(encoding="utf-8")
+    assert "AgentPack Learn Dashboard" in dashboard
+    assert "# AgentPack Team Lessons" in team
+    assert "personal skill history" in team
+
+
+def test_learn_provider_command_enriches_report(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    provider = repo / "provider.py"
+    provider.write_text(
+        "import json, sys\n"
+        "payload = json.load(sys.stdin)\n"
+        "print(json.dumps({'next_practice': 'Explain provider output for ' + payload['task']}))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--provider-command", f"python {provider}"])
+
+    assert result.exit_code == 0, result.output
+    text = (repo / ".agentpack" / "learning.md").read_text(encoding="utf-8")
+    assert "Explain provider output for Add CLI learning summaries" in text
+
+
+def test_learn_provider_command_failure_exits_nonzero(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    provider = repo / "provider.py"
+    provider.write_text("raise SystemExit('bad provider')\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--provider-command", f"python {provider}"])
+
+    assert result.exit_code == 1
+    assert "Provider command failed" in result.output
+
+
 def test_learn_records_feedback(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     monkeypatch.chdir(repo)

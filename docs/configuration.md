@@ -35,6 +35,10 @@ agent_lessons_output = ".agentpack/agent-lessons.md"
 llm_prompt_output = ".agentpack/learning.prompt.md"
 pr_comment_output = ".agentpack/pr-learning-comment.md"
 feedback_output = ".agentpack/learning-feedback.jsonl"
+dashboard_output = ".agentpack/learning-dashboard.html"
+team_lessons_output = ".agentpack/team-lessons.md"
+provider_command = ""
+provider_timeout_seconds = 60
 inject_agent_lessons = true
 max_changed_files = 20
 max_diff_chars_per_file = 1200
@@ -87,6 +91,10 @@ agent_lessons_output = ".agentpack/agent-lessons.md"
 llm_prompt_output = ".agentpack/learning.prompt.md"
 pr_comment_output = ".agentpack/pr-learning-comment.md"
 feedback_output = ".agentpack/learning-feedback.jsonl"
+dashboard_output = ".agentpack/learning-dashboard.html"
+team_lessons_output = ".agentpack/team-lessons.md"
+provider_command = ""
+provider_timeout_seconds = 60
 inject_agent_lessons = true
 max_changed_files = 20
 max_diff_chars_per_file = 1200
@@ -98,10 +106,11 @@ min_groundedness_score = 70
 These settings control local learning output size, destinations, future-agent
 context injection, and the quality warning threshold. Learning artifacts are
 local by default: no hosted service is called, diffs are bounded, and secret
-redaction runs before diff text is used. Feedback-aware skill memory and
-practice drills are stored locally in `skill_map_output` and
-`feedback_output`; shared team learning should export only selected lessons or
-taxonomy files, not personal skill history.
+redaction runs before diff text is used. `provider_command` is opt-in and runs a
+local JSON-in/JSON-out command with the bounded report payload on stdin.
+Feedback-aware skill memory and practice drills are stored locally in
+`skill_map_output` and `feedback_output`; shared team learning should export
+only selected lessons or taxonomy files, not personal skill history.
 
 ---
 

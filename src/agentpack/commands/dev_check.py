@@ -40,6 +40,8 @@ def register(app: typer.Typer) -> None:
                 marker = "[green]✓[/]" if item["returncode"] == 0 else "[red]✗[/]"
                 console.print(f"{marker} {item['name']} ({item['duration_s']:.2f}s)")
                 if item["returncode"] != 0:
+                    if item["output_excerpt"]:
+                        console.print(item["output_excerpt"])
                     console.print(f"  rerun: [bold]{item['command']}[/]")
         if failed:
             raise typer.Exit(1)
@@ -48,10 +50,21 @@ def register(app: typer.Typer) -> None:
 def _run(stage: CheckStage) -> dict[str, Any]:
     started = time.perf_counter()
     result = subprocess.run(stage.command, cwd=_root(), capture_output=True, text=True)
+    output = (result.stdout + "\n" + result.stderr).strip()
     return {
         "name": stage.name,
         "command": " ".join(stage.command),
         "returncode": result.returncode,
         "duration_s": round(time.perf_counter() - started, 3),
-        "detail": ((result.stderr or result.stdout).strip().splitlines() or [""])[-1],
+        "detail": (output.splitlines() or [""])[-1],
+        "output_excerpt": _output_excerpt(output) if result.returncode != 0 else "",
     }
+
+
+def _output_excerpt(output: str, *, max_lines: int = 80) -> str:
+    lines = output.splitlines()
+    if len(lines) <= max_lines:
+        excerpt = lines
+    else:
+        excerpt = ["... output truncated to final failing lines ...", *lines[-max_lines:]]
+    return "\n".join(f"  {line}" for line in excerpt)

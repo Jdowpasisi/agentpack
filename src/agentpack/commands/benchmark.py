@@ -469,6 +469,26 @@ def _run_git(cwd: Path | None, args: list[str]) -> None:
     )
 
 
+def _git_commit_exists(cwd: Path, commit: str) -> bool:
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _ensure_git_commit(cwd: Path, commit: str) -> None:
+    if _git_commit_exists(cwd, commit):
+        return
+    _run_git(cwd, ["fetch", "--quiet", "--depth", "1", "origin", commit])
+    if not _git_commit_exists(cwd, commit):
+        raise RuntimeError(f"Unable to fetch public benchmark commit {commit}")
+
+
 def _ensure_public_repo_clone(
     spec: PublicRepoSpec,
     cache_dir: Path,
@@ -512,7 +532,9 @@ def _run_public_repo_suite(
         for spec in specs:
             source_repo = _ensure_public_repo_clone(spec, cache, refresh=refresh)
             for public_case in spec.cases:
+                _ensure_git_commit(source_repo, public_case.commit)
                 parent = _git_stdout(source_repo, ["rev-parse", f"{public_case.commit}^"])
+                _ensure_git_commit(source_repo, parent)
                 work_root = temp_root / f"{spec.name}-{public_case.commit[:8]}"
                 shutil.copytree(
                     source_repo,

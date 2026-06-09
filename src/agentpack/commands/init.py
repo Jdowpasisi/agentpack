@@ -68,6 +68,8 @@ def _repo_gitignore_entries(share_cache: bool = False, agent: str = "generic") -
             ".agentpack/agent-lessons.md",
             ".agentpack/learning.prompt.md",
             ".agentpack/pr-learning-comment.md",
+            ".agentpack/learning-dashboard.html",
+            ".agentpack/team-lessons.md",
             ".agentpack/learning-feedback.jsonl",
             ".agentignore",
         ]
@@ -107,6 +109,8 @@ def _agentpack_gitignore_content(share_cache: bool = False) -> str:
             "agent-lessons.md",
             "learning.prompt.md",
             "pr-learning-comment.md",
+            "learning-dashboard.html",
+            "team-lessons.md",
             "learning-feedback.jsonl",
         ]
     )

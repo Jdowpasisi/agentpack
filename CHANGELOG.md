@@ -10,6 +10,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.14] — 2026-06-09
+
+### Added
+- Added feedback-aware `agentpack learn` provider command mode, static dashboard export, and team lesson export.
+- Added skill-memory and practice-drill surfaces for developer learning follow-up.
+- Added bounded failing-output excerpts to `dev-check` and `release-check` so CI shows the actual failing test name.
+
+### Changed
+- `agentpack learn` now keeps generated dashboard and team lesson artifacts ignored by default and omitted from future packs.
+
+---
+
 ## [0.3.13] — 2026-06-09
 
 ### Added

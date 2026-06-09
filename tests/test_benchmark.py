@@ -37,6 +37,7 @@ from agentpack.commands.benchmark import (
     _unexpected_files_touched,
     _timeout_result,
     _e2e_prompt,
+    _ensure_git_commit,
 )
 
 
@@ -81,6 +82,24 @@ def _make_result(
 # ---------------------------------------------------------------------------
 # _precision_recall
 # ---------------------------------------------------------------------------
+
+
+def test_ensure_git_commit_fetches_missing_shallow_commit(monkeypatch, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+    cat_file_results = [1, 0]
+
+    def fake_run(command, **kwargs):
+        parts = [str(part) for part in command]
+        calls.append(parts)
+        if parts[:3] == ["git", "cat-file", "-e"]:
+            return subprocess.CompletedProcess(parts, cat_file_results.pop(0), "", "")
+        return subprocess.CompletedProcess(parts, 0, "", "")
+
+    monkeypatch.setattr("agentpack.commands.benchmark.subprocess.run", fake_run)
+
+    _ensure_git_commit(tmp_path, "abc123")
+
+    assert ["git", "fetch", "--quiet", "--depth", "1", "origin", "abc123"] in calls
 
 def test_precision_recall_perfect() -> None:
     r = _make_result(["a.py", "b.py"], ["a.py", "b.py"])
@@ -298,6 +317,7 @@ def test_run_public_repo_suite_uses_parent_checkout(tmp_path: Path) -> None:
     )
 
     with patch("agentpack.commands.benchmark._ensure_public_repo_clone", return_value=tmp_path / "cache"), \
+         patch("agentpack.commands.benchmark._ensure_git_commit") as ensure_commit, \
          patch("agentpack.commands.benchmark._git_stdout", return_value="parent123") as git_stdout, \
          patch("agentpack.commands.benchmark._run_git") as run_git, \
          patch("agentpack.commands.benchmark.shutil.copytree") as copytree, \
@@ -310,6 +330,10 @@ def test_run_public_repo_suite_uses_parent_checkout(tmp_path: Path) -> None:
     assert case_arg.task == "click: fix prompt"
     assert case_arg.task_type == "python-cli"
     assert case_arg.budget == 1200
+    assert [call.args for call in ensure_commit.call_args_list] == [
+        (tmp_path / "cache", "abc123"),
+        (tmp_path / "cache", "parent123"),
+    ]
     git_stdout.assert_called_once_with(tmp_path / "cache", ["rev-parse", "abc123^"])
     copytree.assert_called_once()
     assert any(call.args[1] == ["checkout", "--quiet", "parent123"] for call in run_git.call_args_list)

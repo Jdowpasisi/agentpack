@@ -24,7 +24,7 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.13).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.14).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
@@ -167,13 +167,15 @@ agentpack learn --since main
 agentpack learn --json
 agentpack learn --llm-prompt --pr-comment
 agentpack learn --provider-preview
+agentpack learn --provider-command "python scripts/learn_provider.py"
+agentpack learn --dashboard --team-export
 agentpack learn --skills
 agentpack learn --drills
 agentpack learn --ci
 agentpack learn --feedback helpful --feedback-target "skill:CLI design" --feedback-note "Useful review prompts"
 ```
 
-AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates a local skill memory in `.agentpack/skills-progress.json`, writes ranked `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md` or `.agentpack/pr-learning-comment.md`. Learn is local-first by default: `--provider-preview` shows the bounded payload for optional external refinement without making a network call, and feedback stays in `.agentpack/learning-feedback.jsonl`.
+AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates a local skill memory in `.agentpack/skills-progress.json`, writes ranked `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md`, `.agentpack/pr-learning-comment.md`, `.agentpack/learning-dashboard.html`, or `.agentpack/team-lessons.md`. Learn is local-first by default: `--provider-preview` shows the bounded payload for optional external refinement without making a network call, `--provider-command` runs only the local command you provide, and feedback stays in `.agentpack/learning-feedback.jsonl`.
 
 ## Agent Setup
 

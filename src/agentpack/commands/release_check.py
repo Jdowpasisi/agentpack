@@ -23,6 +23,7 @@ class StageResult:
     duration_s: float
     returncode: int = 0
     detail: str = ""
+    output_excerpt: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +33,7 @@ class StageResult:
             "duration_s": round(self.duration_s, 3),
             "returncode": self.returncode,
             "detail": self.detail,
+            "output_excerpt": self.output_excerpt,
         }
 
 
@@ -64,6 +66,8 @@ def register(app: typer.Typer) -> None:
                 console.print(f"{marker} {stage.name}: {stage.status} ({stage.duration_s:.2f}s)")
                 if stage.detail and stage.status != "passed":
                     console.print(f"  {stage.detail}")
+                if stage.output_excerpt and stage.status != "passed":
+                    console.print(stage.output_excerpt)
                 if stage.status != "passed":
                     console.print(f"  rerun: [bold]{stage.command}[/]")
         if failed:
@@ -93,7 +97,8 @@ def _run_stage(root: Path, name: str, command: list[str]) -> StageResult:
         result = subprocess.run(command, cwd=root, capture_output=True, text=True)
     except OSError as exc:
         return StageResult(name=name, command=" ".join(command), status="failed", duration_s=time.perf_counter() - started, returncode=1, detail=str(exc))
-    output = (result.stderr or result.stdout).strip().splitlines()
+    combined_output = (result.stdout + "\n" + result.stderr).strip()
+    output = combined_output.splitlines()
     return StageResult(
         name=name,
         command=" ".join(command),
@@ -101,4 +106,14 @@ def _run_stage(root: Path, name: str, command: list[str]) -> StageResult:
         duration_s=time.perf_counter() - started,
         returncode=result.returncode,
         detail=output[-1] if output else "",
+        output_excerpt=_output_excerpt(combined_output) if result.returncode != 0 else "",
     )
+
+
+def _output_excerpt(output: str, *, max_lines: int = 80) -> str:
+    lines = output.splitlines()
+    if len(lines) <= max_lines:
+        excerpt = lines
+    else:
+        excerpt = ["... output truncated to final failing lines ...", *lines[-max_lines:]]
+    return "\n".join(f"  {line}" for line in excerpt)

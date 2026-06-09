@@ -72,3 +72,21 @@ def test_release_check_build_uses_temp_outdir(tmp_path, monkeypatch) -> None:
     assert build_commands
     assert "--outdir" in build_commands[0]
     assert Path(build_commands[0][build_commands[0].index("--outdir") + 1]).name.startswith("agentpack-build-")
+
+
+def test_release_check_prints_failed_stage_output(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("## [1.2.3]\n", encoding="utf-8")
+
+    def fake_run(command, **kwargs):
+        if "-m" in [str(part) for part in command] and "pytest" in [str(part) for part in command]:
+            return type("Result", (), {"returncode": 1, "stdout": "FAILED tests/test_x.py::test_name\n", "stderr": ""})()
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr("agentpack.commands.release_check.subprocess.run", fake_run)
+
+    result = CliRunner().invoke(app, ["release-check", "--skip-benchmark", "--skip-build"])
+
+    assert result.exit_code == 1
+    assert "FAILED tests/test_x.py::test_name" in result.output

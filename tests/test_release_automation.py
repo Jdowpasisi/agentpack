@@ -32,6 +32,22 @@ def test_dev_check_json_orchestrates_stages(tmp_path: Path, monkeypatch) -> None
     assert calls
 
 
+def test_dev_check_prints_failed_stage_output(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run(command, **kwargs):
+        if "-m" in [str(part) for part in command] and "pytest" in [str(part) for part in command]:
+            return type("Result", (), {"returncode": 1, "stdout": "FAILED tests/test_x.py::test_name\n", "stderr": ""})()
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr("agentpack.commands.dev_check.subprocess.run", fake_run)
+
+    result = CliRunner().invoke(app, ["dev-check"])
+
+    assert result.exit_code == 1
+    assert "FAILED tests/test_x.py::test_name" in result.output
+
+
 def test_verify_wheel_json_uses_existing_wheel(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     wheel = tmp_path / "dist" / "agentpack_cli-1.0.0-py3-none-any.whl"

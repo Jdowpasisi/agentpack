@@ -24,7 +24,11 @@ def test_learning_config_defaults():
     assert cfg.learning.agent_lessons_output == ".agentpack/agent-lessons.md"
     assert cfg.learning.llm_prompt_output == ".agentpack/learning.prompt.md"
     assert cfg.learning.pr_comment_output == ".agentpack/pr-learning-comment.md"
+    assert cfg.learning.dashboard_output == ".agentpack/learning-dashboard.html"
+    assert cfg.learning.team_lessons_output == ".agentpack/team-lessons.md"
     assert cfg.learning.feedback_output == ".agentpack/learning-feedback.jsonl"
+    assert cfg.learning.provider_command == ""
+    assert cfg.learning.provider_timeout_seconds == 60
     assert cfg.learning.inject_agent_lessons is True
     assert cfg.learning.min_groundedness_score == 70
 
@@ -42,7 +46,11 @@ def test_learning_config_model_accepts_overrides():
             "agent_lessons_output": ".agentpack/custom-agent-lessons.md",
             "llm_prompt_output": ".agentpack/custom-prompt.md",
             "pr_comment_output": ".agentpack/custom-pr.md",
+            "dashboard_output": ".agentpack/custom-dashboard.html",
+            "team_lessons_output": ".agentpack/custom-team.md",
             "feedback_output": ".agentpack/custom-feedback.jsonl",
+            "provider_command": "learn-provider",
+            "provider_timeout_seconds": 12,
             "inject_agent_lessons": False,
             "min_groundedness_score": 80,
         }
@@ -58,7 +66,11 @@ def test_learning_config_model_accepts_overrides():
     assert cfg.learning.agent_lessons_output == ".agentpack/custom-agent-lessons.md"
     assert cfg.learning.llm_prompt_output == ".agentpack/custom-prompt.md"
     assert cfg.learning.pr_comment_output == ".agentpack/custom-pr.md"
+    assert cfg.learning.dashboard_output == ".agentpack/custom-dashboard.html"
+    assert cfg.learning.team_lessons_output == ".agentpack/custom-team.md"
     assert cfg.learning.feedback_output == ".agentpack/custom-feedback.jsonl"
+    assert cfg.learning.provider_command == "learn-provider"
+    assert cfg.learning.provider_timeout_seconds == 12
     assert cfg.learning.inject_agent_lessons is False
     assert cfg.learning.min_groundedness_score == 80
 

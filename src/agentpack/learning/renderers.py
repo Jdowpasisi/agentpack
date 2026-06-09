@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from agentpack.learning.models import LearningReport
 
 
@@ -96,6 +98,87 @@ def render_quality_markdown(report: LearningReport, score: int, issues: list[str
     ]
     if issues:
         lines.extend(f"- {issue}" for issue in issues)
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_dashboard_html(report: LearningReport) -> str:
+    concepts = "".join(f"<li>{html.escape(concept)}</li>" for concept in report.concepts) or "<li>None detected</li>"
+    cards = "".join(
+        "<article>"
+        f"<h3>{html.escape(card.title)}</h3>"
+        f"<p>{html.escape(card.body)}</p>"
+        f"<p><strong>Evidence:</strong> {html.escape(', '.join(card.files) or 'none')}</p>"
+        "</article>"
+        for card in report.learning_cards
+    ) or "<p>No learning cards generated.</p>"
+    lessons = "".join(
+        "<li>"
+        f"{html.escape(lesson.rule)}"
+        f"<br><small>{html.escape(', '.join(lesson.evidence_files) or 'no evidence')}</small>"
+        "</li>"
+        for lesson in report.agent_lessons
+    ) or "<li>No agent lessons generated.</li>"
+    drills = html.escape(report.next_practice or "No next practice generated.")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentPack Learn Dashboard</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; color: #202124; }}
+    main {{ max-width: 980px; margin: 0 auto; }}
+    header {{ border-bottom: 1px solid #d9dde3; margin-bottom: 24px; }}
+    h1, h2, h3 {{ line-height: 1.2; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }}
+    article, section.metric {{ border: 1px solid #d9dde3; border-radius: 8px; padding: 16px; }}
+    small {{ color: #5f6368; }}
+    code {{ background: #f1f3f4; padding: 1px 4px; border-radius: 4px; }}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>AgentPack Learn Dashboard</h1>
+    <p><strong>Task:</strong> {html.escape(report.task)}</p>
+    <p><strong>Scope:</strong> {html.escape(report.scope)}</p>
+  </header>
+  <div class="grid">
+    <section class="metric"><h2>Changed Files</h2><p>{len(report.source_files)}</p></section>
+    <section class="metric"><h2>Concepts</h2><p>{len(report.concepts)}</p></section>
+    <section class="metric"><h2>Agent Lessons</h2><p>{len(report.agent_lessons)}</p></section>
+  </div>
+  <section><h2>Concepts</h2><ul>{concepts}</ul></section>
+  <section><h2>Learning Cards</h2>{cards}</section>
+  <section><h2>Agent Lessons</h2><ul>{lessons}</ul></section>
+  <section><h2>Next Practice</h2><p>{drills}</p></section>
+</main>
+</body>
+</html>
+"""
+
+
+def render_team_lessons_markdown(report: LearningReport) -> str:
+    lines = [
+        "# AgentPack Team Lessons",
+        "",
+        "Opt-in repo lessons derived from changed-file evidence. This export omits personal skill history.",
+        "",
+        "## Concepts",
+    ]
+    if report.concepts:
+        lines.extend(f"- {concept}" for concept in report.concepts)
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Agent Lessons"])
+    if report.agent_lessons:
+        for lesson in report.agent_lessons:
+            lines.append(f"- {lesson.rule}")
+            if lesson.evidence_files:
+                lines.append("  Evidence: " + ", ".join(f"`{path}`" for path in lesson.evidence_files))
     else:
         lines.append("- none")
     lines.append("")

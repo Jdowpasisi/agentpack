@@ -660,6 +660,8 @@ class AdapterRegistry:
                 cfg.learning.agent_lessons_output,
                 cfg.learning.llm_prompt_output,
                 cfg.learning.pr_comment_output,
+                cfg.learning.dashboard_output,
+                cfg.learning.team_lessons_output,
                 cfg.learning.feedback_output,
             }
         )

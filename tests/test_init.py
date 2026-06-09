@@ -34,6 +34,8 @@ def test_repo_gitignore_block_ignores_generated_artifacts() -> None:
     assert ".agentpack/agent-lessons.md" in lines
     assert ".agentpack/learning.prompt.md" in lines
     assert ".agentpack/pr-learning-comment.md" in lines
+    assert ".agentpack/learning-dashboard.html" in lines
+    assert ".agentpack/team-lessons.md" in lines
     assert ".agentpack/learning-feedback.jsonl" in lines
     assert ".agent/skills/agentpack/" not in lines
     assert ".vscode/tasks.json" not in lines
