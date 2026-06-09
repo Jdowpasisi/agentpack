@@ -72,6 +72,7 @@ Suggested commands:
 - **Execution state**: optional task state files and git-derived fallback status show whether work is planned, in progress, blocked, done, committed, or committed but not pushed.
 - **Thread-scoped context**: explicit `--thread <id>` or `--thread auto` isolates task/context files for multiple agents in one repo and warns on same-branch file overlap.
 - **Task router**: MCP and CLI surfaces route a task to relevant files, scoped rules, installed skills, suggested commands, and safety warnings without executing skills automatically.
+- **Learning layer**: turns task diffs into developer learning notes, skill evidence, and compact lessons future agents can reuse.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
 - **Local and measurable**: no API calls for scan, summarize, rank, pack, stats, or benchmark; quality is measured with expected-file evals.
 
@@ -154,6 +155,21 @@ agentpack finish --since main
 ```
 
 Use `agentpack quickstart --task "..." --write` when you want AgentPack to print the next commands and write the task file for you. Use `agentpack start "..." --pack-only` when you want only a fresh pack and not the guard path.
+
+### Learn from AI-assisted work
+
+Generate local post-task learning artifacts from `.agentpack/task.md` and git changes:
+
+```bash
+agentpack learn
+agentpack learn --today
+agentpack learn --since main
+agentpack learn --json
+agentpack learn --llm-prompt --pr-comment
+agentpack learn --feedback helpful --feedback-note "Useful review prompts"
+```
+
+AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates `.agentpack/skills-progress.json`, writes `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md` or `.agentpack/pr-learning-comment.md`. The MVP is local-first and reuses AgentPack redaction before reading diff snippets.
 
 ## Agent Setup
 
@@ -264,6 +280,7 @@ gate.
 | `agentpack work "task"` | Initialize if needed, start task, refresh context, show next steps |
 | `agentpack start "task"` | Write task and run the guard/refresh workflow |
 | `agentpack finish --since main` | Diagnose, capture benchmark case, run checks, mark done |
+| `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons |
 | `agentpack task show|set|clear` | Manage global or thread-scoped task files |
 | `agentpack pack` | Generate a ranked context pack for `.agentpack/task.md` |
 | `agentpack next --fix-all-safe` | Ask AgentPack what command or safe repair should happen next |
@@ -346,6 +363,13 @@ AgentPack writes local artifacts under `.agentpack/`:
 | `.agentpack/task_state.md` | optional global execution state |
 | `.agentpack/context.md` | generic/Codex/Cursor/Windsurf fallback context |
 | `.agentpack/context.claude.md` | Claude-flavored fallback context |
+| `.agentpack/learning.md` | local post-task developer learning notes |
+| `.agentpack/daily-summary.md` | local daily learning rollup from `agentpack learn --today` |
+| `.agentpack/skills-progress.json` | local skill evidence map from task work |
+| `.agentpack/agent-lessons.md` | compact repo-specific lessons injected into future packs |
+| `.agentpack/learning.prompt.md` | optional source-backed prompt for external LLM refinement |
+| `.agentpack/pr-learning-comment.md` | optional PR-comment-ready learning summary |
+| `.agentpack/learning-feedback.jsonl` | optional local helpful/not-helpful feedback records |
 | `.agentpack/pack_metadata.json` | freshness and pack metadata |
 | `.agentpack/cache/` | offline file summaries keyed by hash |
 | `.agentpack/snapshots/` | repo snapshot hashes |

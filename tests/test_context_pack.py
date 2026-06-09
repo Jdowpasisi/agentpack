@@ -568,6 +568,29 @@ def test_render_includes_freshness_metadata():
     assert "agentpack pack --task auto" in rendered
 
 
+def test_context_pack_renders_agent_lessons():
+    pack = ContextPack(
+        task="Add CLI learning summaries",
+        agent="generic",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        selected_files=[],
+        omitted_relevant_files=[],
+        receipts=[],
+        changed_files=[],
+        agent_lessons="- When editing CLI commands, update command docs and CLI tests.",
+    )
+
+    rendered = render_claude(pack)
+
+    assert "## Agent Lessons From Prior Work" in rendered
+    assert "update command docs" in rendered
+
+
 def test_render_compresses_excluded_receipts_and_lists_token_consumers():
     selected = SelectedFile(
         path="src/big.py",

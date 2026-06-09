@@ -24,6 +24,7 @@ Command map:
 | `agentpack work` | Initialize if needed, write a task, refresh context, and show next steps |
 | `agentpack start` | Write a task and run the default guard/refresh workflow |
 | `agentpack finish` | Run finish checks, capture benchmark evidence, and mark state done |
+| `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons from task context and git changes |
 | `agentpack task` | Show, set, or clear global/thread-scoped task files |
 | `agentpack pack` | Generate a ranked context pack for one task |
 | `agentpack next` | Recommend the next AgentPack action from repo/task/context state |
@@ -341,6 +342,45 @@ By default, `finish` writes a selection diagnosis, optionally captures a
 benchmark case when `--since` is supplied, runs `dev-check`, and marks task
 state `done`. With `--thread` it writes scoped state; with `--archive-thread` it
 also appends a done row to the thread index.
+
+---
+
+### `agentpack learn`
+
+Create local learning artifacts from the current task and git changes.
+
+```bash
+agentpack learn
+agentpack learn --today
+agentpack learn --since HEAD~1
+agentpack learn --output .agentpack/review.md
+agentpack learn --json
+agentpack learn --llm-prompt
+agentpack learn --pr-comment
+agentpack learn --feedback helpful --feedback-note "Useful cards"
+```
+
+Default outputs:
+
+- `.agentpack/learning.md`
+- `.agentpack/daily-summary.md` with `--today`
+- `.agentpack/skills-progress.json`
+- `.agentpack/agent-lessons.md`
+- `.agentpack/learning.prompt.md` with `--llm-prompt`
+- `.agentpack/pr-learning-comment.md` with `--pr-comment`
+- `.agentpack/learning-feedback.jsonl` with `--feedback`
+
+The command reads `.agentpack/task.md`, changed files, and bounded redacted
+diffs. It does not call a hosted service in the MVP. The human-facing summary
+explains changed files, concepts, decisions, risks, tests, learning cards, quiz
+questions, skill evidence, and next practice. Agent lessons are compact
+repo-specific rules included in future AgentPack context packs when
+`learning.inject_agent_lessons = true`.
+
+`--today` uses calendar-day aggregation: committed files since local midnight
+plus current dirty files. `--llm-prompt` writes a source-backed prompt for
+external LLM refinement without sending data anywhere. `--pr-comment` writes a
+short Markdown summary suitable for pasting into a pull request.
 
 ---
 

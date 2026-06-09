@@ -74,6 +74,90 @@ def changed_files_since(root: Path, ref: str) -> set[str]:
     return result
 
 
+def diff_name_status(root: Path, since: str | None = None) -> dict[str, str]:
+    """Return changed path -> change kind for learning/reporting commands."""
+    result: dict[str, str] = {}
+    args = ["git", "diff", "--name-status"]
+    if since:
+        args.extend([since, "HEAD"])
+    out = _run(args, root)
+    if out:
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                status, path = parts[0], parts[-1]
+                result[path] = _status_label(status)
+
+    untracked_out = _run(["git", "ls-files", "--others", "--exclude-standard"], root)
+    if untracked_out:
+        for line in untracked_out.splitlines():
+            path = line.strip()
+            if path:
+                result[path] = "untracked"
+    return result
+
+
+def diff_name_status_since_date(root: Path, since_date: str) -> dict[str, str]:
+    """Return changed path -> change kind for commits since an ISO date plus dirty files."""
+    result: dict[str, str] = {}
+    out = _run(["git", "log", f"--since={since_date}", "--name-status", "--format="], root)
+    if out:
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                status, path = parts[0], parts[-1]
+                result[path] = _status_label(status)
+    result.update(diff_name_status(root))
+    return result
+
+
+def file_diff(root: Path, path: str, *, since: str | None = None, max_chars: int = 1200) -> tuple[str, list[str]]:
+    """Return a redacted, bounded diff for one file."""
+    from agentpack.core.redactor import redact_secrets
+
+    args = ["git", "diff", "--", path]
+    if since:
+        args = ["git", "diff", since, "HEAD", "--", path]
+    out = _run(args, root) or ""
+    if not out and (root / path).exists():
+        out = (root / path).read_text(encoding="utf-8", errors="replace")
+    redacted, warnings = redact_secrets(out[:max_chars], path)
+    if len(out) > max_chars:
+        redacted += "\n[diff truncated]\n"
+    return redacted, warnings
+
+
+def file_diff_since_date(root: Path, path: str, since_date: str, *, max_chars: int = 1200) -> tuple[str, list[str]]:
+    """Return redacted diff for one path since an ISO date, falling back to file text."""
+    from agentpack.core.redactor import redact_secrets
+
+    base = _run(["git", "rev-list", "-n", "1", f"--before={since_date}", "HEAD"], root)
+    base_ref = base.strip() if base else ""
+    out = _run(["git", "diff", base_ref, "HEAD", "--", path], root) if base_ref else ""
+    dirty_out = _run(["git", "diff", "--", path], root) or ""
+    if dirty_out:
+        out = (out or "") + ("\n" if out else "") + dirty_out
+    if not out and (root / path).is_file():
+        out = (root / path).read_text(encoding="utf-8", errors="replace")
+    redacted, warnings = redact_secrets((out or "")[:max_chars], path)
+    if out and len(out) > max_chars:
+        redacted += "\n[diff truncated]\n"
+    return redacted, warnings
+
+
+def _status_label(status: str) -> str:
+    code = status[:1]
+    if code == "A":
+        return "added"
+    if code == "D":
+        return "deleted"
+    if code == "R":
+        return "renamed"
+    if code == "C":
+        return "copied"
+    return "modified"
+
+
 def current_sha(root: Path) -> str | None:
     out = _run(["git", "rev-parse", "HEAD"], root)
     return out.strip() if out else None

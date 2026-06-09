@@ -297,6 +297,12 @@ def render_claude(pack: ContextPack) -> str:
     if pack.concurrent_context:
         sections.extend(_concurrent_context_lines(pack.concurrent_context))
 
+    if pack.agent_lessons:
+        sections.append("## Agent Lessons From Prior Work")
+        sections.append("")
+        sections.append(pack.agent_lessons)
+        sections.append("")
+
     sections.append("## Instructions for Claude")
     sections.append("")
     sections.append(

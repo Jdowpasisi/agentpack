@@ -114,6 +114,7 @@ class ContextPack(BaseModel):
     estimated_savings_percent: float
     repo_map: str = ""
     delta_summary: str = ""
+    agent_lessons: str = ""
     changed_files: list[str]
     selected_files: list[SelectedFile]
     receipts: list[Receipt]
