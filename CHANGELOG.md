@@ -8,6 +8,10 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.3.13] — 2026-06-09
+
 ### Added
 - Added `agentpack learn`, a local learning layer that writes developer learning notes, skill evidence, future-agent lessons, LLM prompt artifacts, PR-comment summaries, and feedback records from task-scoped git changes.
 - Added true `agentpack learn --today` calendar-day aggregation for committed and dirty files.
