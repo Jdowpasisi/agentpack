@@ -31,6 +31,17 @@ npx @vishal2612200/agentpack route --task "fix auth token expiry"
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
+## Latest Update
+
+`0.3.14` expands `agentpack learn` from a local post-task summary into a
+developer learning layer: provider-command enrichment, static dashboard export,
+team lesson export, feedback-aware skill memory, and practice drills. The npm
+wrapper exposes the same Python CLI, so JavaScript teams can run:
+
+```bash
+npx @vishal2612200/agentpack learn --dashboard --team-export
+```
+
 ## Before vs After
 
 Without AgentPack, a cold coding-agent session often starts with manual repo orientation:

@@ -110,7 +110,10 @@ redaction runs before diff text is used. `provider_command` is opt-in and runs a
 local JSON-in/JSON-out command with the bounded report payload on stdin.
 Feedback-aware skill memory and practice drills are stored locally in
 `skill_map_output` and `feedback_output`; shared team learning should export
-only selected lessons or taxonomy files, not personal skill history.
+only selected lessons or taxonomy files, not personal skill history. Use
+`dashboard_output` for the local IDE/browser review surface and
+`team_lessons_output` for shareable lessons that are safe to discuss in review
+without exposing the developer's personal skill map.
 
 ---
 
@@ -151,6 +154,8 @@ agentpack diagnose-selection
 .agentpack/agent-lessons.md ✗ gitignored (future-agent lessons)
 .agentpack/learning.prompt.md ✗ gitignored (optional LLM prompt)
 .agentpack/pr-learning-comment.md ✗ gitignored (optional PR summary)
+.agentpack/learning-dashboard.html ✗ gitignored (optional local dashboard)
+.agentpack/team-lessons.md ✗ gitignored (optional shared lesson export)
 .agentpack/learning-feedback.jsonl ✗ gitignored (local feedback)
 .agent/skills/agentpack/  ✗ gitignored (generated Antigravity context)
 ```

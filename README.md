@@ -30,6 +30,25 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
+## What's New in 0.3.14
+
+AgentPack Learn now covers both sides of AI-assisted development: the coding
+agent gets compact future-agent lessons, and the developer gets task-specific
+learning notes, skill evidence, and practice follow-up.
+
+- `agentpack learn --provider-command` adds an opt-in local provider bridge:
+  AgentPack sends a bounded, redacted report JSON on stdin and accepts
+  LearningReport-compatible JSON fields on stdout. No hosted service is called
+  unless your command does it.
+- `agentpack learn --dashboard` writes a static
+  `.agentpack/learning-dashboard.html` for IDE/browser review.
+- `agentpack learn --team-export` writes `.agentpack/team-lessons.md`, a
+  shareable lesson file that omits personal skill history.
+- `agentpack learn --feedback`, `--skills`, and `--drills` close the loop from
+  a task summary to skill memory and next-practice prompts.
+- `agentpack dev-check` and `agentpack release-check` now print bounded failure
+  excerpts, so CI shows the failing test instead of only a red stage name.
+
 ## Before vs After
 
 Without AgentPack, a cold coding-agent session often starts with manual repo orientation:
@@ -176,6 +195,11 @@ agentpack learn --feedback helpful --feedback-target "skill:CLI design" --feedba
 ```
 
 AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates a local skill memory in `.agentpack/skills-progress.json`, writes ranked `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md`, `.agentpack/pr-learning-comment.md`, `.agentpack/learning-dashboard.html`, or `.agentpack/team-lessons.md`. Learn is local-first by default: `--provider-preview` shows the bounded payload for optional external refinement without making a network call, `--provider-command` runs only the local command you provide, and feedback stays in `.agentpack/learning-feedback.jsonl`.
+
+Use `--dashboard` when a developer wants an IDE-friendly review surface. Use
+`--team-export` when the useful lesson should be shared without publishing a
+personal skill history. Use `--ci` to fail a workflow when the generated
+learning is too generic or lacks changed-file evidence.
 
 ## Agent Setup
 
@@ -375,6 +399,8 @@ AgentPack writes local artifacts under `.agentpack/`:
 | `.agentpack/agent-lessons.md` | compact repo-specific lessons injected into future packs |
 | `.agentpack/learning.prompt.md` | optional source-backed prompt for external LLM refinement |
 | `.agentpack/pr-learning-comment.md` | optional PR-comment-ready learning summary |
+| `.agentpack/learning-dashboard.html` | optional static dashboard from `agentpack learn --dashboard` |
+| `.agentpack/team-lessons.md` | optional shared lesson export from `agentpack learn --team-export` |
 | `.agentpack/learning-feedback.jsonl` | optional local helpful/not-helpful feedback records |
 | `.agentpack/pack_metadata.json` | freshness and pack metadata |
 | `.agentpack/cache/` | offline file summaries keyed by hash |

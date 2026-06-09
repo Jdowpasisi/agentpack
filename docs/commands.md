@@ -347,7 +347,11 @@ also appends a done row to the thread index.
 
 ### `agentpack learn`
 
-Create local learning artifacts from the current task and git changes.
+Create local learning artifacts from the current task and git changes. The
+output is designed for both the developer and future coding agents: developer
+notes explain what changed and what to practice next, while agent lessons
+capture compact repo-specific rules that can be injected into later context
+packs.
 
 ```bash
 agentpack learn
@@ -395,10 +399,12 @@ short Markdown summary suitable for pasting into a pull request.
 `--provider-preview` prints the bounded provider payload without making a
 network call. `--provider-command` runs a local JSON-in/JSON-out command to
 enrich the report; AgentPack sends the bounded report JSON on stdin and accepts
-LearningReport-compatible JSON fields on stdout. `--dashboard` writes a static
-HTML learning dashboard. `--team-export` writes a shareable lessons file that
-omits personal skill history. `--ci` prints a quality report and exits non-zero
-when learning is too generic or lacks changed-file evidence. `--skills` and
+LearningReport-compatible JSON fields on stdout. This keeps hosted model,
+company LLM gateway, or custom rules-engine integration behind an explicit local
+command boundary. `--dashboard` writes a static HTML learning dashboard for
+IDE/browser review. `--team-export` writes a shareable lessons file that omits
+personal skill history. `--ci` prints a quality report and exits non-zero when
+learning is too generic or lacks changed-file evidence. `--skills` and
 `--drills` turn the local skill map into a quick progress view and
 next-practice list.
 
