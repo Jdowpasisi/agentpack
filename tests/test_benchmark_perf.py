@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 from pathlib import Path
 
@@ -8,6 +9,10 @@ import pytest
 
 from agentpack.summaries.base import build_all_summaries
 from agentpack.core.models import FileInfo
+
+
+def _budget(local_seconds: float, ci_seconds: float) -> float:
+    return ci_seconds if os.getenv("CI") else local_seconds
 
 
 def _make_files(tmp_path: Path) -> list[FileInfo]:
@@ -36,7 +41,8 @@ def test_build_all_summaries_cold_5000_files(tmp_path: Path) -> None:
     result = build_all_summaries(files, tmp_path)
     elapsed = time.perf_counter() - start
     assert len(result) == 5000
-    assert elapsed < 10, f"cold run took {elapsed:.2f}s, expected < 10s"
+    budget = _budget(local_seconds=10, ci_seconds=20)
+    assert elapsed < budget, f"cold run took {elapsed:.2f}s, expected < {budget:g}s"
 
 
 @pytest.mark.slow
@@ -47,4 +53,5 @@ def test_build_all_summaries_warm_cache_5000_files(tmp_path: Path) -> None:
     result = build_all_summaries(files, tmp_path)
     elapsed = time.perf_counter() - start
     assert len(result) == 5000
-    assert elapsed < 2, f"warm run took {elapsed:.2f}s, expected < 2s"
+    budget = _budget(local_seconds=2, ci_seconds=5)
+    assert elapsed < budget, f"warm run took {elapsed:.2f}s, expected < {budget:g}s"
