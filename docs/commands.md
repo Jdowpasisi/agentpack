@@ -357,7 +357,13 @@ agentpack learn --output .agentpack/review.md
 agentpack learn --json
 agentpack learn --llm-prompt
 agentpack learn --pr-comment
-agentpack learn --feedback helpful --feedback-note "Useful cards"
+agentpack learn --provider-preview
+agentpack learn --ci
+agentpack learn --skills
+agentpack learn --drills
+agentpack learn --feedback helpful --feedback-target "skill:CLI design" --feedback-note "Useful cards"
+agentpack learn --rename-skill "CLI design=>CLI workflow design"
+agentpack learn --suppress-skill "generic development"
 ```
 
 Default outputs:
@@ -371,16 +377,25 @@ Default outputs:
 - `.agentpack/learning-feedback.jsonl` with `--feedback`
 
 The command reads `.agentpack/task.md`, changed files, and bounded redacted
-diffs. It does not call a hosted service in the MVP. The human-facing summary
+diffs. It does not call a hosted service by default. The human-facing summary
 explains changed files, concepts, decisions, risks, tests, learning cards, quiz
 questions, skill evidence, and next practice. Agent lessons are compact
-repo-specific rules included in future AgentPack context packs when
+repo-specific rules ranked for future AgentPack context packs when
 `learning.inject_agent_lessons = true`.
 
 `--today` uses calendar-day aggregation: committed files since local midnight
 plus current dirty files. `--llm-prompt` writes a source-backed prompt for
 external LLM refinement without sending data anywhere. `--pr-comment` writes a
 short Markdown summary suitable for pasting into a pull request.
+`--provider-preview` prints the bounded provider payload without making a
+network call. `--ci` prints a quality report and exits non-zero when learning is
+too generic or lacks changed-file evidence. `--skills` and `--drills` turn the
+local skill map into a quick progress view and next-practice list.
+
+Feedback can be broad (`--feedback helpful`) or targeted. Supported targets are
+`skill:<name>`, `lesson:<text>`, `rename:<old=>new>`, and `merge:<old=>new>`.
+Targeted not-helpful feedback suppresses noisy skills or lessons in future
+reports; targeted helpful feedback raises confidence for matching future output.
 
 ---
 

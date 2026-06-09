@@ -155,10 +155,68 @@ def test_learn_records_feedback(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     monkeypatch.chdir(repo)
 
-    result = runner.invoke(app, ["learn", "--feedback", "helpful", "--feedback-note", "Useful cards"])
+    result = runner.invoke(
+        app,
+        ["learn", "--feedback", "helpful", "--feedback-note", "Useful cards", "--feedback-target", "skill:CLI design"],
+    )
 
     assert result.exit_code == 0, result.output
     lines = (repo / ".agentpack" / "learning-feedback.jsonl").read_text(encoding="utf-8").splitlines()
     payload = json.loads(lines[0])
     assert payload["feedback"] == "helpful"
     assert payload["note"] == "Useful cards"
+    assert payload["target"] == "skill:CLI design"
+
+
+def test_learn_skill_views_and_drills(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+    result = runner.invoke(app, ["learn"])
+    assert result.exit_code == 0, result.output
+
+    skills = runner.invoke(app, ["learn", "--skills"])
+    drills = runner.invoke(app, ["learn", "--drills"])
+
+    assert skills.exit_code == 0, skills.output
+    assert "# AgentPack Skill Memory" in skills.output
+    assert "CLI design" in skills.output
+    assert drills.exit_code == 0, drills.output
+    assert "# AgentPack Practice Drills" in drills.output
+
+
+def test_learn_provider_preview_does_not_write_default_file(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--provider-preview"])
+
+    assert result.exit_code == 0, result.output
+    assert "# AgentPack Provider Preview" in result.output
+    assert "`cli.py`" in result.output
+    assert not (repo / ".agentpack" / "learning.md").exists()
+
+
+def test_learn_ci_quality_prints_quality_report(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--ci"])
+
+    assert result.exit_code == 0, result.output
+    assert "# AgentPack Learning Quality" in result.output
+    assert "Score:" in result.output
+
+
+def test_learn_suppresses_renames_and_merges_skills(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+    result = runner.invoke(app, ["learn"])
+    assert result.exit_code == 0, result.output
+
+    rename = runner.invoke(app, ["learn", "--rename-skill", "CLI design=>CLI workflow"])
+    suppress = runner.invoke(app, ["learn", "--suppress-skill", "CLI workflow"])
+
+    assert rename.exit_code == 0, rename.output
+    assert suppress.exit_code == 0, suppress.output
+    payload = json.loads((repo / ".agentpack" / "skills-progress.json").read_text(encoding="utf-8"))
+    assert payload["skills"]["CLI workflow"]["suppressed"] is True

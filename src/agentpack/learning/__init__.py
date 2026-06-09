@@ -1,5 +1,7 @@
 from agentpack.learning.models import (
     AgentLesson,
+    FeedbackSignal,
+    FeedbackSummary,
     LearningCard,
     LearningOptions,
     LearningReport,
@@ -11,6 +13,8 @@ from agentpack.learning.models import (
 
 __all__ = [
     "AgentLesson",
+    "FeedbackSignal",
+    "FeedbackSummary",
     "LearningCard",
     "LearningOptions",
     "LearningReport",

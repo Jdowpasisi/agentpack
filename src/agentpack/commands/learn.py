@@ -9,16 +9,20 @@ from agentpack.commands._shared import _atomic_write, _root, console
 from agentpack.core.config import load_config
 from agentpack.learning.collector import collect_learning_inputs
 from agentpack.learning.extractor import build_learning_report
-from agentpack.learning.feedback import record_learning_feedback
+from agentpack.learning.feedback import apply_feedback_to_report, load_feedback_summary, record_learning_feedback
+from agentpack.learning.lesson_ranker import rank_agent_lessons
 from agentpack.learning.quality import score_learning_report
 from agentpack.learning.renderers import (
     learning_report_to_dict,
     render_agent_lessons_markdown,
+    render_drills_markdown,
     render_llm_prompt_markdown,
     render_learning_markdown,
     render_pr_comment_markdown,
+    render_provider_preview_markdown,
+    render_quality_markdown,
 )
-from agentpack.learning.skill_map import update_skill_map
+from agentpack.learning.skill_map import apply_skill_feedback, recommend_practice_drills, render_skill_summary, update_skill_map
 
 
 def register(app: typer.Typer) -> None:
@@ -31,8 +35,16 @@ def register(app: typer.Typer) -> None:
         json_output: bool = typer.Option(False, "--json", help="Print JSON to stdout instead of writing Markdown."),
         llm_prompt: bool = typer.Option(False, "--llm-prompt", help="Write an LLM-ready learning prompt artifact."),
         pr_comment: bool = typer.Option(False, "--pr-comment", help="Write a PR-comment-ready learning summary artifact."),
+        provider_preview: bool = typer.Option(False, "--provider-preview", help="Print the bounded provider payload without making a network call."),
+        ci: bool = typer.Option(False, "--ci", help="Fail when learning quality is below the configured threshold."),
+        skills: bool = typer.Option(False, "--skills", help="Print the local skill memory summary and exit."),
+        drills: bool = typer.Option(False, "--drills", help="Print recommended practice drills from local skill memory and exit."),
         feedback: str = typer.Option("", "--feedback", help="Record feedback for this learning output (helpful|not-helpful)."),
         feedback_note: str = typer.Option("", "--feedback-note", help="Optional note stored with --feedback."),
+        feedback_target: str = typer.Option("", "--feedback-target", help="Optional target such as skill:CLI design, lesson:retry, rename:old=>new, or merge:old=>new."),
+        suppress_skill: str = typer.Option("", "--suppress-skill", help="Suppress a noisy skill in future skill views and generation."),
+        rename_skill: str = typer.Option("", "--rename-skill", help="Rename a skill using old=>new."),
+        merge_skill: str = typer.Option("", "--merge-skill", help="Merge a skill using old=>new."),
     ) -> None:
         """Generate local learning artifacts from current task and git changes."""
         if task != "auto":
@@ -44,6 +56,28 @@ def register(app: typer.Typer) -> None:
 
         root = _root()
         cfg = load_config(root)
+        skill_map_path = root / cfg.learning.skill_map_output
+        if skills:
+            typer.echo(render_skill_summary(skill_map_path), nl=False)
+            return
+        if drills:
+            typer.echo(render_drills_markdown(recommend_practice_drills(skill_map_path)), nl=False)
+            return
+        if suppress_skill:
+            apply_skill_feedback(skill_map_path, target=suppress_skill, action="suppress", note=feedback_note)
+            console.print(f"[green]✓[/] Suppressed skill {suppress_skill}")
+            return
+        if rename_skill:
+            old, new = _split_mapping(rename_skill, "--rename-skill")
+            apply_skill_feedback(skill_map_path, target=old, action="rename", replacement=new, note=feedback_note)
+            console.print(f"[green]✓[/] Renamed skill {old} -> {new}")
+            return
+        if merge_skill:
+            old, new = _split_mapping(merge_skill, "--merge-skill")
+            apply_skill_feedback(skill_map_path, target=old, action="merge", replacement=new, note=feedback_note)
+            console.print(f"[green]✓[/] Merged skill {old} -> {new}")
+            return
+
         since_date = _today_start_iso() if today and not since else None
         inputs = collect_learning_inputs(
             root,
@@ -57,12 +91,19 @@ def register(app: typer.Typer) -> None:
             max_cards=cfg.learning.max_cards,
             max_quiz_questions=cfg.learning.max_quiz_questions,
         )
+        feedback_summary = load_feedback_summary(root / cfg.learning.feedback_output)
+        report = apply_feedback_to_report(report, feedback_summary)
+        report.agent_lessons = rank_agent_lessons(report, feedback_summary, limit=cfg.learning.max_cards)
         if today:
             report.scope = "today"
             if since_date:
                 report.since = f"today ({since_date})"
 
-        update_skill_map(root / cfg.learning.skill_map_output, report.skill_evidence)
+        if provider_preview:
+            typer.echo(render_provider_preview_markdown(report), nl=False)
+            return
+
+        update_skill_map(skill_map_path, report.skill_evidence)
         agent_lessons_path = root / cfg.learning.agent_lessons_output
         agent_lessons_path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(agent_lessons_path, render_agent_lessons_markdown(report))
@@ -83,7 +124,11 @@ def register(app: typer.Typer) -> None:
             if feedback not in {"helpful", "not-helpful"}:
                 console.print("[red]--feedback must be helpful or not-helpful.[/]")
                 raise typer.Exit(2)
-            record_learning_feedback(root / cfg.learning.feedback_output, report, feedback, feedback_note)
+            record_learning_feedback(root / cfg.learning.feedback_output, report, feedback, feedback_note, feedback_target)
+        if ci:
+            typer.echo(render_quality_markdown(report, quality.score, quality.issues), nl=False)
+            if quality.score < cfg.learning.min_groundedness_score:
+                raise typer.Exit(1)
 
         if json_output:
             typer.echo(json.dumps(learning_report_to_dict(report), indent=2, sort_keys=True))
@@ -99,3 +144,14 @@ def register(app: typer.Typer) -> None:
 def _today_start_iso() -> str:
     now = datetime.now().astimezone()
     return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def _split_mapping(value: str, flag: str) -> tuple[str, str]:
+    if "=>" not in value:
+        console.print(f"[red]{flag} expects old=>new.[/]")
+        raise typer.Exit(2)
+    old, new = [part.strip() for part in value.split("=>", 1)]
+    if not old or not new:
+        console.print(f"[red]{flag} expects non-empty old=>new values.[/]")
+        raise typer.Exit(2)
+    return old, new

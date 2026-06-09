@@ -98,7 +98,10 @@ min_groundedness_score = 70
 These settings control local learning output size, destinations, future-agent
 context injection, and the quality warning threshold. Learning artifacts are
 local by default: no hosted service is called, diffs are bounded, and secret
-redaction runs before diff text is used.
+redaction runs before diff text is used. Feedback-aware skill memory and
+practice drills are stored locally in `skill_map_output` and
+`feedback_output`; shared team learning should export only selected lessons or
+taxonomy files, not personal skill history.
 
 ---
 

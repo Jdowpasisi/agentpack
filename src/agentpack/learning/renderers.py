@@ -49,6 +49,59 @@ def render_pr_comment_markdown(report: LearningReport) -> str:
     return "\n".join(lines)
 
 
+def render_provider_preview_markdown(report: LearningReport) -> str:
+    lines = [
+        "# AgentPack Provider Preview",
+        "",
+        "This is the bounded, source-backed learning payload that can be sent to an optional provider.",
+        "No provider call is made by this preview.",
+        "",
+        f"Task: {report.task}",
+        f"Scope: {report.scope}",
+        "",
+        "## Changed File Evidence",
+    ]
+    for source in report.source_files:
+        concepts = ", ".join(source.concepts) if source.concepts else "none"
+        lines.append(f"- `{source.path}` ({source.change_kind}) concepts: {concepts}")
+    lines.extend(["", "## Concepts"])
+    lines.extend(f"- {concept}" for concept in report.concepts)
+    lines.extend(["", "## Existing Agent Lessons"])
+    if report.agent_lessons:
+        lines.extend(f"- {lesson.rule}" for lesson in report.agent_lessons)
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_drills_markdown(drills: list[str]) -> str:
+    lines = ["# AgentPack Practice Drills", ""]
+    if not drills:
+        lines.append("No skill evidence captured yet.")
+    else:
+        lines.extend(f"{idx}. {drill}" for idx, drill in enumerate(drills, start=1))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_quality_markdown(report: LearningReport, score: int, issues: list[str]) -> str:
+    lines = [
+        "# AgentPack Learning Quality",
+        "",
+        f"Score: {score}",
+        f"Task: {report.task}",
+        "",
+        "## Issues",
+    ]
+    if issues:
+        lines.extend(f"- {issue}" for issue in issues)
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_learning_markdown(report: LearningReport) -> str:
     lines: list[str] = [
         "# AgentPack Learning Summary",

@@ -166,10 +166,14 @@ agentpack learn --today
 agentpack learn --since main
 agentpack learn --json
 agentpack learn --llm-prompt --pr-comment
-agentpack learn --feedback helpful --feedback-note "Useful review prompts"
+agentpack learn --provider-preview
+agentpack learn --skills
+agentpack learn --drills
+agentpack learn --ci
+agentpack learn --feedback helpful --feedback-target "skill:CLI design" --feedback-note "Useful review prompts"
 ```
 
-AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates `.agentpack/skills-progress.json`, writes `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md` or `.agentpack/pr-learning-comment.md`. The MVP is local-first and reuses AgentPack redaction before reading diff snippets.
+AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates a local skill memory in `.agentpack/skills-progress.json`, writes ranked `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md` or `.agentpack/pr-learning-comment.md`. Learn is local-first by default: `--provider-preview` shows the bounded payload for optional external refinement without making a network call, and feedback stays in `.agentpack/learning-feedback.jsonl`.
 
 ## Agent Setup
 
@@ -280,7 +284,7 @@ gate.
 | `agentpack work "task"` | Initialize if needed, start task, refresh context, show next steps |
 | `agentpack start "task"` | Write task and run the guard/refresh workflow |
 | `agentpack finish --since main` | Diagnose, capture benchmark case, run checks, mark done |
-| `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons |
+| `agentpack learn` | Generate developer learning notes, skill memory, feedback-aware drills, and future-agent lessons |
 | `agentpack task show|set|clear` | Manage global or thread-scoped task files |
 | `agentpack pack` | Generate a ranked context pack for `.agentpack/task.md` |
 | `agentpack next --fix-all-safe` | Ask AgentPack what command or safe repair should happen next |

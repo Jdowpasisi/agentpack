@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from pydantic import BaseModel, Field
 
 
@@ -32,6 +34,9 @@ class AgentLesson(BaseModel):
     rule: str
     evidence_files: list[str] = Field(default_factory=list)
     reason: str = ""
+    confidence: int = 70
+    status: str = "generated"
+    last_seen: str = ""
 
 
 class SkillEvidence(BaseModel):
@@ -46,6 +51,35 @@ class SkillProgress(BaseModel):
     task_count: int = 0
     last_task: str = ""
     evidence: list[SkillEvidence] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    confidence: int = 0
+    first_seen: str = ""
+    last_seen: str = ""
+    source_paths: list[str] = Field(default_factory=list)
+    related_tests: list[str] = Field(default_factory=list)
+    accepted_corrections: list[str] = Field(default_factory=list)
+    suppressed: bool = False
+
+
+class FeedbackSignal(BaseModel):
+    feedback: str
+    target: str = ""
+    note: str = ""
+    task: str = ""
+    scope: str = ""
+    concepts: list[str] = Field(default_factory=list)
+    source_files: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class FeedbackSummary(BaseModel):
+    helpful_concepts: set[str] = Field(default_factory=set)
+    not_helpful_concepts: set[str] = Field(default_factory=set)
+    suppressed_skills: set[str] = Field(default_factory=set)
+    suppressed_lesson_terms: set[str] = Field(default_factory=set)
+    skill_renames: dict[str, str] = Field(default_factory=dict)
+    skill_merges: dict[str, str] = Field(default_factory=dict)
+    accepted_notes: list[str] = Field(default_factory=list)
 
 
 class LearningReport(BaseModel):
