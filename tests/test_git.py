@@ -1,4 +1,5 @@
 """Tests for git module — graceful fallback when not in a git repo."""
+import os
 import subprocess
 from pathlib import Path
 from agentpack.core import git
@@ -222,3 +223,19 @@ def test_file_diff_redacts_and_truncates(tmp_path):
     assert "[REDACTED:openai-key]" in diff
     assert "sk-1234567890" not in diff
     assert warnings
+
+
+def test_diff_name_status_since_date_uses_commit_dates(tmp_path):
+    repo = _make_git_repo(tmp_path)
+    (repo / "old.py").write_text("print('old')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "old.py"], cwd=repo, check=True, capture_output=True)
+    env = {**os.environ, "GIT_AUTHOR_DATE": "2020-01-01T00:00:00+0000", "GIT_COMMITTER_DATE": "2020-01-01T00:00:00+0000"}
+    subprocess.run(["git", "commit", "-m", "old"], cwd=repo, check=True, capture_output=True, env=env)
+    (repo / "new.py").write_text("print('new')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "new.py"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "new"], cwd=repo, check=True, capture_output=True)
+
+    status = git.diff_name_status_since_date(repo, "2021-01-01T00:00:00+00:00")
+
+    assert status["new.py"] == "added"
+    assert "old.py" not in status

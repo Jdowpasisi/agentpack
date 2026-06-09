@@ -32,6 +32,9 @@ markdown_output = ".agentpack/learning.md"
 daily_output = ".agentpack/daily-summary.md"
 skill_map_output = ".agentpack/skills-progress.json"
 agent_lessons_output = ".agentpack/agent-lessons.md"
+llm_prompt_output = ".agentpack/learning.prompt.md"
+pr_comment_output = ".agentpack/pr-learning-comment.md"
+feedback_output = ".agentpack/learning-feedback.jsonl"
 inject_agent_lessons = true
 max_changed_files = 20
 max_diff_chars_per_file = 1200
@@ -81,6 +84,9 @@ markdown_output = ".agentpack/learning.md"
 daily_output = ".agentpack/daily-summary.md"
 skill_map_output = ".agentpack/skills-progress.json"
 agent_lessons_output = ".agentpack/agent-lessons.md"
+llm_prompt_output = ".agentpack/learning.prompt.md"
+pr_comment_output = ".agentpack/pr-learning-comment.md"
+feedback_output = ".agentpack/learning-feedback.jsonl"
 inject_agent_lessons = true
 max_changed_files = 20
 max_diff_chars_per_file = 1200
@@ -131,6 +137,9 @@ agentpack diagnose-selection
 .agentpack/daily-summary.md ✗ gitignored (local daily rollup)
 .agentpack/skills-progress.json ✗ gitignored (local skill evidence)
 .agentpack/agent-lessons.md ✗ gitignored (future-agent lessons)
+.agentpack/learning.prompt.md ✗ gitignored (optional LLM prompt)
+.agentpack/pr-learning-comment.md ✗ gitignored (optional PR summary)
+.agentpack/learning-feedback.jsonl ✗ gitignored (local feedback)
 .agent/skills/agentpack/  ✗ gitignored (generated Antigravity context)
 ```
 

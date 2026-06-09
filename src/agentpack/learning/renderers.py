@@ -21,6 +21,34 @@ def render_agent_lessons_markdown(report: LearningReport) -> str:
     return "\n".join(lines)
 
 
+def render_llm_prompt_markdown(report: LearningReport) -> str:
+    lines = [
+        "# AgentPack Learning Prompt",
+        "",
+        "Create a source-backed learning summary for this coding task.",
+        "Use only the changed-file evidence, concepts, risks, tests, and agent lessons below.",
+        "Do not invent files, technologies, or decisions not present here.",
+        "",
+        render_learning_markdown(report),
+    ]
+    return "\n".join(lines)
+
+
+def render_pr_comment_markdown(report: LearningReport) -> str:
+    lines = ["## Learning Summary", ""]
+    lines.extend(report.summary[:3])
+    if report.concepts:
+        lines.extend(["", "### Concepts"])
+        lines.extend(f"- {concept}" for concept in report.concepts[:5])
+    if report.risks:
+        lines.extend(["", "### Review Risks"])
+        lines.extend(f"- {risk}" for risk in report.risks[:3])
+    if report.next_practice:
+        lines.extend(["", "### Next Practice", report.next_practice])
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_learning_markdown(report: LearningReport) -> str:
     lines: list[str] = [
         "# AgentPack Learning Summary",

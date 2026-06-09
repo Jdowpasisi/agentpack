@@ -12,6 +12,7 @@ class LearningInputs:
     task: str
     since: str | None
     changed_files: dict[str, str]
+    since_date: str | None = None
     diffs: dict[str, str] = field(default_factory=dict)
     redaction_warnings: list[str] = field(default_factory=list)
 
@@ -20,26 +21,31 @@ def collect_learning_inputs(
     root: Path,
     *,
     since: str | None,
+    since_date: str | None = None,
     max_changed_files: int,
     max_diff_chars_per_file: int,
 ) -> LearningInputs:
     task = _read_task(root)
-    changed = git.diff_name_status(root, since=since)
+    changed = git.diff_name_status_since_date(root, since_date) if since_date else git.diff_name_status(root, since=since)
     limited_paths = list(changed)[:max_changed_files]
     diffs: dict[str, str] = {}
     warnings: list[str] = []
     for path in limited_paths:
-        diff, redaction_warnings = git.file_diff(
-            root,
-            path,
-            since=since,
-            max_chars=max_diff_chars_per_file,
-        )
+        if since_date:
+            diff, redaction_warnings = git.file_diff_since_date(root, path, since_date, max_chars=max_diff_chars_per_file)
+        else:
+            diff, redaction_warnings = git.file_diff(
+                root,
+                path,
+                since=since,
+                max_chars=max_diff_chars_per_file,
+            )
         diffs[path] = diff
         warnings.extend(redaction_warnings)
     return LearningInputs(
         task=task,
         since=since,
+        since_date=since_date,
         changed_files={path: changed[path] for path in limited_paths},
         diffs=diffs,
         redaction_warnings=warnings,

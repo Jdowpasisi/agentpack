@@ -165,9 +165,11 @@ agentpack learn
 agentpack learn --today
 agentpack learn --since main
 agentpack learn --json
+agentpack learn --llm-prompt --pr-comment
+agentpack learn --feedback helpful --feedback-note "Useful review prompts"
 ```
 
-AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates `.agentpack/skills-progress.json`, and writes `.agentpack/agent-lessons.md` for future coding agents. The MVP is local-first and reuses AgentPack redaction before reading diff snippets.
+AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates `.agentpack/skills-progress.json`, writes `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md` or `.agentpack/pr-learning-comment.md`. The MVP is local-first and reuses AgentPack redaction before reading diff snippets.
 
 ## Agent Setup
 
@@ -365,6 +367,9 @@ AgentPack writes local artifacts under `.agentpack/`:
 | `.agentpack/daily-summary.md` | local daily learning rollup from `agentpack learn --today` |
 | `.agentpack/skills-progress.json` | local skill evidence map from task work |
 | `.agentpack/agent-lessons.md` | compact repo-specific lessons injected into future packs |
+| `.agentpack/learning.prompt.md` | optional source-backed prompt for external LLM refinement |
+| `.agentpack/pr-learning-comment.md` | optional PR-comment-ready learning summary |
+| `.agentpack/learning-feedback.jsonl` | optional local helpful/not-helpful feedback records |
 | `.agentpack/pack_metadata.json` | freshness and pack metadata |
 | `.agentpack/cache/` | offline file summaries keyed by hash |
 | `.agentpack/snapshots/` | repo snapshot hashes |

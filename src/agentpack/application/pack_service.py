@@ -658,6 +658,9 @@ class AdapterRegistry:
                 cfg.learning.daily_output,
                 cfg.learning.skill_map_output,
                 cfg.learning.agent_lessons_output,
+                cfg.learning.llm_prompt_output,
+                cfg.learning.pr_comment_output,
+                cfg.learning.feedback_output,
             }
         )
         return paths

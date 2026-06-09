@@ -22,6 +22,9 @@ def test_learning_config_defaults():
     assert cfg.learning.max_quiz_questions == 5
     assert cfg.learning.skill_map_output == ".agentpack/skills-progress.json"
     assert cfg.learning.agent_lessons_output == ".agentpack/agent-lessons.md"
+    assert cfg.learning.llm_prompt_output == ".agentpack/learning.prompt.md"
+    assert cfg.learning.pr_comment_output == ".agentpack/pr-learning-comment.md"
+    assert cfg.learning.feedback_output == ".agentpack/learning-feedback.jsonl"
     assert cfg.learning.inject_agent_lessons is True
     assert cfg.learning.min_groundedness_score == 70
 
@@ -37,6 +40,9 @@ def test_learning_config_model_accepts_overrides():
             "max_quiz_questions": 2,
             "skill_map_output": ".agentpack/custom-skills.json",
             "agent_lessons_output": ".agentpack/custom-agent-lessons.md",
+            "llm_prompt_output": ".agentpack/custom-prompt.md",
+            "pr_comment_output": ".agentpack/custom-pr.md",
+            "feedback_output": ".agentpack/custom-feedback.jsonl",
             "inject_agent_lessons": False,
             "min_groundedness_score": 80,
         }
@@ -50,6 +56,9 @@ def test_learning_config_model_accepts_overrides():
     assert cfg.learning.max_quiz_questions == 2
     assert cfg.learning.skill_map_output == ".agentpack/custom-skills.json"
     assert cfg.learning.agent_lessons_output == ".agentpack/custom-agent-lessons.md"
+    assert cfg.learning.llm_prompt_output == ".agentpack/custom-prompt.md"
+    assert cfg.learning.pr_comment_output == ".agentpack/custom-pr.md"
+    assert cfg.learning.feedback_output == ".agentpack/custom-feedback.jsonl"
     assert cfg.learning.inject_agent_lessons is False
     assert cfg.learning.min_groundedness_score == 80
 

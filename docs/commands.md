@@ -355,6 +355,9 @@ agentpack learn --today
 agentpack learn --since HEAD~1
 agentpack learn --output .agentpack/review.md
 agentpack learn --json
+agentpack learn --llm-prompt
+agentpack learn --pr-comment
+agentpack learn --feedback helpful --feedback-note "Useful cards"
 ```
 
 Default outputs:
@@ -363,6 +366,9 @@ Default outputs:
 - `.agentpack/daily-summary.md` with `--today`
 - `.agentpack/skills-progress.json`
 - `.agentpack/agent-lessons.md`
+- `.agentpack/learning.prompt.md` with `--llm-prompt`
+- `.agentpack/pr-learning-comment.md` with `--pr-comment`
+- `.agentpack/learning-feedback.jsonl` with `--feedback`
 
 The command reads `.agentpack/task.md`, changed files, and bounded redacted
 diffs. It does not call a hosted service in the MVP. The human-facing summary
@@ -370,6 +376,11 @@ explains changed files, concepts, decisions, risks, tests, learning cards, quiz
 questions, skill evidence, and next practice. Agent lessons are compact
 repo-specific rules included in future AgentPack context packs when
 `learning.inject_agent_lessons = true`.
+
+`--today` uses calendar-day aggregation: committed files since local midnight
+plus current dirty files. `--llm-prompt` writes a source-backed prompt for
+external LLM refinement without sending data anywhere. `--pr-comment` writes a
+short Markdown summary suitable for pasting into a pull request.
 
 ---
 
