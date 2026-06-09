@@ -74,6 +74,58 @@ def changed_files_since(root: Path, ref: str) -> set[str]:
     return result
 
 
+def diff_name_status(root: Path, since: str | None = None) -> dict[str, str]:
+    """Return changed path -> change kind for learning/reporting commands."""
+    result: dict[str, str] = {}
+    args = ["git", "diff", "--name-status"]
+    if since:
+        args.extend([since, "HEAD"])
+    out = _run(args, root)
+    if out:
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                status, path = parts[0], parts[-1]
+                result[path] = _status_label(status)
+
+    untracked_out = _run(["git", "ls-files", "--others", "--exclude-standard"], root)
+    if untracked_out:
+        for line in untracked_out.splitlines():
+            path = line.strip()
+            if path:
+                result[path] = "untracked"
+    return result
+
+
+def file_diff(root: Path, path: str, *, since: str | None = None, max_chars: int = 1200) -> tuple[str, list[str]]:
+    """Return a redacted, bounded diff for one file."""
+    from agentpack.core.redactor import redact_secrets
+
+    args = ["git", "diff", "--", path]
+    if since:
+        args = ["git", "diff", since, "HEAD", "--", path]
+    out = _run(args, root) or ""
+    if not out and (root / path).exists():
+        out = (root / path).read_text(encoding="utf-8", errors="replace")
+    redacted, warnings = redact_secrets(out[:max_chars], path)
+    if len(out) > max_chars:
+        redacted += "\n[diff truncated]\n"
+    return redacted, warnings
+
+
+def _status_label(status: str) -> str:
+    code = status[:1]
+    if code == "A":
+        return "added"
+    if code == "D":
+        return "deleted"
+    if code == "R":
+        return "renamed"
+    if code == "C":
+        return "copied"
+    return "modified"
+
+
 def current_sha(root: Path) -> str | None:
     out = _run(["git", "rev-parse", "HEAD"], root)
     return out.strip() if out else None

@@ -174,3 +174,51 @@ def test_source_label_in_valid_set():
              "unstaged+commit", "unstaged", "commits", "recently_modified", "fallback"}
     _, source = git.infer_task_with_source(Path("."))
     assert source in valid
+
+
+def test_diff_name_status_includes_modified_and_added(tmp_path):
+    repo = _make_git_repo(tmp_path)
+    (repo / "app.py").write_text("print('one')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "app.py"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+
+    (repo / "app.py").write_text("print('two')\n", encoding="utf-8")
+    (repo / "new.py").write_text("print('new')\n", encoding="utf-8")
+
+    status = git.diff_name_status(repo)
+
+    assert status["app.py"] == "modified"
+    assert status["new.py"] == "untracked"
+
+
+def test_diff_name_status_expands_untracked_directories_to_files(tmp_path):
+    repo = _make_git_repo(tmp_path)
+    (repo / "tracked.py").write_text("print('one')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+
+    (repo / "pkg").mkdir()
+    (repo / "pkg" / "new.py").write_text("print('new')\n", encoding="utf-8")
+
+    status = git.diff_name_status(repo)
+
+    assert status["pkg/new.py"] == "untracked"
+    assert "pkg" not in status
+
+
+def test_file_diff_redacts_and_truncates(tmp_path):
+    repo = _make_git_repo(tmp_path)
+    (repo / "config.py").write_text("TOKEN = 'old'\n", encoding="utf-8")
+    subprocess.run(["git", "add", "config.py"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
+
+    (repo / "config.py").write_text(
+        "TOKEN = 'sk-1234567890123456789012345678901234567890'\n",
+        encoding="utf-8",
+    )
+
+    diff, warnings = git.file_diff(repo, "config.py", max_chars=200)
+
+    assert "[REDACTED:openai-key]" in diff
+    assert "sk-1234567890" not in diff
+    assert warnings

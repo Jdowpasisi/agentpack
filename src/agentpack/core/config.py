@@ -47,6 +47,19 @@ class SummaryConfig(BaseModel):
     schema_version: int = 2
 
 
+class LearningConfig(BaseModel):
+    markdown_output: str = ".agentpack/learning.md"
+    daily_output: str = ".agentpack/daily-summary.md"
+    skill_map_output: str = ".agentpack/skills-progress.json"
+    agent_lessons_output: str = ".agentpack/agent-lessons.md"
+    inject_agent_lessons: bool = True
+    max_changed_files: int = 20
+    max_diff_chars_per_file: int = 1200
+    max_cards: int = 5
+    max_quiz_questions: int = 5
+    min_groundedness_score: int = 70
+
+
 class HooksConfig(BaseModel):
     task_switch_detection: bool = True
     task_switch_min_terms: int = 1
@@ -116,6 +129,7 @@ class Config(BaseModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     context_lite: LiteContextConfig = Field(default_factory=LiteContextConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -158,6 +172,18 @@ summary_chars = 500
 [summary]
 provider = "offline"
 schema_version = 2
+
+[learning]
+markdown_output = ".agentpack/learning.md"
+daily_output = ".agentpack/daily-summary.md"
+skill_map_output = ".agentpack/skills-progress.json"
+agent_lessons_output = ".agentpack/agent-lessons.md"
+inject_agent_lessons = true
+max_changed_files = 20
+max_diff_chars_per_file = 1200
+max_cards = 5
+max_quiz_questions = 5
+min_groundedness_score = 70
 
 [hooks]
 # Claude UserPromptSubmit can detect a clearly different coding prompt,

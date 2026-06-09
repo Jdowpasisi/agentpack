@@ -27,6 +27,18 @@ include_receipts = true
 task_switch_detection = true
 task_switch_min_terms = 1
 
+[learning]
+markdown_output = ".agentpack/learning.md"
+daily_output = ".agentpack/daily-summary.md"
+skill_map_output = ".agentpack/skills-progress.json"
+agent_lessons_output = ".agentpack/agent-lessons.md"
+inject_agent_lessons = true
+max_changed_files = 20
+max_diff_chars_per_file = 1200
+max_cards = 5
+max_quiz_questions = 5
+min_groundedness_score = 70
+
 [agents.claude]
 output = ".agentpack/context.claude.md"
 patch_claude_md = true
@@ -61,6 +73,29 @@ ignored_penalty           = -100
 
 ---
 
+## Learning
+
+```toml
+[learning]
+markdown_output = ".agentpack/learning.md"
+daily_output = ".agentpack/daily-summary.md"
+skill_map_output = ".agentpack/skills-progress.json"
+agent_lessons_output = ".agentpack/agent-lessons.md"
+inject_agent_lessons = true
+max_changed_files = 20
+max_diff_chars_per_file = 1200
+max_cards = 5
+max_quiz_questions = 5
+min_groundedness_score = 70
+```
+
+These settings control local learning output size, destinations, future-agent
+context injection, and the quality warning threshold. Learning artifacts are
+local by default: no hosted service is called, diffs are bounded, and secret
+redaction runs before diff text is used.
+
+---
+
 ## .agentignore
 
 Works like `.gitignore`. Default rules exclude:
@@ -92,6 +127,10 @@ agentpack diagnose-selection
 .agentpack/snapshots/     ✗ gitignored
 .agentpack/context.*      ✗ gitignored
 .agentpack/task.md        ✗ gitignored (local current task)
+.agentpack/learning.md    ✗ gitignored (local learning notes)
+.agentpack/daily-summary.md ✗ gitignored (local daily rollup)
+.agentpack/skills-progress.json ✗ gitignored (local skill evidence)
+.agentpack/agent-lessons.md ✗ gitignored (future-agent lessons)
 .agent/skills/agentpack/  ✗ gitignored (generated Antigravity context)
 ```
 

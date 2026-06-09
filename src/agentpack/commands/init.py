@@ -62,6 +62,10 @@ def _repo_gitignore_entries(share_cache: bool = False, agent: str = "generic") -
             ".agentpack/session.json",
             ".agentpack/task.md",
             ".agentpack/benchmark_results.jsonl",
+            ".agentpack/learning.md",
+            ".agentpack/daily-summary.md",
+            ".agentpack/skills-progress.json",
+            ".agentpack/agent-lessons.md",
             ".agentignore",
         ]
     )
@@ -94,6 +98,10 @@ def _agentpack_gitignore_content(share_cache: bool = False) -> str:
             "session.json",
             "task.md",
             "benchmark_results.jsonl",
+            "learning.md",
+            "daily-summary.md",
+            "skills-progress.json",
+            "agent-lessons.md",
         ]
     )
     return "\n".join(entries) + "\n"

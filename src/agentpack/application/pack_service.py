@@ -366,6 +366,16 @@ def _snapshot_age_seconds(snapshot: dict[str, Any]) -> float:
         return float("inf")
 
 
+def _read_agent_lessons(root: Path, cfg: Any, limit: int = 2000) -> str:
+    if not getattr(cfg.learning, "inject_agent_lessons", True):
+        return ""
+    path = root / cfg.learning.agent_lessons_output
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8", errors="replace").strip()
+    return text[:limit]
+
+
 class PackPlanner:
     """Runs scan → summarize → graph → rank → select; shared by pack and explain."""
 
@@ -642,6 +652,14 @@ class AdapterRegistry:
                 paths.add(str(out_path.relative_to(root)).replace("\\", "/"))
             except (OSError, ValueError):
                 continue
+        paths.update(
+            {
+                cfg.learning.markdown_output,
+                cfg.learning.daily_output,
+                cfg.learning.skill_map_output,
+                cfg.learning.agent_lessons_output,
+            }
+        )
         return paths
 
 
@@ -708,6 +726,7 @@ class PackService:
             estimated_savings_percent=saving_pct,
             repo_map=plan.repo_map,
             delta_summary=delta_summary,
+            agent_lessons=_read_agent_lessons(root, cfg),
             changed_files=sorted(plan.all_changed),
             selected_files=plan.selected,
             receipts=plan.receipts if cfg.context.include_receipts else [],

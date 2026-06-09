@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from pathlib import Path
+import json
+import subprocess
+
+from typer.testing import CliRunner
+
+from agentpack.cli import app
+
+
+runner = CliRunner()
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+
+def _repo(tmp_path: Path) -> Path:
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test User")
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "task.md").write_text("Add CLI learning summaries\n", encoding="utf-8")
+    (tmp_path / "cli.py").write_text("import typer\n\napp = typer.Typer()\n", encoding="utf-8")
+    _git(tmp_path, "add", ".agentpack/task.md", "cli.py")
+    _git(tmp_path, "commit", "-m", "initial")
+    (tmp_path / "cli.py").write_text(
+        "import typer\n\napp = typer.Typer()\n@app.command()\ndef learn():\n    pass\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_learn_writes_markdown_file(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn"])
+
+    assert result.exit_code == 0, result.output
+    output = repo / ".agentpack" / "learning.md"
+    assert output.exists()
+    text = output.read_text(encoding="utf-8")
+    assert "# AgentPack Learning Summary" in text
+    assert "`cli.py`" in text
+
+
+def test_learn_json_outputs_json_without_writing_default_file(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["task"] == "Add CLI learning summaries"
+    assert payload["source_files"][0]["path"] == "cli.py"
+    assert not (repo / ".agentpack" / "learning.md").exists()
+
+
+def test_learn_custom_output_path(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--output", ".agentpack/custom.md"])
+
+    assert result.exit_code == 0, result.output
+    assert (repo / ".agentpack" / "custom.md").exists()
+
+
+def test_learn_today_writes_daily_summary_path(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--today"])
+
+    assert result.exit_code == 0, result.output
+    output = repo / ".agentpack" / "daily-summary.md"
+    assert output.exists()
+    assert "**Scope:** today" in output.read_text(encoding="utf-8")
+
+
+def test_learn_updates_skill_map(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads((repo / ".agentpack" / "skills-progress.json").read_text(encoding="utf-8"))
+    assert payload["skills"]
+
+
+def test_learn_writes_agent_lessons(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn"])
+
+    assert result.exit_code == 0, result.output
+    text = (repo / ".agentpack" / "agent-lessons.md").read_text(encoding="utf-8")
+    assert "# Agent Lessons" in text
+    assert "Evidence:" in text
