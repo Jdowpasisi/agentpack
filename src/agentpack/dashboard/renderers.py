@@ -15,6 +15,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     skills = _skill_rows(snapshot.skills.task_specific, "task-specific") + _skill_rows(snapshot.skills.baseline, "baseline")
     if not skills:
         skills = '<tr><td colspan="7">No skill recommendations found.</td></tr>'
+    skills_inventory = _skills_inventory_panel(snapshot)
     learning = _learning_rows(snapshot)
     benchmarks = _benchmark_rows(snapshot)
     misses = _miss_rows(snapshot)
@@ -94,6 +95,8 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     <table><thead><tr><th>Name</th><th>Type</th><th>Confidence</th><th>Score</th><th>Status</th><th>Side Effect</th><th>Reasons</th></tr></thead><tbody>{skills}</tbody></table>
   </section>
 
+  {skills_inventory}
+
   <section>
     <h2>Learning</h2>
     <ul>{learning}</ul>
@@ -145,6 +148,60 @@ def _skill_rows(items: Iterable[SkillRow], kind: str) -> str:
         "</tr>"
         for item in items
     )
+
+
+def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
+    inventory = snapshot.skills_inventory
+    if not inventory.available:
+        reason = inventory.index_error or "No skills index available."
+        return f"""
+  <section>
+    <h2>Skills Inventory</h2>
+    <p>{_e(reason)}</p>
+  </section>"""
+
+    domains = "".join(
+        f"<li>{_e(item.name)}: {item.count}</li>"
+        for item in inventory.domains[:20]
+    ) or "<li>No domains found.</li>"
+    sources = "".join(
+        "<tr>"
+        f"<td><code>{_e(item.configured_path)}</code></td>"
+        f"<td>{_e(item.resolved_path)}</td>"
+        f"<td>{'yes' if item.exists else 'no'}</td>"
+        f"<td>{item.file_count}</td>"
+        "</tr>"
+        for item in inventory.sources
+    ) or '<tr><td colspan="4">No configured skill sources found.</td></tr>'
+    rows = "".join(
+        "<tr>"
+        f"<td>{_e(item.name)}</td>"
+        f"<td>{_e(', '.join(item.domains))}</td>"
+        f"<td>{_e(item.source)}</td>"
+        f"<td><code>{_e(item.path)}</code></td>"
+        f"<td>{_e(item.side_effect_level or 'unknown')}</td>"
+        f"<td>{_e(item.metadata_quality)}</td>"
+        "</tr>"
+        for item in inventory.rows
+    ) or '<tr><td colspan="6">No skills discovered.</td></tr>'
+    duplicate_names = ", ".join(inventory.duplicate_names) or "none"
+    return f"""
+  <section>
+    <h2>Skills Inventory</h2>
+    <div class="grid">
+      <div class="metric"><strong>Skills</strong><span>{inventory.total_skills}</span></div>
+      <div class="metric"><strong>Rules</strong><span>{inventory.total_rules}</span></div>
+      <div class="metric"><strong>Uncategorized</strong><span>{inventory.uncategorized_count}</span></div>
+      <div class="metric"><strong>Missing Metadata</strong><span>{inventory.missing_metadata_count}</span></div>
+    </div>
+    <p><small>Index: {_e(inventory.index_reason or "unknown")}; refreshed: {'yes' if inventory.index_refreshed else 'no'}; duplicate names: {_e(duplicate_names)}</small></p>
+    <h3>Domains</h3>
+    <ul>{domains}</ul>
+    <h3>Directories</h3>
+    <table><thead><tr><th>Configured</th><th>Resolved</th><th>Exists</th><th>Files</th></tr></thead><tbody>{sources}</tbody></table>
+    <h3>Discovered Skills</h3>
+    <table><thead><tr><th>Skill</th><th>Domain</th><th>Source</th><th>Path</th><th>Side Effect</th><th>Metadata</th></tr></thead><tbody>{rows}</tbody></table>
+  </section>"""
 
 
 def _learning_rows(snapshot: DashboardSnapshot) -> str:

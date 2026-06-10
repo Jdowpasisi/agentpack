@@ -8,8 +8,12 @@ from agentpack.dashboard.models import (
     LoopSummary,
     ProjectInfo,
     SelectedFileRow,
+    SkillDomainSummary,
+    SkillInventoryRow,
+    SkillInventorySourceSummary,
     SkillRow,
     SkillSection,
+    SkillsInventorySummary,
     SuggestedAction,
     TaskInfo,
 )
@@ -71,3 +75,43 @@ def test_render_dashboard_html_uses_no_remote_assets() -> None:
     assert "https://" not in html
     assert "http://" not in html
     assert "<script" not in html.lower()
+
+
+def test_render_dashboard_html_contains_skills_inventory_without_bodies() -> None:
+    html = render_dashboard_html(
+        DashboardSnapshot(
+            project=ProjectInfo(name="repo", path="/tmp/repo"),
+            skills_inventory=SkillsInventorySummary(
+                available=True,
+                total_skills=1,
+                total_rules=0,
+                domains=[SkillDomainSummary(name="testing", count=1)],
+                sources=[
+                    SkillInventorySourceSummary(
+                        configured_path=".agentpack/skills",
+                        resolved_path="/tmp/repo/.agentpack/skills",
+                        exists=True,
+                        file_count=1,
+                    )
+                ],
+                rows=[
+                    SkillInventoryRow(
+                        name="pytest-debugging",
+                        path=".agentpack/skills/pytest-debugging/SKILL.md",
+                        source=".agentpack/skills",
+                        domains=["testing"],
+                        languages=["python"],
+                        frameworks=["pytest"],
+                        side_effect_level="command",
+                        metadata_quality="explicit",
+                    )
+                ],
+            ),
+        )
+    )
+
+    assert "Skills Inventory" in html
+    assert "pytest-debugging" in html
+    assert "testing" in html
+    assert ".agentpack/skills" in html
+    assert "Use for pytest failures" not in html
