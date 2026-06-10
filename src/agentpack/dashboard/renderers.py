@@ -35,65 +35,70 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
   <style>
     :root {{
       color-scheme: light;
-      --bg: #f5f6f8;
-      --panel: #ffffff;
-      --panel-soft: #f9fafb;
-      --border: #d8dee6;
-      --border-strong: #b7c0cc;
-      --text: #171b21;
-      --muted: #5b6472;
-      --subtle: #7a8493;
-      --good: #147a3d;
-      --good-bg: #e8f6ee;
-      --warn: #986a00;
-      --warn-bg: #fff4d7;
-      --bad: #c92a2a;
-      --bad-bg: #ffebeb;
-      --accent: #2457c5;
-      --accent-bg: #eaf0ff;
-      --code: #eef2f6;
+      --bg: #eef2f6;
+      --glass: rgba(255, 255, 255, 0.74);
+      --glass-strong: rgba(255, 255, 255, 0.88);
+      --panel: rgba(255, 255, 255, 0.78);
+      --panel-soft: rgba(248, 250, 252, 0.82);
+      --border: rgba(137, 151, 172, 0.34);
+      --border-strong: rgba(111, 126, 148, 0.48);
+      --text: #131820;
+      --muted: #526071;
+      --subtle: #768293;
+      --good: #137047;
+      --good-bg: rgba(222, 245, 231, 0.9);
+      --warn: #8a6100;
+      --warn-bg: rgba(255, 242, 202, 0.92);
+      --bad: #b4232c;
+      --bad-bg: rgba(255, 232, 232, 0.92);
+      --accent: #2157bd;
+      --accent-strong: #173f8c;
+      --accent-bg: rgba(225, 235, 255, 0.9);
+      --code: rgba(231, 237, 244, 0.92);
+      --shadow: 0 1px 2px rgba(19, 24, 32, 0.06), 0 12px 32px rgba(19, 24, 32, 0.07);
     }}
     * {{ box-sizing: border-box; }}
     html {{ scroll-behavior: smooth; }}
-    body {{ margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.45; }}
-    .topbar {{ position: sticky; top: 0; z-index: 2; background: rgba(255,255,255,0.96); border-bottom: 1px solid var(--border); backdrop-filter: blur(10px); }}
+    body {{ margin: 0; background-color: var(--bg); background-image: linear-gradient(rgba(31, 42, 68, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(31, 42, 68, 0.045) 1px, transparent 1px); background-size: 28px 28px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.45; }}
+    .topbar {{ position: sticky; top: 0; z-index: 2; background: var(--glass); border-bottom: 1px solid rgba(255,255,255,0.68); box-shadow: 0 1px 0 rgba(111,126,148,0.16); backdrop-filter: blur(16px) saturate(145%); }}
     .topbar-inner {{ max-width: 1240px; margin: 0 auto; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
-    .brand {{ font-weight: 700; letter-spacing: 0; }}
+    .brand {{ font-weight: 760; letter-spacing: 0; color: var(--accent-strong); }}
     nav {{ display: flex; flex-wrap: wrap; gap: 6px; }}
-    nav a {{ color: var(--muted); text-decoration: none; font-size: 13px; padding: 5px 8px; border-radius: 6px; }}
-    nav a:hover {{ background: var(--panel-soft); color: var(--text); }}
+    nav a {{ color: var(--muted); text-decoration: none; font-size: 13px; padding: 5px 9px; border: 1px solid transparent; border-radius: 999px; }}
+    nav a:hover, nav a:focus-visible {{ background: rgba(255,255,255,0.72); border-color: var(--border); color: var(--text); outline: none; }}
     main {{ max-width: 1240px; margin: 0 auto; padding: 24px; }}
-    header.hero {{ padding: 24px 0 22px; display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: end; }}
+    header.hero {{ padding: 28px 0 22px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(137,151,172,0.24); }}
     h1, h2, h3 {{ line-height: 1.2; margin: 0; letter-spacing: 0; }}
-    h1 {{ font-size: 32px; font-weight: 760; }}
+    h1 {{ font-size: 34px; font-weight: 780; }}
     h2 {{ font-size: 18px; font-weight: 720; }}
     h3 {{ font-size: 15px; font-weight: 680; }}
-    section {{ margin: 18px 0; }}
-    .section {{ padding: 4px 0 10px; }}
+    section {{ margin: 20px 0; }}
+    .section {{ padding: 6px 0 10px; }}
     .section-header {{ margin-bottom: 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }}
     .section-body {{ padding: 0; }}
-    .eyebrow {{ color: var(--accent); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }}
-    .subtitle {{ color: var(--muted); margin: 10px 0 0; max-width: 760px; }}
+    .section-body > h3 {{ margin: 18px 0 8px; color: var(--text); }}
+    .eyebrow {{ color: var(--accent); font-size: 12px; font-weight: 760; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }}
+    .subtitle {{ color: var(--muted); margin: 10px 0 0; max-width: 760px; font-size: 15px; }}
     .meta-stack {{ display: grid; gap: 8px; }}
-    .meta {{ color: var(--muted); margin: 0; }}
+    .meta {{ color: var(--muted); margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--glass); box-shadow: 0 1px 1px rgba(19,24,32,0.03); backdrop-filter: blur(12px) saturate(130%); }}
     .meta strong {{ color: var(--text); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }}
-    .metric {{ background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; min-height: 78px; }}
+    .metric {{ background: var(--panel); border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; padding: 14px; min-height: 78px; box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
     .metric strong {{ display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }}
     .metric span {{ display: block; margin-top: 6px; font-size: 22px; font-weight: 720; }}
     .metric.compact span {{ font-size: 17px; }}
-    .callout {{ margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--panel-soft); color: var(--muted); }}
+    .callout {{ margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--glass); color: var(--muted); backdrop-filter: blur(12px) saturate(125%); }}
     table {{ width: 100%; border-collapse: collapse; }}
-    .table-wrap {{ overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }}
-    th, td {{ border-bottom: 1px solid var(--border); padding: 9px 10px; text-align: left; vertical-align: top; }}
-    th {{ background: var(--panel-soft); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 43px; z-index: 1; }}
+    .table-wrap {{ overflow-x: auto; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
+    th, td {{ border-bottom: 1px solid rgba(137,151,172,0.24); padding: 9px 10px; text-align: left; vertical-align: top; }}
+    th {{ background: rgba(248,250,252,0.9); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 43px; z-index: 1; }}
     tr:last-child td {{ border-bottom: 0; }}
-    tbody tr:hover {{ background: #fbfcfd; }}
+    tbody tr:hover {{ background: rgba(234,240,255,0.38); }}
     code {{ background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-word; }}
     ul {{ padding-left: 18px; margin: 0; }}
     li {{ margin: 7px 0; }}
     small {{ color: var(--muted); }}
-    .pill {{ display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; background: var(--panel-soft); color: var(--muted); font-size: 12px; white-space: nowrap; }}
+    .pill {{ display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; background: rgba(255,255,255,0.64); color: var(--muted); font-size: 12px; white-space: nowrap; }}
     .fresh, .used_helpful {{ color: var(--good); }}
     .stale, .ignored, .used_noisy {{ color: var(--warn); }}
     .missing, .bad_recommendation {{ color: var(--bad); }}
@@ -105,7 +110,10 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     .reason-col {{ min-width: 260px; }}
     .two-col {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr); gap: 18px; align-items: start; }}
     .action-list {{ display: grid; gap: 10px; padding: 0; list-style: none; }}
-    .action-list li {{ margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }}
+    .action-list li {{ margin: 0; padding: 12px; border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
+    @supports not ((backdrop-filter: blur(1px))) {{
+      .topbar, .meta, .metric, .callout, .table-wrap, .action-list li {{ background: #ffffff; }}
+    }}
     @media (max-width: 760px) {{
       .topbar-inner {{ padding: 10px 16px; align-items: flex-start; flex-direction: column; }}
       main {{ padding: 16px; }}
