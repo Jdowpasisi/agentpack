@@ -10,6 +10,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.17] — 2026-06-10
+
+### Added
+- Added the AgentPack Dashboard as a local static control plane for context health, skill recommendations, learning artifacts, benchmark summaries, active threads, and Ralph Loop state.
+- Added the Ralph Loop protocol to automate runner and verification cycles behind existing workflow commands.
+- Added automatic freshness-aware skills index sync and dashboard inventory visibility for discovered skill directories, domains, side effects, and metadata quality.
+
+### Changed
+- `agentpack skills index` now writes a metadata-only v2 index document with source fingerprints while routing, dashboard, and `next` lazily refresh stale indexes.
+
+---
+
 ## [0.3.16] — 2026-06-10
 
 ### Changed
