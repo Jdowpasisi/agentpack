@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
+
+from agentpack.router.discovery import INDEX_PATH
 from agentpack.router.discovery import discover_inventory
+from agentpack.router.skills_index import ensure_inventory_index, load_inventory_index_document
 
 
 def test_discovery_finds_repo_global_cursor_and_agent_rules(tmp_path, monkeypatch):
@@ -57,3 +61,73 @@ def test_discovery_finds_claude_plugin_manifest_skills(tmp_path):
 
     assert [item.name for item in inventory.skills] == ["karpathy-guidelines"]
     assert inventory.skills[0].source == "claude-plugin:andrej-karpathy-skills"
+
+
+def test_ensure_inventory_index_rebuilds_when_skill_file_changes(tmp_path):
+    skill = tmp_path / ".agentpack" / "skills" / "pytest-debugging" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: pytest-debugging\ntask_types: [testing]\nlanguages: [python]\n---\n\nUse for pytest failures.\n",
+        encoding="utf-8",
+    )
+
+    first = ensure_inventory_index(tmp_path, paths=[".agentpack/skills"])
+
+    assert first.refreshed is True
+    assert [item.name for item in first.document.inventory.skills] == ["pytest-debugging"]
+
+    skill.write_text(
+        "---\n"
+        "name: pytest-debugging\n"
+        "task_types: [testing]\n"
+        "languages: [python]\n"
+        "frameworks: [pytest]\n"
+        "---\n\n"
+        "Use for pytest failures.\n",
+        encoding="utf-8",
+    )
+    second = ensure_inventory_index(tmp_path, paths=[".agentpack/skills"])
+
+    assert second.refreshed is True
+    assert second.reason == "fingerprint_changed"
+    assert second.document.inventory.skills[0].frameworks == ["pytest"]
+
+
+def test_ensure_inventory_index_reuses_fresh_index(tmp_path):
+    skill = tmp_path / ".agentpack" / "skills" / "docs" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Docs\n\nUse for documentation updates.\n", encoding="utf-8")
+
+    first = ensure_inventory_index(tmp_path, paths=[".agentpack/skills"])
+    second = ensure_inventory_index(tmp_path, paths=[".agentpack/skills"])
+
+    assert first.refreshed is True
+    assert second.refreshed is False
+    assert second.reason == "fresh"
+
+
+def test_load_inventory_index_document_accepts_old_inventory_shape(tmp_path):
+    path = tmp_path / INDEX_PATH
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "skills": [
+                    {
+                        "name": "legacy",
+                        "source": ".agentpack/skills",
+                        "path": ".agentpack/skills/legacy/SKILL.md",
+                    }
+                ],
+                "rules": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    document = load_inventory_index_document(tmp_path)
+
+    assert document is not None
+    assert document.inventory.skills[0].name == "legacy"
+    assert document.sources == []

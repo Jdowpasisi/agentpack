@@ -22,6 +22,7 @@ Command map:
 | `agentpack install` | Refresh or add an agent integration without changing project state |
 | `agentpack repair` | Restore missing or drifted integration files |
 | `agentpack work` | Initialize if needed, write a task, refresh context, and show next steps |
+| `agentpack work --run` | Run the configured Ralph Loop generic runner with verification |
 | `agentpack start` | Write a task and run the default guard/refresh workflow |
 | `agentpack finish` | Run finish checks, capture benchmark evidence, and mark state done |
 | `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons from task context and git changes |
@@ -42,6 +43,7 @@ Command map:
 | `agentpack eval` | Run deterministic failure evals with tests, diff limits, and taxonomy labels |
 | `agentpack tune` | Suggest fixes from recent pack metrics and benchmark misses |
 | `agentpack status` | Inspect current pack freshness and metadata |
+| `agentpack dashboard` | Generate a local HTML dashboard for context, skills, learning, and quality |
 | `agentpack threads` | List, archive, prune, and inspect thread-scoped contexts |
 | `agentpack state` | Show or update task execution state |
 | `agentpack diff` | Show what changed between context snapshots |
@@ -214,6 +216,39 @@ Also installs the detected agent integration:
 - Codex: `AGENTS.md`, `.codex/hooks.json`, git hooks
 - Antigravity: `GEMINI.md`, git hooks, VS Code task
 - Generic: no agent-specific files
+
+---
+
+### `agentpack work --run`
+
+Run the Ralph Loop protocol with a generic local runner after preparing fresh
+context.
+
+```bash
+agentpack work "fix auth token expiry" --run --runner "claude < .agentpack/context.claude.md" --verify "pytest -q"
+agentpack work "fix auth token expiry" --run --dry-run --runner "python scripts/agent.py" --verify "pytest -q"
+```
+
+New initialized repos include `[loop]` config enabled by default. The runner is
+empty by default and must be set in `.agentpack/config.toml` or passed with
+`--runner`; AgentPack never guesses which coding agent to launch.
+
+```toml
+[loop]
+enabled = true
+runner = "claude < .agentpack/context.claude.md"
+max_iterations = 10
+verification_commands = ["pytest -q"]
+require_verification = true
+require_progress_update = true
+require_clean_tree = true
+```
+
+Each iteration refreshes context, runs the configured shell command, runs the
+verification commands, records progress in `.agentpack/progress.md`, and writes
+structured events to `.agentpack/loop_events.jsonl`. When verification passes,
+the loop stops at `ready_to_finish`; `agentpack finish` then enforces the final
+completion checks. AgentPack does not auto-push or run destructive git commands.
 
 ---
 
@@ -912,6 +947,26 @@ agentpack stats
 When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files from the latest pack and avg recall/precision/F1 over the last 10 runs.
 
 Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." Context precision also credits obvious read-only support context, such as paired tests beside changed source files. `stats` breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible. In monorepos, it also reports selected-file distribution by workspace when workspace metadata exists.
+
+### `agentpack dashboard`
+
+Generate a static local dashboard from existing `.agentpack/` artifacts.
+
+```bash
+agentpack dashboard
+agentpack dashboard --open
+agentpack dashboard --json
+```
+
+The dashboard writes `.agentpack/dashboard.html` by default. It is local-only,
+uses inline CSS, and does not load remote scripts or assets. Missing artifacts
+render empty states with suggested commands such as `agentpack pack --task auto`,
+`agentpack learn`, and `agentpack benchmark --init`.
+
+`--json` prints the normalized dashboard snapshot to stdout instead of writing
+HTML. Use it when you want to inspect the underlying project, context, selected
+files, skill feedback, learning artifacts, benchmark metrics, and suggested
+actions programmatically.
 
 To build a real usefulness signal for your repo:
 

@@ -9,7 +9,8 @@ from rich.table import Table
 from agentpack.commands._shared import _root, console
 from agentpack.core.config import load_config
 from agentpack.router.prompt_builder import render_plain
-from agentpack.router.discovery import discover_inventory, write_inventory_index
+from agentpack.router.discovery import discover_inventory
+from agentpack.router.skills_index import ensure_inventory_index
 from agentpack.router.service import RouteService
 
 skills_app = typer.Typer(help="Inspect and index local agent skills and rules.")
@@ -44,10 +45,10 @@ def index_skills() -> None:
     """Write .agentpack/skills_index.json."""
     root = _root()
     cfg = load_config(root)
-    inventory = discover_inventory(root, cfg.skills.paths)
-    path = write_inventory_index(root, inventory)
+    result = ensure_inventory_index(root, cfg.skills.paths, force=True)
+    inventory = result.document.inventory
     console.print(
-        f"Indexed {len(inventory.skills)} skills and {len(inventory.rules)} rules at {path}"
+        f"Indexed {len(inventory.skills)} skills and {len(inventory.rules)} rules at {result.path}"
     )
 
 
