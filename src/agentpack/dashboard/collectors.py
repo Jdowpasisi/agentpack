@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,32 @@ MAX_EXCERPT_CHARS = 1200
 MAX_REASONS = 5
 MAX_MISSES = 20
 MAX_SKILL_INVENTORY_ROWS = 100
+MAX_METADATA_ITEMS = 8
+
+_DOMAIN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("career", ("academic", "ats", "career", "cover-letter", "cv", "interview", "job", "linkedin", "offer", "portfolio", "reference", "resume", "salary")),
+    ("testing", ("ab-test", "cypress", "junit", "playwright", "pytest", "qa", "regression", "tdd", "test", "testing")),
+    ("ai", ("agent", "ai", "anthropic", "claude", "codex", "embedding", "llm", "openai", "prompt", "rag")),
+    ("agent tooling", ("agentpack", "atlassian", "gmail", "google-drive", "linear", "mcp", "plugin", "tool")),
+    ("android", ("android", "emulator", "gradle", "jetpack", "kotlin")),
+    ("ios", ("appkit", "ios", "macos", "swift", "swiftui", "xcode")),
+    ("frontend", ("angular", "component", "css", "frontend", "html", "react", "svelte", "ui", "ux", "vue", "web")),
+    ("backend", ("backend", "database", "django", "express", "fastapi", "flask", "node", "server")),
+    ("api", ("api", "graphql", "openapi", "rest", "webhook")),
+    ("architecture", ("architect", "architecture", "clean", "ddd", "design", "pattern", "patterns", "refactor")),
+    ("debugging", ("bug", "debug", "debugging", "stack-trace")),
+    ("devops", ("ci", "cloud", "deploy", "docker", "kubernetes", "release")),
+    ("data", ("analytics", "data", "dataset", "dbt", "spreadsheet", "sql", "warehouse")),
+    ("security", ("auth", "oauth", "privacy", "secret", "security", "threat")),
+    ("product", ("gtm", "marketing", "prd", "pricing", "product", "strategy")),
+    ("documentation", ("article", "docs", "documentation", "readme", "writing")),
+    ("cpp", ("c++", "cmake", "cpp", "ctest", "googletest", "gtest")),
+    ("java", ("java", "spring")),
+    ("python", ("pandas", "python")),
+    ("php", ("laravel", "php", "symfony")),
+    ("embedded", ("embedded", "firmware", "microcontroller", "rtos")),
+    ("finance", ("banknifty", "bse", "nifty", "nse", "stock", "stocks", "trading")),
+)
 
 
 def build_project_dashboard_snapshot(root: Path) -> DashboardSnapshot:
@@ -254,8 +281,16 @@ def _skills_inventory_summary(root: Path, *, initialized: bool) -> SkillsInvento
 
 
 def _skill_inventory_row(skill: SkillArtifact) -> SkillInventoryRow:
-    domains = skill.task_types or skill.frameworks or skill.languages or ["uncategorized"]
-    metadata_quality = "explicit" if skill.task_types or skill.languages or skill.frameworks else "inferred"
+    explicit_metadata = bool(
+        skill.task_types
+        or skill.languages
+        or skill.frameworks
+        or skill.applies_to_paths
+        or skill.anti_paths
+        or skill.anti_triggers
+    )
+    domains = skill.task_types or _infer_skill_domains(skill)
+    metadata_quality = "explicit" if explicit_metadata else "inferred"
     return SkillInventoryRow(
         name=skill.name,
         path=skill.path,
@@ -265,7 +300,81 @@ def _skill_inventory_row(skill: SkillArtifact) -> SkillInventoryRow:
         frameworks=skill.frameworks,
         side_effect_level=skill.side_effect_level,
         metadata_quality=metadata_quality,
+        metadata=_skill_metadata(skill, domains=domains, quality=metadata_quality),
     )
+
+
+def _infer_skill_domains(skill: SkillArtifact) -> list[str]:
+    skill_path = Path(skill.path)
+    text = " ".join(
+        [
+            skill.name,
+            skill.description,
+            skill_path.parent.name,
+            " ".join(skill.triggers[:20]),
+            " ".join(skill.frameworks),
+            " ".join(skill.languages),
+            " ".join(skill.tools_required),
+        ]
+    )
+    tokens = _domain_tokens(text)
+    scores: dict[str, int] = {}
+    for domain, terms in _DOMAIN_RULES:
+        score = sum(2 if term in tokens else 0 for term in terms)
+        score += sum(1 for term in terms if "-" in term and term.replace("-", " ") in text.lower())
+        if score:
+            scores[domain] = score
+    if not scores:
+        return ["uncategorized"]
+    return [
+        domain
+        for domain, _score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:3]
+    ]
+
+
+def _skill_metadata(skill: SkillArtifact, *, domains: list[str], quality: str) -> list[str]:
+    items: list[str] = []
+    if quality == "inferred" and domains != ["uncategorized"]:
+        items.append("inferred domain: " + ", ".join(domains))
+    if skill.description:
+        items.append("description: " + _clip(skill.description, 120))
+    if skill.task_types:
+        items.append("task: " + ", ".join(skill.task_types))
+    if skill.languages:
+        items.append("language: " + ", ".join(skill.languages))
+    if skill.frameworks:
+        items.append("framework: " + ", ".join(skill.frameworks))
+    if skill.tools_required:
+        items.append("tools: " + ", ".join(skill.tools_required))
+    if skill.applies_to_paths:
+        items.append("paths: " + ", ".join(skill.applies_to_paths[:3]))
+    useful_triggers = [
+        trigger
+        for trigger in skill.triggers
+        if trigger not in set(skill.name.lower().replace("_", "-").split("-"))
+    ][:5]
+    if useful_triggers:
+        items.append("triggers: " + ", ".join(useful_triggers))
+    return items[:MAX_METADATA_ITEMS]
+
+
+def _domain_tokens(text: str) -> set[str]:
+    lower = text.lower().replace("_", "-")
+    raw_tokens = set(re.findall(r"[a-z][a-z0-9-]{1,}", lower))
+    split_tokens = {
+        part
+        for token in raw_tokens
+        for part in token.split("-")
+        if len(part) > 1
+    }
+    return raw_tokens | split_tokens
+
+
+def _clip(value: str, max_chars: int) -> str:
+    clean = " ".join(value.split())
+    if len(clean) <= max_chars:
+        return clean
+    return clean[: max_chars - 1].rstrip() + "…"
 
 
 def _domain_counts(rows: list[SkillInventoryRow]) -> list[SkillDomainSummary]:

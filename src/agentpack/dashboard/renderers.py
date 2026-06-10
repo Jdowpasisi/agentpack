@@ -255,7 +255,7 @@ def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
         f"<td>{_e(item.source)}</td>"
         f"<td><code>{_e(item.path)}</code></td>"
         f"<td>{_e(item.side_effect_level or 'unknown')}</td>"
-        f"<td>{_e(item.metadata_quality)}</td>"
+        f"<td>{_metadata_cell(item.metadata_quality, item.metadata)}</td>"
         "</tr>"
         for item in inventory.rows
     ) or '<tr><td colspan="6">No skills discovered.</td></tr>'
@@ -268,7 +268,7 @@ def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
       <div class="metric"><strong>Skills</strong><span>{inventory.total_skills}</span></div>
       <div class="metric"><strong>Rules</strong><span>{inventory.total_rules}</span></div>
       <div class="metric"><strong>Uncategorized</strong><span>{inventory.uncategorized_count}</span></div>
-      <div class="metric"><strong>Missing Metadata</strong><span>{inventory.missing_metadata_count}</span></div>
+      <div class="metric"><strong>Inferred Metadata</strong><span>{inventory.missing_metadata_count}</span></div>
     </div>
     <p class="callout"><small>Index: {_e(inventory.index_reason or "unknown")}; refreshed: {'yes' if inventory.index_refreshed else 'no'}; duplicate names: {_e(duplicate_names)}</small></p>
     <h3>Domains</h3>
@@ -279,6 +279,12 @@ def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
     <div class="table-wrap"><table><thead><tr><th>Skill</th><th>Domain</th><th>Source</th><th>Path</th><th>Side Effect</th><th>Metadata</th></tr></thead><tbody>{rows}</tbody></table></div>
     </div>
   </section>"""
+
+
+def _metadata_cell(quality: str, metadata: list[str]) -> str:
+    details = "".join(f"<li>{_e(item)}</li>" for item in metadata)
+    body = f"<ul>{details}</ul>" if details else "<small>No metadata detected.</small>"
+    return f'<span class="pill">{_e(quality)}</span>{body}'
 
 
 def _learning_rows(snapshot: DashboardSnapshot) -> str:

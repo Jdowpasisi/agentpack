@@ -207,3 +207,24 @@ def test_project_dashboard_collects_skills_inventory(tmp_path, monkeypatch) -> N
     assert snapshot.skills_inventory.rows[0].domains == ["testing"]
     assert snapshot.skills_inventory.rows[0].metadata_quality == "explicit"
     assert snapshot.skills_inventory.index_refreshed is True
+
+
+def test_project_dashboard_infers_skill_inventory_domains_from_skill_text(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    skill = tmp_path / ".agentpack" / "skills" / "academic-cv-builder" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "# Academic CV Builder\n\n"
+        "Use this when creating academic CVs, resumes, cover letters, and job application portfolios.\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    row = snapshot.skills_inventory.rows[0]
+    assert row.name == "Academic CV Builder"
+    assert row.domains == ["career"]
+    assert row.metadata_quality == "inferred"
+    assert "inferred domain: career" in row.metadata
+    assert any(item.startswith("description:") for item in row.metadata)
+    assert snapshot.skills_inventory.uncategorized_count == 0

@@ -85,6 +85,7 @@ class SkillInventoryRow(BaseModel):
     frameworks: list[str] = Field(default_factory=list)
     side_effect_level: str = ""
     metadata_quality: str = "inferred"
+    metadata: list[str] = Field(default_factory=list)
 
 
 class SkillsInventorySummary(BaseModel):
