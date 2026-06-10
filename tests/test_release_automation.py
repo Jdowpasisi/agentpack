@@ -69,13 +69,18 @@ def test_verify_wheel_json_uses_existing_wheel(tmp_path: Path, monkeypatch) -> N
 
 def test_release_prepare_json_orchestrates(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    calls: list[list[str]] = []
 
     class Result:
         returncode = 0
         stdout = "ok"
         stderr = ""
 
-    monkeypatch.setattr("agentpack.commands.release_cmd.subprocess.run", lambda *args, **kwargs: Result())
+    def fake_run(command, **kwargs):
+        calls.append([str(part) for part in command])
+        return Result()
+
+    monkeypatch.setattr("agentpack.commands.release_cmd.subprocess.run", fake_run)
     monkeypatch.setattr(
         "agentpack.commands.release_cmd.run_verify_wheel",
         lambda: {"passed": True, "stages": [{"name": "build", "command": "python -m build", "returncode": 0, "detail": ""}]},
@@ -87,3 +92,5 @@ def test_release_prepare_json_orchestrates(monkeypatch, tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert payload["passed"] is True
     assert [stage["name"] for stage in payload["stages"]] == ["release-check", "benchmark-public-table", "verify-wheel:build"]
+    assert "--check-release-branch" in calls[0]
+    assert "--check-registry" in calls[0]

@@ -6,6 +6,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,6 +45,8 @@ def register(app: typer.Typer) -> None:
     def release_check(
         skip_benchmark: bool = typer.Option(False, "--skip-benchmark", help="Skip public benchmark release gate."),
         skip_build: bool = typer.Option(False, "--skip-build", help="Skip wheel/sdist build."),
+        check_release_branch: bool = typer.Option(False, "--check-release-branch", help="Require HEAD to be present on an origin/release/* branch."),
+        check_registry: bool = typer.Option(False, "--check-registry", help="Fail if this version already exists on PyPI or npm."),
         json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
     ) -> None:
         """Run release readiness checks without mutating tracked files."""
@@ -49,6 +54,13 @@ def register(app: typer.Typer) -> None:
         stages: list[StageResult] = []
         stages.append(_check_changelog(root))
         stages.append(_run_stage(root, "version-sync", ["node", "npm/test/version-sync.test.js"]))
+        if check_release_branch:
+            stages.append(_check_release_branch(root))
+        if check_registry:
+            stages.append(_check_pypi_version_available(root))
+            stages.append(_check_npm_version_available(root))
+        stages.append(_check_pytest_plugin_dependencies(root))
+        stages.append(_run_stage(root, "ruff", [sys.executable, "-m", "ruff", "check", "src", "tests"]))
         stages.append(_run_stage(root, "pytest", [sys.executable, "-m", "pytest", "-q"]))
         stages.append(_run_stage(root, "npm-launcher-tests", ["node", "npm/test/launcher.test.js"]))
         if not skip_build:
@@ -74,11 +86,23 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
 
 
+def _load_pyproject(root: Path) -> dict[str, Any]:
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    return tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+
+def _project_name_version(root: Path) -> tuple[str, str]:
+    project = _load_pyproject(root).get("project", {})
+    return str(project.get("name", "")), str(project.get("version", ""))
+
+
 def _check_changelog(root: Path) -> StageResult:
     started = time.perf_counter()
-    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
-    version = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE)
-    current = version.group(1) if version else ""
+    _name, current = _project_name_version(root)
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8") if (root / "CHANGELOG.md").exists() else ""
     ok = bool(current and f"## [{current}]" in changelog)
     return StageResult(
@@ -89,6 +113,94 @@ def _check_changelog(root: Path) -> StageResult:
         returncode=0 if ok else 1,
         detail="" if ok else f"Missing CHANGELOG.md entry for {current or 'unknown version'}",
     )
+
+
+def _check_release_branch(root: Path) -> StageResult:
+    started = time.perf_counter()
+    command = ["git", "branch", "-r", "--contains", "HEAD"]
+    result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    branches = result.stdout.splitlines()
+    release_branches = [branch.strip() for branch in branches if re.search(r"origin/release/", branch)]
+    ok = result.returncode == 0 and bool(release_branches)
+    detail = f"release branch: {release_branches[0]}" if ok else "HEAD is not contained in an origin/release/* branch"
+    return StageResult(
+        name="release-branch",
+        command=" ".join(command),
+        status="passed" if ok else "failed",
+        duration_s=time.perf_counter() - started,
+        returncode=0 if ok else 1,
+        detail=detail,
+        output_excerpt=_output_excerpt(result.stdout + result.stderr) if not ok else "",
+    )
+
+
+def _check_pytest_plugin_dependencies(root: Path) -> StageResult:
+    started = time.perf_counter()
+    pyproject = _load_pyproject(root)
+    pytest_options = pyproject.get("tool", {}).get("pytest", {}).get("ini_options", {})
+    optional_dependencies = pyproject.get("project", {}).get("optional-dependencies", {})
+    dev_dependencies = [str(item).lower() for item in optional_dependencies.get("dev", [])]
+    uses_asyncio_plugin_config = any(str(key).startswith("asyncio_") for key in pytest_options)
+    has_pytest_asyncio = any(item.split(";", 1)[0].strip().startswith("pytest-asyncio") for item in dev_dependencies)
+    ok = not uses_asyncio_plugin_config or has_pytest_asyncio
+    detail = "" if ok else "pyproject.toml configures pytest-asyncio options but dev dependencies do not include pytest-asyncio"
+    return StageResult(
+        name="pytest-plugin-deps",
+        command="check pyproject.toml pytest plugin dependencies",
+        status="passed" if ok else "failed",
+        duration_s=time.perf_counter() - started,
+        returncode=0 if ok else 1,
+        detail=detail,
+    )
+
+
+def _check_pypi_version_available(root: Path) -> StageResult:
+    started = time.perf_counter()
+    name, version = _project_name_version(root)
+    url = f"https://pypi.org/pypi/{urllib.parse.quote(name, safe='')}/{urllib.parse.quote(version, safe='')}/json"
+    exists, detail = _registry_url_exists(url)
+    ok = not exists
+    return StageResult(
+        name="pypi-version-available",
+        command=f"GET {url}",
+        status="passed" if ok else "failed",
+        duration_s=time.perf_counter() - started,
+        returncode=0 if ok else 1,
+        detail=f"{name}=={version} is available on PyPI" if ok else detail or f"{name}=={version} already exists on PyPI",
+    )
+
+
+def _check_npm_version_available(root: Path) -> StageResult:
+    started = time.perf_counter()
+    package_json = json.loads((root / "npm" / "package.json").read_text(encoding="utf-8"))
+    name = str(package_json["name"])
+    version = str(package_json["version"])
+    package_path = urllib.parse.quote(name, safe="")
+    version_path = urllib.parse.quote(version, safe="")
+    url = f"https://registry.npmjs.org/{package_path}/{version_path}"
+    exists, detail = _registry_url_exists(url)
+    ok = not exists
+    return StageResult(
+        name="npm-version-available",
+        command=f"GET {url}",
+        status="passed" if ok else "failed",
+        duration_s=time.perf_counter() - started,
+        returncode=0 if ok else 1,
+        detail=f"{name}@{version} is available on npm" if ok else detail or f"{name}@{version} already exists on npm",
+    )
+
+
+def _registry_url_exists(url: str) -> tuple[bool, str]:
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=8):
+            return True, "version already exists in package registry"
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False, ""
+        return True, f"registry lookup failed with HTTP {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return True, f"registry lookup failed: {exc.reason}"
 
 
 def _run_stage(root: Path, name: str, command: list[str]) -> StageResult:

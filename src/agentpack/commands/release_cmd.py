@@ -24,7 +24,7 @@ def prepare_release(
     """Run release-check, publish benchmark evidence, and verify the built wheel."""
     root = _root()
     stages: list[dict[str, Any]] = []
-    stages.append(_run("release-check", cli_module_argv("release-check")))
+    stages.append(_run("release-check", cli_module_argv("release-check", "--check-release-branch", "--check-registry")))
     if stages[-1]["returncode"] == 0:
         stages.append(_run("benchmark-public-table", cli_module_argv("benchmark", "--release-gate")))
     if stages[-1]["returncode"] == 0:
