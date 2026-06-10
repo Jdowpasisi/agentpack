@@ -22,3 +22,22 @@ def test_next_recommends_loop_runner_when_missing(tmp_path, monkeypatch) -> None
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert any(item["kind"] == "loop_runner_missing" for item in payload["recommendations"])
+
+
+def test_next_recommends_skills_index_when_auto_refresh_fails(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "task.md").write_text("fix auth\n", encoding="utf-8")
+    monkeypatch.setattr("agentpack.commands.next_cmd._context_is_fresh", lambda _root: (True, "fresh"))
+
+    def fail_index(*args, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("agentpack.commands.next_cmd.ensure_inventory_index", fail_index)
+
+    result = CliRunner().invoke(app, ["next", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert any(item["kind"] == "skills_index_failed" for item in payload["recommendations"])

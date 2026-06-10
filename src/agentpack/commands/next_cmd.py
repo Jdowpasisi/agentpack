@@ -12,6 +12,7 @@ from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.loop_protocol import load_loop_state
 from agentpack.core.thread_context import detect_conflicts, list_thread_rows
 from agentpack.integrations.platform import cli_module_argv
+from agentpack.router.skills_index import ensure_inventory_index
 from agentpack.session.state import TASK_FILE
 import subprocess
 
@@ -62,6 +63,7 @@ def _recommendations(root) -> list[dict[str, str]]:
         items.append({"kind": "thread_conflict", "command": "agentpack threads --conflicts", "reason": "active threads overlap on this branch/worktree"})
     if _pack_looks_noisy(root):
         items.append({"kind": "selection_noise", "command": "agentpack diagnose-selection", "reason": "latest pack has broad/noisy selection signals"})
+    items.extend(_skills_index_recommendations(root))
     items.extend(_loop_recommendations(root))
     return items
 
@@ -91,6 +93,21 @@ def _pack_looks_noisy(root) -> bool:
         summary_count = sum(1 for item in selected if isinstance(item, dict) and item.get("mode") == "summary")
         return summary_count / len(selected) >= 0.7
     return False
+
+
+def _skills_index_recommendations(root) -> list[dict[str, str]]:
+    cfg = load_config(root)
+    try:
+        ensure_inventory_index(root, cfg.skills.paths)
+    except Exception as exc:
+        return [
+            {
+                "kind": "skills_index_failed",
+                "command": "agentpack skills index",
+                "reason": f"automatic skills index refresh failed: {exc}",
+            }
+        ]
+    return []
 
 
 def _loop_recommendations(root) -> list[dict[str, str]]:
