@@ -34,6 +34,17 @@ def render_compact(pack: ContextPack) -> str:
 
     sections.append("# AgentPack Context")
     sections.append("")
+    sections.append("<!-- agentpack:stable-prefix:start -->")
+    sections.append("")
+    sections.append("## instructions")
+    sections.append("")
+    sections.append("- Prefer selected files first.")
+    sections.append("- Include modes: full, diff, symbols, skeleton, summary.")
+    sections.append("- If task changes significantly, update `.agentpack/task.md`.")
+    sections.append("- Run `agentpack session refresh` if context seems stale.")
+    sections.append("")
+    sections.append("<!-- agentpack:stable-prefix:end -->")
+    sections.append("")
     sections.append(f"task: {pack.task}")
     sections.append(f"mode: {pack.mode}")
     sections.append(f"task_class: {pack.task_class}")
@@ -77,12 +88,5 @@ def render_compact(pack: ContextPack) -> str:
     else:
         sections.append("(none)")
         sections.append("")
-
-    sections.append("## instructions")
-    sections.append("")
-    sections.append("- Prefer selected files first.")
-    sections.append("- If task changes significantly, update `.agentpack/task.md`.")
-    sections.append("- Run `agentpack session refresh` if context seems stale.")
-    sections.append("")
 
     return "\n".join(sections)

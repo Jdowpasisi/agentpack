@@ -84,10 +84,9 @@ def test_compact_separates_selected_from_deps() -> None:
     lines = output.splitlines()
     sel_idx = next(i for i, line in enumerate(lines) if line == "## selected")
     dep_idx = next(i for i, line in enumerate(lines) if line == "## deps")
-    ins_idx = next(i for i, line in enumerate(lines) if line == "## instructions")
 
     selected_block = "\n".join(lines[sel_idx:dep_idx])
-    deps_block = "\n".join(lines[dep_idx:ins_idx])
+    deps_block = "\n".join(lines[dep_idx:])
 
     assert "a.py" in selected_block
     assert "b.py" in selected_block
@@ -109,3 +108,27 @@ def test_compact_instructions_block() -> None:
     assert "## instructions" in output
     assert "agentpack session refresh" in output
     assert "task.md" in output
+
+
+def test_compact_stable_prefix_precedes_volatile_header_fields() -> None:
+    first = render_compact(_make_pack([]))
+    second = render_compact(
+        ContextPack(
+            task="replace checkout flow",
+            agent="generic",
+            mode="deep",
+            budget=50000,
+            token_estimate=18000,
+            raw_repo_tokens=120000,
+            after_ignore_tokens=90000,
+            estimated_savings_percent=85.0,
+            changed_files=["src/checkout.py"],
+            selected_files=[],
+            receipts=[],
+        )
+    )
+    marker = "<!-- agentpack:stable-prefix:end -->"
+
+    assert first.split(marker, 1)[0] == second.split(marker, 1)[0]
+    assert first.index(marker) < first.index("task: fix login redirect")
+    assert "fix login redirect" not in first.split(marker, 1)[0]

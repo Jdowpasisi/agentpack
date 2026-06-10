@@ -69,6 +69,10 @@ def _omitted_relevant_lines(pack: ContextPack, limit: int = 10) -> list[str]:
     lines = ["## Omitted But Relevant Files", ""]
     lines.append("These files matched the task but were not included due to token budget.")
     lines.append(
+        "Do not assume omitted relevant files are safe. If a selected function/class has omitted callers, "
+        "tests, routes, schemas, or configs, inspect them before finalizing the fix."
+    )
+    lines.append(
         "Before finalizing changes, inspect high-risk omitted files if your fix changes shared behavior, "
         "function signatures, data models, API contracts, or side effects."
     )
@@ -241,11 +245,34 @@ def _has_task_stale_warning(pack: ContextPack) -> bool:
     )
 
 
-def render_claude(pack: ContextPack) -> str:
-    sections: list[str] = []
+def _stable_prefix_lines(agent_name: str) -> list[str]:
+    return [
+        f"# AgentPack Context for {agent_name}",
+        "",
+        "<!-- agentpack:stable-prefix:start -->",
+        "",
+        f"## Instructions for {agent_name}",
+        "",
+        (
+            "This is a task-focused context pack. Act on it immediately:\n\n"
+            "1. **Orient** — identify the changed files and key symbols relevant to the task.\n"
+            "2. **Diagnose or plan** — find the root cause (bug fix) or outline the approach (feature).\n"
+            "3. **Work** — edit files, write code, fix the issue. Do not wait for more instructions.\n\n"
+            "Priority order: changed files → keyword matches → dependencies → summaries.\n"
+            "Modes: `full` source, `diff` hunks, `symbols` or `skeleton` interfaces, `summary` brief context.\n"
+            "If this pack's task does not match the user's current task, write the new task to "
+            "`.agentpack/task.md`, run `agentpack pack --task auto`, re-read the context, then proceed. "
+            "If the pack looks stale (changed files list is empty but you expect changes), refresh the pack before editing."
+        ),
+        "",
+        "<!-- agentpack:stable-prefix:end -->",
+        "",
+    ]
 
-    sections.append("# AgentPack Context for Claude")
-    sections.append("")
+
+def render_claude(pack: ContextPack) -> str:
+    sections: list[str] = _stable_prefix_lines("Claude")
+
     sections.append(_machine_freshness_block(pack))
     sections.append("")
 
@@ -302,28 +329,6 @@ def render_claude(pack: ContextPack) -> str:
         sections.append("")
         sections.append(pack.agent_lessons)
         sections.append("")
-
-    sections.append("## Instructions for Claude")
-    sections.append("")
-    sections.append(
-        "This is a task-focused context pack. Act on it immediately:\n\n"
-        "1. **Orient** — identify the changed files and key symbols relevant to the task.\n"
-        "2. **Diagnose or plan** — find the root cause (bug fix) or outline the approach (feature).\n"
-        "3. **Work** — edit files, write code, fix the issue. Do not wait for more instructions.\n\n"
-        "Priority order: changed files → keyword-matched files → dependencies → summaries.\n"
-        "Files marked `full` contain complete source. Files marked `diff` contain relevant changed hunks. "
-        "Files marked `symbols` contain relevant function/class bodies. Files marked `skeleton` contain imports/signatures. "
-        "Files marked `summary` are unchanged context.\n"
-        "If this pack's task does not match the user's current task, write the new task to "
-        "`.agentpack/task.md`, run `agentpack pack --task auto`, re-read the context, then proceed. "
-        "If the pack looks stale (changed files list is empty but you expect changes), refresh the pack before editing."
-    )
-    if pack.omitted_relevant_files:
-        sections.append(
-            "Do not assume omitted relevant files are safe. If a selected function/class has omitted callers, "
-            "tests, routes, schemas, or configs, inspect them before finalizing the fix."
-        )
-    sections.append("")
 
     sections.append("## Token Stats")
     sections.append("")
@@ -399,13 +404,19 @@ def render_claude(pack: ContextPack) -> str:
 
 
 def render_generic(pack: ContextPack) -> str:
-    return render_claude(pack).replace("# AgentPack Context for Claude", "# AgentPack Context")
+    return (
+        render_claude(pack)
+        .replace("# AgentPack Context for Claude", "# AgentPack Context")
+        .replace("## Instructions for Claude", "## Instructions for Agent")
+    )
 
 
 def render_antigravity(pack: ContextPack) -> str:
     """Render context as an Antigravity SKILL.md with required frontmatter."""
-    body = render_claude(pack).replace(
-        "# AgentPack Context for Claude", "# AgentPack Context"
+    body = (
+        render_claude(pack)
+        .replace("# AgentPack Context for Claude", "# AgentPack Context")
+        .replace("## Instructions for Claude", "## Instructions for Agent")
     )
     frontmatter = (
         "---\n"

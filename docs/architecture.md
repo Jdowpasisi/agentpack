@@ -2,6 +2,22 @@
 
 AgentPack is a local context-preparation pipeline. It scans a repository, scores files for a task, renders a budgeted markdown pack, and writes agent-specific artifacts without calling remote APIs.
 
+## Core Model: Compress, Cache, Retrieve
+
+AgentPack works by combining three local techniques:
+
+- **Compress**: rank task-relevant files and render them as `full`, `diff`, `symbols`, `skeleton`, or `summary` views so agents start with a small, useful pack instead of a full repo dump.
+- **Cache**: reuse snapshots, file hashes, offline summaries, pack metadata, session events, and benchmark metrics so context refreshes are fast and measurable.
+- **Retrieve**: write a pack registry with stable block IDs so CLI and MCP clients can fetch selected, omitted, or symbol-level context later without stuffing everything into the first prompt.
+
+Compression happens in layers: file-mode selection, task-scored diff hunks, rendered-budget trimming, and command-output adapters for test logs, diffs, search output, listings, and generic noisy output. See [AgentPack runtime loop](runtime-loop.md#compressor-types) for the user-facing compressor types.
+
+Prompt-cache alignment is automatic in every context mode. Renderers put stable
+agent instructions first, then append volatile task, freshness, git, selection,
+and file-content sections. This preserves existing `lite`, `minimal`,
+`balanced`, and `deep` modes while making repeated refreshes friendlier to
+provider prefix caches.
+
 ## How it works
 
 ```
@@ -17,11 +33,12 @@ AgentPack is a local context-preparation pipeline. It scans a repository, scores
 10. Select by value per token  →  full / diff / symbols / skeleton / summary / omit
 11. For large diffs  →  score hunks against task keywords and keep the most relevant hunks
 12. Redact secrets at materialization  →  before content reaches any renderer or adapter
-13. Build execution state  →  task_state.md, git summary, Docker/Compose availability
-14. Detect concurrent context  →  thread index overlap warning for same branch/worktree
-15. Render context  →  freshness, execution state, concurrent context, repo map, delta, receipts, files
-16. Enforce rendered budget  →  trim receipts, repo map, delta, runtime detail, conflicts, then selected files
-17. Persist state  →  global or thread-scoped context, snapshot, metadata, metrics, thread index
+13. Cache pack registry  →  block IDs for selected, omitted, and symbol context
+14. Build execution state  →  task_state.md, git summary, Docker/Compose availability
+15. Detect concurrent context  →  thread index overlap warning for same branch/worktree
+16. Render context  →  stable prefix first, then freshness, execution state, concurrent context, repo map, delta, receipts, files
+17. Enforce rendered budget  →  trim receipts, repo map, delta, runtime detail, conflicts, then selected files
+18. Persist state  →  global or thread-scoped context, snapshot, metadata, metrics, thread index
 ```
 
 ---

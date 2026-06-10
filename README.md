@@ -14,7 +14,7 @@ Claude Code, Codex, Cursor, and other coding agents can waste tool calls redisco
 
 AgentPack gives them a ranked map of likely relevant files, tests, rules, and skills for each task. It analyzes your repo locally and packages compact context for CLI and MCP workflows.
 
-No cloud indexing. No embeddings required. No API calls for scan, summarize, rank, pack, stats, or benchmark. AgentPack is a context preparation tool, not a coding agent.
+How it works: AgentPack compresses repo context into ranked packs, caches scans/summaries/pack metadata for fast refreshes, and retrieves exact file or symbol blocks later when an agent needs more detail. Rendered packs also put stable instructions before volatile task, timestamp, git, and file sections so provider prompt-prefix caches can reuse the front of repeated refreshes. No cloud indexing, embeddings, or API calls are required for scan, summarize, rank, pack, stats, or benchmark.
 
 Try the read-only task router without writing context files:
 

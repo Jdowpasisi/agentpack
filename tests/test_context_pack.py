@@ -5,7 +5,7 @@ from agentpack.application.pack_service import _settle_rendered_token_estimate, 
 from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import enrich_call_site_scores, save_pack_metadata, select_files, _selection_priority
 from agentpack.core.models import ContextPack, FileInfo, OmittedRelevantFile, Receipt, SelectedFile
-from agentpack.renderers.markdown import render_claude
+from agentpack.renderers.markdown import render_claude, render_generic
 
 
 def _fi(path: str, tokens: int = 100, hash_val: str = "h1") -> FileInfo:
@@ -566,6 +566,79 @@ def test_render_includes_freshness_metadata():
     assert "`thread-b`" in rendered
     assert "If this pack's task does not match the user's current task" in rendered
     assert "agentpack pack --task auto" in rendered
+
+
+def test_render_stable_prefix_survives_volatile_pack_changes():
+    base = ContextPack(
+        task="fix auth",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+        freshness={
+            "generated_at": "2026-05-13T00:00:00+00:00",
+            "git_branch": "main",
+            "git_sha": "abc123",
+            "snapshot_root_hash": "root123",
+        },
+    )
+    refreshed = ContextPack(
+        task="add billing retry",
+        agent="claude",
+        mode="deep",
+        budget=2000,
+        token_estimate=150,
+        raw_repo_tokens=2000,
+        after_ignore_tokens=1200,
+        estimated_savings_percent=94.0,
+        changed_files=["src/billing.py"],
+        selected_files=[],
+        receipts=[],
+        freshness={
+            "generated_at": "2026-05-14T00:00:00+00:00",
+            "git_branch": "feature/billing",
+            "git_sha": "def456",
+            "snapshot_root_hash": "root456",
+        },
+    )
+
+    base_rendered = render_claude(base)
+    refreshed_rendered = render_claude(refreshed)
+    marker = "<!-- agentpack:stable-prefix:end -->"
+
+    assert base_rendered.split(marker, 1)[0] == refreshed_rendered.split(marker, 1)[0]
+    assert base_rendered.index(marker) < base_rendered.index("<!-- agentpack:freshness")
+    assert refreshed_rendered.index(marker) < refreshed_rendered.index("## Task")
+    assert "fix auth" not in base_rendered.split(marker, 1)[0]
+    assert "2026-05-13T00:00:00+00:00" not in base_rendered.split(marker, 1)[0]
+
+
+def test_render_generic_uses_agent_neutral_stable_prefix():
+    pack = ContextPack(
+        task="fix auth",
+        agent="generic",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+    )
+
+    rendered = render_generic(pack)
+
+    assert "# AgentPack Context" in rendered
+    assert "## Instructions for Agent" in rendered
+    assert "## Instructions for Claude" not in rendered
 
 
 def test_context_pack_renders_agent_lessons():
