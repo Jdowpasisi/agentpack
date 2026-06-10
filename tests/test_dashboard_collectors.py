@@ -190,6 +190,7 @@ def test_project_dashboard_collects_skills_inventory(tmp_path, monkeypatch) -> N
     skill.write_text(
         "---\n"
         "name: pytest-debugging\n"
+        "domains: [quality]\n"
         "task_types: [testing]\n"
         "languages: [python]\n"
         "frameworks: [pytest]\n"
@@ -202,14 +203,16 @@ def test_project_dashboard_collects_skills_inventory(tmp_path, monkeypatch) -> N
 
     assert snapshot.skills_inventory.total_skills == 1
     assert snapshot.skills_inventory.total_rules == 0
-    assert snapshot.skills_inventory.domains[0].name == "testing"
+    assert snapshot.skills_inventory.domains[0].name == "quality"
     assert snapshot.skills_inventory.rows[0].name == "pytest-debugging"
-    assert snapshot.skills_inventory.rows[0].domains == ["testing"]
+    assert snapshot.skills_inventory.rows[0].domains == ["quality"]
     assert snapshot.skills_inventory.rows[0].metadata_quality == "explicit"
+    assert snapshot.skills_inventory.rows[0].domain_confidence == 1.0
+    assert snapshot.skills_inventory.rows[0].domain_source == "explicit domains"
     assert snapshot.skills_inventory.index_refreshed is True
 
 
-def test_project_dashboard_infers_skill_inventory_domains_from_skill_text(tmp_path, monkeypatch) -> None:
+def test_project_dashboard_infers_skill_inventory_domains_with_bm25(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     skill = tmp_path / ".agentpack" / "skills" / "academic-cv-builder" / "SKILL.md"
     skill.parent.mkdir(parents=True)
@@ -225,6 +228,8 @@ def test_project_dashboard_infers_skill_inventory_domains_from_skill_text(tmp_pa
     assert row.name == "Academic CV Builder"
     assert row.domains == ["career"]
     assert row.metadata_quality == "inferred"
-    assert "inferred domain: career" in row.metadata
+    assert "domain source: bm25" in row.metadata
+    assert "inferred domains: career" in row.metadata
+    assert 0.0 < row.domain_confidence < 1.0
     assert any(item.startswith("description:") for item in row.metadata)
     assert snapshot.skills_inventory.uncategorized_count == 0

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -42,8 +44,10 @@ MAX_REASONS = 5
 MAX_MISSES = 20
 MAX_SKILL_INVENTORY_ROWS = 100
 MAX_METADATA_ITEMS = 8
+MAX_INFERRED_DOMAINS = 3
+MIN_BM25_DOMAIN_SCORE = 1.0
 
-_DOMAIN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+_DOMAIN_CORPUS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("career", ("academic", "ats", "career", "cover-letter", "cv", "interview", "job", "linkedin", "offer", "portfolio", "reference", "resume", "salary")),
     ("testing", ("ab-test", "cypress", "junit", "playwright", "pytest", "qa", "regression", "tdd", "test", "testing")),
     ("ai", ("agent", "ai", "anthropic", "claude", "codex", "embedding", "llm", "openai", "prompt", "rag")),
@@ -66,6 +70,12 @@ _DOMAIN_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("php", ("laravel", "php", "symfony")),
     ("embedded", ("embedded", "firmware", "microcontroller", "rtos")),
     ("finance", ("banknifty", "bse", "nifty", "nse", "stock", "stocks", "trading")),
+)
+
+_DOMAIN_DOCUMENT_FREQUENCY = Counter(
+    term
+    for _domain, terms in _DOMAIN_CORPUS
+    for term in set(terms)
 )
 
 
@@ -282,14 +292,15 @@ def _skills_inventory_summary(root: Path, *, initialized: bool) -> SkillsInvento
 
 def _skill_inventory_row(skill: SkillArtifact) -> SkillInventoryRow:
     explicit_metadata = bool(
-        skill.task_types
+        skill.domains
+        or skill.task_types
         or skill.languages
         or skill.frameworks
         or skill.applies_to_paths
         or skill.anti_paths
         or skill.anti_triggers
     )
-    domains = skill.task_types or _infer_skill_domains(skill)
+    domains, domain_confidence, domain_source = _skill_domains(skill)
     metadata_quality = "explicit" if explicit_metadata else "inferred"
     return SkillInventoryRow(
         name=skill.name,
@@ -300,13 +311,79 @@ def _skill_inventory_row(skill: SkillArtifact) -> SkillInventoryRow:
         frameworks=skill.frameworks,
         side_effect_level=skill.side_effect_level,
         metadata_quality=metadata_quality,
-        metadata=_skill_metadata(skill, domains=domains, quality=metadata_quality),
+        metadata=_skill_metadata(
+            skill,
+            domains=domains,
+            quality=metadata_quality,
+            domain_confidence=domain_confidence,
+            domain_source=domain_source,
+        ),
+        domain_confidence=domain_confidence,
+        domain_source=domain_source,
     )
 
 
-def _infer_skill_domains(skill: SkillArtifact) -> list[str]:
+def _skill_domains(skill: SkillArtifact) -> tuple[list[str], float, str]:
+    if skill.domains:
+        return skill.domains, 1.0, "explicit domains"
+    if skill.task_types:
+        return skill.task_types, 1.0, "explicit task_types"
+    scored = _bm25_skill_domains(skill)
+    if scored:
+        top_score = scored[0][1]
+        second_score = scored[1][1] if len(scored) > 1 else 0.0
+        confidence = top_score / (top_score + second_score + 1.0)
+        return [domain for domain, _score in scored[:MAX_INFERRED_DOMAINS]], round(confidence, 2), "bm25"
+    keyword_domains = _keyword_skill_domains(skill)
+    if keyword_domains != ["uncategorized"]:
+        return keyword_domains, 0.35, "keyword fallback"
+    return keyword_domains, 0.0, "none"
+
+
+def _bm25_skill_domains(skill: SkillArtifact) -> list[tuple[str, float]]:
+    text = _skill_domain_text(skill)
+    token_counts = Counter(_domain_token_list(text))
+    if not token_counts:
+        return []
+
+    scored: list[tuple[str, float]] = []
+    total_domains = len(_DOMAIN_CORPUS)
+    for domain, terms in _DOMAIN_CORPUS:
+        score = 0.0
+        for term in terms:
+            term_count = token_counts.get(term, 0)
+            if "-" in term and term.replace("-", " ") in text.lower():
+                term_count += 1
+            if term_count <= 0:
+                continue
+            document_frequency = _DOMAIN_DOCUMENT_FREQUENCY[term]
+            idf = math.log(1 + (total_domains - document_frequency + 0.5) / (document_frequency + 0.5))
+            score += idf * ((term_count * 2.2) / (term_count + 1.2))
+        if score >= MIN_BM25_DOMAIN_SCORE:
+            scored.append((domain, score))
+    return sorted(scored, key=lambda item: (-item[1], item[0]))
+
+
+def _keyword_skill_domains(skill: SkillArtifact) -> list[str]:
+    text = _skill_domain_text(skill)
+    tokens = set(_domain_token_list(text))
+    scores: dict[str, int] = {}
+    for domain, terms in _DOMAIN_CORPUS:
+        score = sum(2 if term in tokens else 0 for term in terms)
+        score += sum(1 for term in terms if "-" in term and term.replace("-", " ") in text.lower())
+        if score:
+            scores[domain] = score
+    if not scores:
+        return ["uncategorized"]
+    return [
+        domain
+        for domain, _score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:MAX_INFERRED_DOMAINS]
+    ]
+
+
+def _skill_domain_text(skill: SkillArtifact) -> str:
     skill_path = Path(skill.path)
-    text = " ".join(
+    return " ".join(
         [
             skill.name,
             skill.description,
@@ -317,25 +394,24 @@ def _infer_skill_domains(skill: SkillArtifact) -> list[str]:
             " ".join(skill.tools_required),
         ]
     )
-    tokens = _domain_tokens(text)
-    scores: dict[str, int] = {}
-    for domain, terms in _DOMAIN_RULES:
-        score = sum(2 if term in tokens else 0 for term in terms)
-        score += sum(1 for term in terms if "-" in term and term.replace("-", " ") in text.lower())
-        if score:
-            scores[domain] = score
-    if not scores:
-        return ["uncategorized"]
-    return [
-        domain
-        for domain, _score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:3]
-    ]
 
 
-def _skill_metadata(skill: SkillArtifact, *, domains: list[str], quality: str) -> list[str]:
+def _skill_metadata(
+    skill: SkillArtifact,
+    *,
+    domains: list[str],
+    quality: str,
+    domain_confidence: float,
+    domain_source: str,
+) -> list[str]:
     items: list[str] = []
+    if domains != ["uncategorized"]:
+        items.append(f"domain source: {domain_source}")
+        items.append("domain confidence: " + f"{domain_confidence:.2f}")
+    if skill.domains:
+        items.append("domain: " + ", ".join(skill.domains))
     if quality == "inferred" and domains != ["uncategorized"]:
-        items.append("inferred domain: " + ", ".join(domains))
+        items.append("inferred domains: " + ", ".join(domains))
     if skill.description:
         items.append("description: " + _clip(skill.description, 120))
     if skill.task_types:
@@ -358,16 +434,16 @@ def _skill_metadata(skill: SkillArtifact, *, domains: list[str], quality: str) -
     return items[:MAX_METADATA_ITEMS]
 
 
-def _domain_tokens(text: str) -> set[str]:
+def _domain_token_list(text: str) -> list[str]:
     lower = text.lower().replace("_", "-")
-    raw_tokens = set(re.findall(r"[a-z][a-z0-9-]{1,}", lower))
-    split_tokens = {
+    raw_tokens = re.findall(r"[a-z][a-z0-9+.-]{1,}", lower)
+    split_tokens = [
         part
         for token in raw_tokens
         for part in token.split("-")
         if len(part) > 1
-    }
-    return raw_tokens | split_tokens
+    ]
+    return raw_tokens + split_tokens
 
 
 def _clip(value: str, max_chars: int) -> str:

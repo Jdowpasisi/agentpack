@@ -12,6 +12,7 @@ class SkillArtifact(BaseModel):
     source: str
     path: str
     description: str = ""
+    domains: list[str] = Field(default_factory=list)
     task_types: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
     frameworks: list[str] = Field(default_factory=list)

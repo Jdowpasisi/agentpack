@@ -33,6 +33,7 @@ def test_parse_skill_rich_frontmatter(tmp_path):
         "---\n"
         "name: pytest-debugging\n"
         "description: Debug failing Python tests.\n"
+        "domains: [quality, testing]\n"
         "task_types: [debug, test]\n"
         "languages: [python]\n"
         "frameworks: [pytest]\n"
@@ -51,6 +52,7 @@ def test_parse_skill_rich_frontmatter(tmp_path):
 
     skill = parse_skill_file(path, root=tmp_path)
 
+    assert skill.domains == ["quality", "testing"]
     assert skill.task_types == ["debug", "test"]
     assert skill.languages == ["python"]
     assert skill.frameworks == ["pytest"]

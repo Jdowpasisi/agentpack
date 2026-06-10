@@ -86,6 +86,8 @@ class SkillInventoryRow(BaseModel):
     side_effect_level: str = ""
     metadata_quality: str = "inferred"
     metadata: list[str] = Field(default_factory=list)
+    domain_confidence: float = 0.0
+    domain_source: str = "inferred"
 
 
 class SkillsInventorySummary(BaseModel):

@@ -108,7 +108,9 @@ def test_render_dashboard_html_contains_skills_inventory_without_bodies() -> Non
                         frameworks=["pytest"],
                         side_effect_level="command",
                         metadata_quality="explicit",
-                        metadata=["task: testing", "language: python", "framework: pytest"],
+                        metadata=["domain source: explicit domains", "domain confidence: 1.00", "task: testing", "language: python", "framework: pytest"],
+                        domain_confidence=1.0,
+                        domain_source="explicit domains",
                     )
                 ],
             ),
@@ -118,6 +120,7 @@ def test_render_dashboard_html_contains_skills_inventory_without_bodies() -> Non
     assert "Skills Inventory" in html
     assert "pytest-debugging" in html
     assert "testing" in html
+    assert "domain confidence: 1.00" in html
     assert "task: testing" in html
     assert "framework: pytest" in html
     assert ".agentpack/skills" in html

@@ -39,6 +39,7 @@ def parse_skill_file(path: Path, *, root: Path | None = None, source: str = "") 
         source=source or _source_for_path(path, root),
         path=rel_path,
         description=description.strip(),
+        domains=_normalized_list(frontmatter, "domains") or _normalized_list(frontmatter, "domain"),
         task_types=_normalized_list(frontmatter, "task_types"),
         languages=_normalized_list(frontmatter, "languages"),
         frameworks=_normalized_list(frontmatter, "frameworks"),
