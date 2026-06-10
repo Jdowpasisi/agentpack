@@ -6,6 +6,7 @@ from datetime import datetime
 import typer
 
 from agentpack.commands._shared import _atomic_write, _root, console
+from agentpack.commands.dashboard import _open_file
 from agentpack.core.config import load_config
 from agentpack.learning.collector import collect_learning_inputs
 from agentpack.learning.extractor import build_learning_report
@@ -41,6 +42,7 @@ def register(app: typer.Typer) -> None:
         provider_preview: bool = typer.Option(False, "--provider-preview", help="Print the bounded provider payload without making a network call."),
         provider_command: str = typer.Option("", "--provider-command", help="Run a local JSON-in/JSON-out provider command to enrich the report."),
         dashboard: bool = typer.Option(False, "--dashboard", help="Write a static HTML learning dashboard artifact."),
+        open_dashboard: bool = typer.Option(False, "--open", help="Open the generated learning dashboard in a browser."),
         team_export: bool = typer.Option(False, "--team-export", help="Write an opt-in team lesson export without personal skill history."),
         ci: bool = typer.Option(False, "--ci", help="Fail when learning quality is below the configured threshold."),
         skills: bool = typer.Option(False, "--skills", help="Print the local skill memory summary and exit."),
@@ -134,10 +136,15 @@ def register(app: typer.Typer) -> None:
             pr_path = root / cfg.learning.pr_comment_output
             pr_path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(pr_path, render_pr_comment_markdown(report))
+        if open_dashboard:
+            dashboard = True
         if dashboard:
             dashboard_path = root / cfg.learning.dashboard_output
             dashboard_path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(dashboard_path, render_dashboard_html(report))
+            console.print(f"[green]✓[/] Wrote {dashboard_path.relative_to(root)}")
+            if open_dashboard:
+                _open_file(dashboard_path)
         if team_export:
             team_path = root / cfg.learning.team_lessons_output
             team_path.parent.mkdir(parents=True, exist_ok=True)

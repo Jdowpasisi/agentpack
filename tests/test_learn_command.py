@@ -161,8 +161,28 @@ def test_learn_writes_dashboard_and_team_export(tmp_path, monkeypatch):
     dashboard = (repo / ".agentpack" / "learning-dashboard.html").read_text(encoding="utf-8")
     team = (repo / ".agentpack" / "team-lessons.md").read_text(encoding="utf-8")
     assert "AgentPack Learn Dashboard" in dashboard
+    assert 'class="topbar"' in dashboard
+    assert "Changed File Evidence" in dashboard
+    assert "Learning Cards" in dashboard
+    assert "<script" not in dashboard.lower()
+    assert "https://" not in dashboard
+    assert "http://" not in dashboard
     assert "# AgentPack Team Lessons" in team
     assert "personal skill history" in team
+
+
+def test_learn_open_writes_and_opens_dashboard(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    monkeypatch.chdir(repo)
+    opened: list[str] = []
+    monkeypatch.setattr("agentpack.commands.learn._open_file", lambda path: opened.append(str(path)))
+
+    result = runner.invoke(app, ["learn", "--open"])
+
+    assert result.exit_code == 0, result.output
+    dashboard = repo / ".agentpack" / "learning-dashboard.html"
+    assert dashboard.exists()
+    assert [str(Path(path).resolve()) for path in opened] == [str(dashboard)]
 
 
 def test_learn_provider_command_enriches_report(tmp_path, monkeypatch):

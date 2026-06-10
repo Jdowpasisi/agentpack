@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -42,3 +43,16 @@ def test_dashboard_writes_custom_output(tmp_path, monkeypatch) -> None:
 
     assert result.exit_code == 0, result.output
     assert (tmp_path / "out" / "dashboard.html").exists()
+
+
+def test_dashboard_open_writes_and_opens_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    opened: list[str] = []
+    monkeypatch.setattr("agentpack.commands.dashboard._open_file", lambda path: opened.append(str(path)))
+
+    result = runner.invoke(app, ["dashboard", "--open"])
+
+    assert result.exit_code == 0, result.output
+    dashboard = tmp_path / ".agentpack" / "dashboard.html"
+    assert dashboard.exists()
+    assert [str(Path(path).resolve()) for path in opened] == [str(dashboard)]

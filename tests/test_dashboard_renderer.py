@@ -54,6 +54,10 @@ def test_render_dashboard_html_contains_core_sections() -> None:
     assert "Ralph Loop" in html
     assert "agentpack finish --since main" in html
     assert "agentpack pack --task auto" in html
+    assert 'class="topbar"' in html
+    assert 'class="section-header"' in html
+    assert 'href="#inventory"' in html
+    assert 'class="table-wrap"' in html
 
 
 def test_render_dashboard_html_escapes_dynamic_content() -> None:
