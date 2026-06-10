@@ -8,11 +8,15 @@ from typing import Any
 import typer
 
 from agentpack.commands._shared import console, _root, run_refresh
+from agentpack.commands.guard import _context_is_fresh
 from agentpack.core.config import load_config
 from agentpack.core.loop_protocol import (
     LoopCommandResult,
     dry_run_plan,
+    finish_blockers,
     initialize_loop,
+    load_loop_state,
+    mark_done,
     run_loop,
 )
 from agentpack.core.thread_context import resolve_thread_option
@@ -106,6 +110,16 @@ def register(app: typer.Typer) -> None:
         """Run finish checks, capture benchmark evidence, and mark work done."""
         root = _root()
         stages: list[dict[str, Any]] = []
+        loop_state = load_loop_state(root)
+        cfg = load_config(root)
+        finish_task = task or _read_task(root, thread) or (loop_state.task if loop_state else "")
+        loop_applies = loop_state is not None and cfg.loop.enabled and (not finish_task or finish_task == loop_state.task)
+        if loop_applies:
+            blockers = _loop_finish_blockers(root, cfg.loop, loop_state, thread)
+            if blockers:
+                _finish_blocked(blockers, json_output)
+                raise typer.Exit(1)
+
         if not skip_diagnosis:
             stages.append(_run("diagnose-selection", cli_module_argv("diagnose-selection", "--write"), root))
         if not skip_benchmark_capture and since:
@@ -126,6 +140,8 @@ def register(app: typer.Typer) -> None:
         if thread_id:
             state_args.extend(["--thread", thread_id])
         stages.append(_run("state-done", cli_module_argv(*state_args), root))
+        if stages[-1]["returncode"] == 0 and loop_applies:
+            mark_done(root, summary)
         if archive_thread and thread_id and stages[-1]["returncode"] == 0:
             stages.append(_run("threads-archive", cli_module_argv("threads", "archive", thread_id, "--summary", summary), root))
         _finish(stages, json_output)
@@ -172,6 +188,30 @@ def _finish(
             console.print(f"{marker} Ralph Loop {loop_summary.get('status')}: {loop_summary.get('reason') or loop_summary.get('next_command')}")
     if not passed:
         raise typer.Exit(1)
+
+
+def _loop_finish_blockers(root: Path, loop_cfg, loop_state, thread: str) -> list[dict[str, Any]]:
+    blockers = [blocker.model_dump(mode="json") for blocker in finish_blockers(root, loop_cfg, loop_state)]
+    fresh, reason = _context_is_fresh(root, thread_id=resolve_thread_option(thread))
+    if not fresh:
+        blockers.append(
+            {
+                "kind": "stale_context",
+                "message": f"Context is stale: {reason}",
+                "command": "agentpack guard --agent auto --repair-stale --refresh-context",
+            }
+        )
+    return blockers
+
+
+def _finish_blocked(blockers: list[dict[str, Any]], json_output: bool) -> None:
+    if json_output:
+        typer.echo(json.dumps({"passed": False, "stages": [], "loop_blockers": blockers}, indent=2, sort_keys=True))
+        return
+    console.print("[red]Ralph Loop completion blockers:[/]")
+    for blocker in blockers:
+        console.print(f"  [yellow]![/] {blocker['message']}")
+        console.print(f"    Run: [bold]{blocker['command']}[/]")
 
 
 def _read_task(root: Path, thread: str) -> str:

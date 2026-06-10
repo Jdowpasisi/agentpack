@@ -6,7 +6,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from agentpack.cli import app
-from agentpack.core.loop_protocol import load_loop_state
+from agentpack.core.config import LoopConfig
+from agentpack.core.loop_protocol import LoopCommandResult, initialize_loop, load_loop_state, save_loop_state
 
 
 def test_work_initializes_starts_and_runs_next(tmp_path: Path, monkeypatch) -> None:
@@ -152,6 +153,53 @@ def test_finish_runs_diagnosis_capture_checks_done_and_archive(tmp_path: Path, m
         "threads-archive",
     ]
     assert any(call[:3] == [call[0], "-m", "agentpack.cli"] for call in calls)
+
+
+def test_finish_blocks_when_loop_is_not_ready(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "task.md").write_text("fix auth\n", encoding="utf-8")
+    initialize_loop(tmp_path, "fix auth", LoopConfig(runner="agent", verification_commands=["pytest -q"]))
+
+    monkeypatch.setattr("agentpack.commands.workflow_cmd._context_is_fresh", lambda *args, **kwargs: (True, "fresh"))
+
+    result = CliRunner().invoke(
+        app,
+        ["finish", "--task", "fix auth", "--skip-checks", "--skip-diagnosis", "--skip-benchmark-capture", "--json"],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["passed"] is False
+    assert payload["loop_blockers"][0]["kind"] == "loop_not_ready"
+
+
+def test_finish_marks_ready_loop_done(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n[loop]\nrequire_clean_tree = false\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "task.md").write_text("fix auth\n", encoding="utf-8")
+    state = initialize_loop(tmp_path, "fix auth", LoopConfig(runner="agent", verification_commands=["pytest -q"], require_clean_tree=False))
+    state.status = "ready_to_finish"
+    state.last_verification = LoopCommandResult(command="pytest -q", returncode=0, output_excerpt="passed")
+    save_loop_state(tmp_path, state)
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr("agentpack.commands.workflow_cmd.subprocess.run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr("agentpack.commands.workflow_cmd._context_is_fresh", lambda *args, **kwargs: (True, "fresh"))
+
+    result = CliRunner().invoke(
+        app,
+        ["finish", "--task", "fix auth", "--skip-checks", "--skip-diagnosis", "--skip-benchmark-capture", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert load_loop_state(tmp_path).status == "done"
 
 
 def test_ci_init_writes_workflow_and_refuses_overwrite(tmp_path: Path, monkeypatch) -> None:
