@@ -12,6 +12,16 @@ from agentpack.router.skills_index import (
     write_inventory_index,
 )
 
+__all__ = [
+    "DEFAULT_SKILL_PATHS",
+    "INDEX_PATH",
+    "ROOT_RULE_FILES",
+    "discover_inventory",
+    "inventory_for_route",
+    "load_inventory_index",
+    "write_inventory_index",
+]
+
 DEFAULT_SKILL_PATHS = [
     "skills",
     ".claude-plugin",
