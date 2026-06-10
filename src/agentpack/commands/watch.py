@@ -66,7 +66,7 @@ def register(app: typer.Typer) -> None:
                 raise ImportError("watchdog not installed")
             _watch_with_watchdog(root, effective_agent, effective_mode, budget, debounce, state)
         except ImportError:
-            console.print("[dim]watchdog not installed — using polling (install watchdog for better performance)[/]")
+            console.print("[dim]watchdog unavailable — using polling[/]")
             _watch_polling(root, effective_agent, effective_mode, budget, debounce, state)
 
 

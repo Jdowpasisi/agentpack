@@ -646,16 +646,10 @@ agentpack watch                        # refresh context on source/task changes
 agentpack watch --debounce 3.0         # wait 3s after last change before refresh
 ```
 
-Uses `watchdog` if installed, falls back to polling. Context is refreshed whenever source files or `.agentpack/task.md` change.
-
-Install watchdog for better performance:
-```bash
-pipx inject agentpack-cli watchdog
-PIPX_AGENTPACK="$(pipx environment --value PIPX_BIN_DIR)/agentpack"
-"$PIPX_AGENTPACK" watch
-```
-
-Use the explicit `pipx` binary path above if you also have the npm wrapper on `PATH`; otherwise `agentpack watch` may still resolve to the Node launcher.
+Default installs include `watchdog` and use native filesystem events. If `watchdog`
+is unavailable in an editable checkout or distro-managed environment, watch mode
+falls back to polling. Context is refreshed whenever source files or
+`.agentpack/task.md` change.
 
 ---
 

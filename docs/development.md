@@ -19,7 +19,7 @@ Clone and run locally:
 ```bash
 git clone https://github.com/vishal2612200/agentpack.git
 cd agentpack
-python -m pip install -e ".[dev,watch,mcp]" build
+python -m pip install -e ".[dev,mcp]" build
 pytest
 ```
 
@@ -93,9 +93,8 @@ Please include tests for ranking changes. A good ranking PR usually adds one foc
 ## Optional dependencies
 
 ```bash
-pipx inject agentpack-cli watchdog              # faster file watching for agentpack watch
 pipx inject agentpack-cli "agentpack-cli[mcp]"  # expose agentpack as MCP server tools
-pipx inject agentpack-cli "agentpack-cli[all]"  # watch + mcp
+pipx inject agentpack-cli "agentpack-cli[all]"  # default deps + mcp
 ```
 
 ---

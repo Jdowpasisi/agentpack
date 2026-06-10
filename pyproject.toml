@@ -1,6 +1,6 @@
 [project]
 name = "agentpack-cli"
-version = "0.3.15"
+version = "0.3.16"
 description = "Local MCP context router for Claude Code, Codex, Cursor, and AI coding agents."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,7 @@ dependencies = [
   "pydantic>=2.0.0",
   "tomli-w>=1.0.0",
   "tiktoken>=0.7.0",
+  "watchdog>=4.0.0",
   "tomli>=2.0.0; python_version < '3.11'"
 ]
 

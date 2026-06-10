@@ -10,6 +10,13 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.16] — 2026-06-10
+
+### Changed
+- Bundled `watchdog` in the default Python package dependencies so normal `pipx`, `pip`, and npm wrapper installs use native filesystem watching for `agentpack watch`.
+
+---
+
 ## [0.3.15] — 2026-06-09
 
 ### Added
