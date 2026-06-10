@@ -10,6 +10,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.18] — 2026-06-10
+
+### Added
+- Added runtime-loop context retrieval, pack registry, session events, output compression, memory, perf, and wrap commands.
+- Added symbol-level registry records and MCP retrieval/compression surfaces.
+- Added selected-file miss feedback so `agentpack learn` can feed bounded ranking boosts into later packs.
+
+### Changed
+- Updated runtime-loop documentation, generated artifact ignores, and benchmark notes.
+
+---
+
 ## [0.3.17] — 2026-06-10
 
 ### Added
