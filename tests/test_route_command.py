@@ -105,51 +105,6 @@ def test_skills_feedback_records_outcome(tmp_path, monkeypatch):
     assert data["tests_passed"] is True
 
 
-def test_skills_recommend_explain_prints_skill_plan(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    _write_route_fixture(tmp_path)
-
-    result = CliRunner().invoke(
-        app,
-        ["skills", "recommend", "--task", "fix flaky payment webhook test", "--explain"],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "Recommended skills" in result.output
-    assert "django-pytest" in result.output
-    assert "confidence" in result.output
-    assert "Skill Plan" in result.output
-
-
-def test_skills_feedback_records_outcome(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".agentpack").mkdir()
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "skills",
-            "feedback",
-            "--task",
-            "fix auth",
-            "--used-skill",
-            "auth-review",
-            "--changed-file",
-            "src/auth.py",
-            "--tests-passed",
-            "--user-feedback",
-            "helpful",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    data = json.loads((tmp_path / ".agentpack" / "skill_feedback.jsonl").read_text(encoding="utf-8"))
-    assert data["task"] == "fix auth"
-    assert data["used_skills"] == ["auth-review"]
-    assert data["changed_files"] == ["src/auth.py"]
-    assert data["tests_passed"] is True
-
-
 def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_route_fixture(tmp_path)
