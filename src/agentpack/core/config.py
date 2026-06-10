@@ -67,6 +67,21 @@ class LearningConfig(BaseModel):
     min_groundedness_score: int = 70
 
 
+class LoopConfig(BaseModel):
+    enabled: bool = True
+    runner: str = ""
+    max_iterations: int = 10
+    verification_commands: list[str] = Field(default_factory=list)
+    require_verification: bool = True
+    require_progress_update: bool = True
+    require_clean_tree: bool = True
+    auto_commit: bool = False
+    auto_push: bool = False
+    runner_timeout_seconds: int = 600
+    verification_timeout_seconds: int = 600
+    max_repeated_failures: int = 3
+
+
 class HooksConfig(BaseModel):
     task_switch_detection: bool = True
     task_switch_min_terms: int = 1
@@ -137,6 +152,7 @@ class Config(BaseModel):
     context_lite: LiteContextConfig = Field(default_factory=LiteContextConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    loop: LoopConfig = Field(default_factory=LoopConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -198,6 +214,20 @@ max_diff_chars_per_file = 1200
 max_cards = 5
 max_quiz_questions = 5
 min_groundedness_score = 70
+
+[loop]
+enabled = true
+runner = ""
+max_iterations = 10
+verification_commands = []
+require_verification = true
+require_progress_update = true
+require_clean_tree = true
+auto_commit = false
+auto_push = false
+runner_timeout_seconds = 600
+verification_timeout_seconds = 600
+max_repeated_failures = 3
 
 [hooks]
 # Claude UserPromptSubmit can detect a clearly different coding prompt,

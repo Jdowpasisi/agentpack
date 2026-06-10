@@ -37,6 +37,10 @@ def test_repo_gitignore_block_ignores_generated_artifacts() -> None:
     assert ".agentpack/learning-dashboard.html" in lines
     assert ".agentpack/team-lessons.md" in lines
     assert ".agentpack/learning-feedback.jsonl" in lines
+    assert ".agentpack/loop_state.json" in lines
+    assert ".agentpack/progress.md" in lines
+    assert ".agentpack/loop_events.jsonl" in lines
+    assert ".agentpack/loop_failures.jsonl" in lines
     assert ".agent/skills/agentpack/" not in lines
     assert ".vscode/tasks.json" not in lines
     assert "GEMINI.md" not in lines
@@ -168,8 +172,17 @@ def test_init_writes_repo_gitignore_block(tmp_path, monkeypatch) -> None:
     assert "!.agentpack/config.toml" in content
     assert ".agentignore" in content
     assert ".agentpack/task.md" in content
+    assert ".agentpack/loop_state.json" in content
+    assert ".agentpack/progress.md" in content
+    assert ".agentpack/loop_events.jsonl" in content
+    assert ".agentpack/loop_failures.jsonl" in content
     assert ".vscode/tasks.json" not in content
     assert "GEMINI.md" not in content
+
+    config = (tmp_path / ".agentpack" / "config.toml").read_text(encoding="utf-8")
+    assert "[loop]" in config
+    assert "enabled = true" in config
+    assert 'runner = ""' in config
 
 
 def test_init_writes_agent_specific_gitignore_entries(tmp_path, monkeypatch) -> None:
