@@ -16,7 +16,7 @@ def register(app: typer.Typer) -> None:
     @app.command(name="scan")
     def scan_cmd(
         largest: int = typer.Option(10, "--largest", min=0, help="Show the N largest packable files by estimated tokens."),
-        ignored_summary: bool = typer.Option(False, "--ignored-summary", is_flag=True, help="Group ignored/binary files by directory or extension."),
+        ignored_summary: bool = typer.Option(False, "--ignored-summary", help="Group ignored/binary files by directory or extension."),
     ) -> None:
         """Scan the repository and report file statistics."""
         root = _root()

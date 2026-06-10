@@ -294,9 +294,9 @@ def register(app: typer.Typer) -> None:
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
         file: Optional[str] = typer.Option(None, "--file", help="Show detailed score breakdown for a specific file."),
-        omitted: bool = typer.Option(False, "--omitted", is_flag=True, help="Show top-10 excluded files and why."),
-        why_noisy: bool = typer.Option(False, "--why-noisy", is_flag=True, help="Explain broad task terms and noisy selection signals."),
-        budget_plan: bool = typer.Option(False, "--budget-plan", is_flag=True, help="Show selected modes, token costs, and value per token."),
+        omitted: bool = typer.Option(False, "--omitted", help="Show top-10 excluded files and why."),
+        why_noisy: bool = typer.Option(False, "--why-noisy", help="Explain broad task terms and noisy selection signals."),
+        budget_plan: bool = typer.Option(False, "--budget-plan", help="Show selected modes, token costs, and value per token."),
     ) -> None:
         """Explain which files would be selected and why, without writing a context file."""
         if mode not in ("lite", "minimal", "balanced", "deep"):

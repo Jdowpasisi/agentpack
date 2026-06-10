@@ -103,5 +103,6 @@ def record_skill_feedback(
         "tests_passed": tests_passed,
         "user_feedback": user_feedback.strip(),
     }
-    out.open("a", encoding="utf-8").write(json.dumps(record) + "\n")
+    with out.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
     console.print(f"[green]✓[/] Recorded skill feedback in [bold]{out}[/]")

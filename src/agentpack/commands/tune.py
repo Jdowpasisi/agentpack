@@ -22,7 +22,7 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def tune(
         from_benchmark: bool = typer.Option(True, "--from-benchmark/--no-benchmark", help="Use .agentpack/benchmark_results.jsonl."),
-        write: bool = typer.Option(False, "--write", is_flag=True, help="Write suggestions to .agentpack/tuning.md."),
+        write: bool = typer.Option(False, "--write", help="Write suggestions to .agentpack/tuning.md."),
     ) -> None:
         """Suggest tuning actions from benchmark misses and recent pack metrics."""
         root = _root()
