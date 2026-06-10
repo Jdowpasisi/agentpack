@@ -336,6 +336,7 @@ gate.
 | `agentpack guard --repair-stale --refresh-context` | Check freshness, repair stale rules, refresh context |
 | `agentpack status` | Show context freshness and git/task state |
 | `agentpack stats` | Show pack size, token savings, and top files |
+| `agentpack dashboard` | Local HTML control plane for context, skills, learning, and benchmark quality |
 | `agentpack explain --task auto` | Debug selected and omitted files |
 | `agentpack diagnose-selection` | Turn latest pack/benchmark signals into concrete tuning actions |
 | `agentpack ignore suggest|apply` | Suggest or apply `.agentignore` improvements |
@@ -419,6 +420,7 @@ AgentPack writes local artifacts under `.agentpack/`:
 | `.agentpack/learning.prompt.md` | optional source-backed prompt for external LLM refinement |
 | `.agentpack/pr-learning-comment.md` | optional PR-comment-ready learning summary |
 | `.agentpack/learning-dashboard.html` | optional static dashboard from `agentpack learn --dashboard` |
+| `.agentpack/dashboard.html` | local project dashboard from `agentpack dashboard` |
 | `.agentpack/team-lessons.md` | optional shared lesson export from `agentpack learn --team-export` |
 | `.agentpack/learning-feedback.jsonl` | optional local helpful/not-helpful feedback records |
 | `.agentpack/pack_metadata.json` | freshness and pack metadata |

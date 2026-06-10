@@ -42,6 +42,7 @@ Command map:
 | `agentpack eval` | Run deterministic failure evals with tests, diff limits, and taxonomy labels |
 | `agentpack tune` | Suggest fixes from recent pack metrics and benchmark misses |
 | `agentpack status` | Inspect current pack freshness and metadata |
+| `agentpack dashboard` | Generate a local HTML dashboard for context, skills, learning, and quality |
 | `agentpack threads` | List, archive, prune, and inspect thread-scoped contexts |
 | `agentpack state` | Show or update task execution state |
 | `agentpack diff` | Show what changed between context snapshots |
@@ -912,6 +913,26 @@ agentpack stats
 When a session is active, shows session panel (agent, mode, started, refresh count) above token stats. Also lists top included files from the latest pack and avg recall/precision/F1 over the last 10 runs.
 
 Newer metrics include token-weighted precision. File precision answers "how many selected files were later changed"; token precision answers "how many selected tokens were spent on files later changed." Context precision also credits obvious read-only support context, such as paired tests beside changed source files. `stats` breaks token precision down by inclusion mode (`full`, `symbols`, `summary`) so summary noise is visible. In monorepos, it also reports selected-file distribution by workspace when workspace metadata exists.
+
+### `agentpack dashboard`
+
+Generate a static local dashboard from existing `.agentpack/` artifacts.
+
+```bash
+agentpack dashboard
+agentpack dashboard --open
+agentpack dashboard --json
+```
+
+The dashboard writes `.agentpack/dashboard.html` by default. It is local-only,
+uses inline CSS, and does not load remote scripts or assets. Missing artifacts
+render empty states with suggested commands such as `agentpack pack --task auto`,
+`agentpack learn`, and `agentpack benchmark --init`.
+
+`--json` prints the normalized dashboard snapshot to stdout instead of writing
+HTML. Use it when you want to inspect the underlying project, context, selected
+files, skill feedback, learning artifacts, benchmark metrics, and suggested
+actions programmatically.
 
 To build a real usefulness signal for your repo:
 
