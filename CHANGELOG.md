@@ -10,6 +10,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.15] — 2026-06-09
+
+### Added
+- Added richer skill metadata, confidence thresholds, negative triggers, weighted path scoring, and diversity-aware skill selection.
+- Added `agentpack skills recommend`, `agentpack skills feedback`, MCP `get_skill`, baseline skill guidance, and skill benchmark metrics for expected and avoided skills.
+
+### Fixed
+- Kept route and explain payloads metadata-only by stripping raw skill bodies until `get_skill` is called.
+- Stabilized incremental scan fingerprints so generated AgentPack output path churn does not force avoidable full scans.
+
+---
+
 ## [0.3.14] — 2026-06-09
 
 ### Added

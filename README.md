@@ -24,11 +24,19 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.14).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.15).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
+
+## What's New in 0.3.15
+
+AgentPack Router now recommends skills with stronger local signals: richer
+frontmatter, confidence thresholds, negative triggers, diversity-aware ranking,
+and a pull-based MCP `get_skill` flow. Skill benchmark cases can declare
+`expected_skills` and `avoid_skills`, and `agentpack skills feedback` records
+local outcome signals for future routing.
 
 ## What's New in 0.3.14
 
@@ -238,9 +246,14 @@ Generated instructions keep thread mode explicit. They recommend `AGENTPACK_THRE
 default_mode = "balanced"
 default_budget = 40000
 
+[context_lite]
+budget = 8000
+
 [agents.generic]
 output = ".agentpack/context.md"
 ```
+
+Use `agentpack pack --mode lite` when you want a cheap ranked map before deeper file reads. Use `minimal`, `balanced`, or `deep` when you want progressively more file content in the generated pack.
 
 Use `.agentignore` to remove generated output, vendored code, large exports, or files that repeatedly appear as ranking noise. AgentPack imports obvious generated/noisy entries from gitignore sources during init, but repository-specific outputs should still be added by hand.
 

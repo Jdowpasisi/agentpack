@@ -19,7 +19,7 @@ from agentpack.session.state import load_session, create_session, SESSION_FILE, 
 
 _GITIGNORE_START = "# agentpack:start"
 _GITIGNORE_END = "# agentpack:end"
-_INIT_MODES = ("minimal", "balanced", "deep")
+_INIT_MODES = ("lite", "minimal", "balanced", "deep")
 _INIT_AGENTS = ("auto", "claude", "cursor", "windsurf", "codex", "antigravity", "generic")
 _AGENT_GITIGNORE_ENTRIES = {
     "cursor": (".vscode/tasks.json",),
@@ -328,7 +328,7 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def init(
         force: bool = typer.Option(False, "--force", help="Overwrite existing files."),
-        mode: Optional[str] = typer.Option(None, "--mode", help="Default pack mode (minimal|balanced|deep)."),
+        mode: Optional[str] = typer.Option(None, "--mode", help="Default pack mode (lite|minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Default token budget (0 = keep default 40000)."),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive prompts, use defaults."),
         silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
@@ -385,14 +385,23 @@ def register(app: typer.Typer) -> None:
             # Interactive mode selection
             if not yes and mode is None and sys.stdin.isatty():
                 console.print("\n[bold]Choose default pack mode:[/]")
-                console.print("  [cyan]1[/] minimal  — changed files + configs only (fastest, fewest tokens)")
-                console.print("  [cyan]2[/] balanced — + deps, tests, summaries [bold](recommended)[/]")
-                console.print("  [cyan]3[/] deep     — + docs, more full files (most context)")
-                choice = typer.prompt("Mode", default="2")
-                mode_map = {"1": "minimal", "2": "balanced", "3": "deep",
-                            "minimal": "minimal", "balanced": "balanced", "deep": "deep"}
+                console.print("  [cyan]1[/] lite     — cheap ranked map, omitted warnings, tight budget")
+                console.print("  [cyan]2[/] minimal  — changed files + configs only (fastest, fewest tokens)")
+                console.print("  [cyan]3[/] balanced — + deps, tests, summaries [bold](recommended)[/]")
+                console.print("  [cyan]4[/] deep     — + docs, more full files (most context)")
+                choice = typer.prompt("Mode", default="3")
+                mode_map = {
+                    "1": "lite",
+                    "2": "minimal",
+                    "3": "balanced",
+                    "4": "deep",
+                    "lite": "lite",
+                    "minimal": "minimal",
+                    "balanced": "balanced",
+                    "deep": "deep",
+                }
                 cfg.context.default_mode = mode_map.get(choice.strip(), "balanced")
-            elif mode in ("minimal", "balanced", "deep"):
+            elif mode in _INIT_MODES:
                 cfg.context.default_mode = mode
 
             if budget > 0:

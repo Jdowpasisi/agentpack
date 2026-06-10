@@ -26,6 +26,42 @@ def test_parse_skill_frontmatter_name_description(tmp_path):
     assert skill.side_effect_level == "command"
 
 
+def test_parse_skill_rich_frontmatter(tmp_path):
+    path = tmp_path / ".agentpack" / "skills" / "pytest-debugging" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        "name: pytest-debugging\n"
+        "description: Debug failing Python tests.\n"
+        "task_types: [debug, test]\n"
+        "languages: [python]\n"
+        "frameworks: [pytest]\n"
+        "triggers:\n"
+        "  - assertion error\n"
+        "anti_triggers: [frontend, playwright]\n"
+        "applies_to_paths: tests/**/*.py\n"
+        "anti_paths:\n"
+        "  - apps/web/**\n"
+        "priority: 70\n"
+        "confidence_threshold: 0.6\n"
+        "---\n\n"
+        "Run targeted pytest commands.\n",
+        encoding="utf-8",
+    )
+
+    skill = parse_skill_file(path, root=tmp_path)
+
+    assert skill.task_types == ["debug", "test"]
+    assert skill.languages == ["python"]
+    assert skill.frameworks == ["pytest"]
+    assert "assertion error" in skill.triggers
+    assert skill.anti_triggers == ["frontend", "playwright"]
+    assert skill.applies_to_paths == ["tests/**/*.py"]
+    assert skill.anti_paths == ["apps/web/**"]
+    assert skill.priority == 70
+    assert skill.confidence_threshold == 0.6
+
+
 def test_parse_karpathy_skill_frontmatter(tmp_path):
     path = tmp_path / "skills" / "karpathy-guidelines" / "SKILL.md"
     path.parent.mkdir(parents=True)

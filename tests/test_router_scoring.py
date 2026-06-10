@@ -73,7 +73,7 @@ def test_external_skill_warned_not_selected_by_default():
     assert "production-deploy-checklist" in warnings[0]
 
 
-def test_general_coding_guideline_skill_matches_coding_tasks():
+def test_unpinned_general_coding_guideline_does_not_clear_confidence_threshold():
     skills = [
         SkillArtifact(
             name="karpathy-guidelines",
@@ -110,7 +110,7 @@ def test_general_coding_guideline_skill_matches_coding_tasks():
     )
 
     assert warnings == []
-    assert [item.skill.name for item in selected] == ["karpathy-guidelines"]
+    assert selected == []
     assert "general coding guidance match" in all_scores[0].reasons
 
 
@@ -170,3 +170,162 @@ def test_always_recommend_does_not_boost_external_skills():
     assert selected == []
     assert warnings
     assert "always-recommend skill" not in all_scores[0].reasons
+
+
+def test_rich_metadata_confidence_and_negative_matches():
+    skills = [
+        SkillArtifact(
+            name="pytest-debugging",
+            path="skills/pytest-debugging/SKILL.md",
+            source="skills",
+            description="Debug failing Python tests.",
+            task_types=["debug", "test"],
+            languages=["python"],
+            frameworks=["pytest"],
+            triggers=["assertion", "failure"],
+            anti_triggers=["frontend"],
+            side_effect_level="command",
+            applies_to_paths=["tests/**"],
+            priority=70,
+            confidence_threshold=0.6,
+        ),
+        SkillArtifact(
+            name="python-style-review",
+            path="skills/python-style-review/SKILL.md",
+            source="skills",
+            description="Review Python style in source files.",
+            languages=["python"],
+            triggers=["python"],
+            anti_paths=["tests/**"],
+            side_effect_level="none",
+            confidence_threshold=0.6,
+        ),
+    ]
+
+    selected, warnings, all_scores = score_skills(
+        skills,
+        task="debug failing pytest assertion",
+        selected_paths=["tests/test_auth.py", "src/auth.py"],
+        selected_files=[
+            {"path": "tests/test_auth.py", "score": 900},
+            {"path": "src/auth.py", "score": 300},
+        ],
+        max_selected=2,
+        allow_external=False,
+    )
+
+    assert warnings == []
+    assert selected[0].skill.name == "pytest-debugging"
+    assert selected[0].confidence >= 0.6
+    assert "task type match: debug, test" in selected[0].reasons
+    assert "language match: python" in selected[0].reasons
+    assert all(item.skill.name != "python-style-review" for item in selected)
+    assert any("anti-path match" in reason for reason in all_scores[-1].reasons)
+
+
+def test_unrelated_safe_skill_is_not_selected_from_priority_alone():
+    skills = [
+        SkillArtifact(
+            name="incident-rca",
+            path="skills/incident-rca/SKILL.md",
+            source="skills",
+            description="Write incident postmortems.",
+            triggers=["incident", "postmortem"],
+            side_effect_level="none",
+            priority=100,
+        )
+    ]
+
+    selected, warnings, all_scores = score_skills(
+        skills,
+        task="fix auth token expiry bug",
+        selected_paths=["src/auth/session.py"],
+        max_selected=3,
+        allow_external=False,
+    )
+
+    assert selected == []
+    assert warnings == []
+    assert all_scores == []
+
+
+def test_diversity_penalty_avoids_three_redundant_skills():
+    skills = [
+        SkillArtifact(
+            name="pytest-a",
+            path="skills/pytest-a/SKILL.md",
+            source="skills",
+            description="pytest failure debugging",
+            task_types=["test"],
+            languages=["python"],
+            frameworks=["pytest"],
+            triggers=["pytest", "failure"],
+            side_effect_level="command",
+        ),
+        SkillArtifact(
+            name="pytest-b",
+            path="skills/pytest-b/SKILL.md",
+            source="skills",
+            description="pytest assertion debugging",
+            task_types=["test"],
+            languages=["python"],
+            frameworks=["pytest"],
+            triggers=["pytest", "assertion"],
+            side_effect_level="command",
+        ),
+        SkillArtifact(
+            name="pytest-c",
+            path="skills/pytest-c/SKILL.md",
+            source="skills",
+            description="pytest fixture debugging",
+            task_types=["test"],
+            languages=["python"],
+            frameworks=["pytest"],
+            triggers=["pytest", "fixture"],
+            side_effect_level="command",
+        ),
+        SkillArtifact(
+            name="auth-review",
+            path="skills/auth-review/SKILL.md",
+            source="skills",
+            description="Review auth token expiry.",
+            task_types=["security"],
+            triggers=["auth", "token"],
+            side_effect_level="none",
+        ),
+    ]
+
+    selected, _warnings, _all_scores = score_skills(
+        skills,
+        task="fix pytest auth token failure",
+        selected_paths=["tests/test_auth.py", "src/auth.py"],
+        max_selected=3,
+        allow_external=False,
+    )
+
+    assert "auth-review" in [item.skill.name for item in selected]
+
+
+def test_historical_success_boosts_used_skill():
+    skills = [
+        SkillArtifact(
+            name="auth-review",
+            path="skills/auth-review/SKILL.md",
+            source="skills",
+            description="Review auth token expiry.",
+            triggers=["auth", "token"],
+            side_effect_level="none",
+        )
+    ]
+
+    selected, _warnings, _all_scores = score_skills(
+        skills,
+        task="fix auth token expiry bug",
+        selected_paths=["src/auth/session.py"],
+        max_selected=1,
+        allow_external=False,
+        historical_success={"auth-review": 1.0},
+    )
+
+    assert selected[0].skill.name == "auth-review"
+    assert any("historical success boost" in reason for reason in selected[0].reasons)

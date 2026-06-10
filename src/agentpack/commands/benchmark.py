@@ -35,6 +35,8 @@ class BenchmarkCase:
     task: str
     mode: str = "balanced"
     expected_files: list[str] = field(default_factory=list)
+    expected_skills: list[str] = field(default_factory=list)
+    avoid_skills: list[str] = field(default_factory=list)
     task_type: str = "general"
     workspace: str | None = None
     budget: int = 0
@@ -59,6 +61,12 @@ class CaseResult:
     random_precision: float | None = None
     random_recall: float | None = None
     random_f1: float | None = None
+    selected_skills: list[str] = field(default_factory=list)
+    skill_recall_at_3: float | None = None
+    skill_precision_at_3: float | None = None
+    skill_mrr: float | None = None
+    skill_noise_rate: float | None = None
+    skill_token_cost: int = 0
     missed_expected: list[dict[str, Any]] = field(default_factory=list)
     selected_modes: dict[str, str] = field(default_factory=dict)
 
@@ -109,6 +117,10 @@ class E2EResult:
     passed: bool
     duration_s: float
     input_tokens: int
+    agent_output_tokens: int
+    estimated_input_cost_usd: float
+    estimated_output_cost_usd: float
+    estimated_total_cost_usd: float
     agent_returncode: int
     test_returncode: int
     timed_out: bool
@@ -256,6 +268,8 @@ def _load_cases(path: Path) -> list[BenchmarkCase]:
             task=raw["task"],
             mode=raw.get("mode", "balanced"),
             expected_files=raw.get("expected_files", []),
+            expected_skills=raw.get("expected_skills", []),
+            avoid_skills=raw.get("avoid_skills", []),
             task_type=raw.get("task_type", "general"),
             workspace=raw.get("workspace"),
             budget=raw.get("budget", 0),
@@ -287,6 +301,8 @@ def _scaffold_cases(root: Path) -> Path:
         '#   "src/auth/token.py",\n'
         '#   "src/auth/session.py",\n'
         '# ]\n\n'
+        '# expected_skills = ["pytest-debugging", "auth-flow-review"]\n'
+        '# avoid_skills = ["frontend-react-review"]\n\n'
         '[[cases]]\n'
         'task = "add rate limiting to API endpoints"\n'
         'mode = "balanced"\n'
@@ -603,6 +619,10 @@ def _append_benchmark_cases(root: Path, cases: list[BenchmarkCase]) -> Path:
         if case.budget:
             lines.append(f"budget = {case.budget}")
         lines.append("expected_files = [" + ", ".join(json.dumps(path) for path in case.expected_files) + "]")
+        if case.expected_skills:
+            lines.append("expected_skills = [" + ", ".join(json.dumps(skill) for skill in case.expected_skills) + "]")
+        if case.avoid_skills:
+            lines.append("avoid_skills = [" + ", ".join(json.dumps(skill) for skill in case.avoid_skills) + "]")
         blocks.append("\n".join(lines))
     out.write_text(prefix + "\n\n".join(blocks) + "\n", encoding="utf-8")
     return out
@@ -723,6 +743,13 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
     else:
         missed_expected = []
 
+    selected_skills, skill_token_cost = _route_skills_for_case(root, case)
+    skill_recall, skill_precision, skill_mrr, skill_noise = _skill_metrics(
+        selected_skills,
+        expected_skills=case.expected_skills,
+        avoid_skills=case.avoid_skills,
+    )
+
     return CaseResult(
         case=case,
         packed_tokens=packed_tokens,
@@ -742,6 +769,12 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         random_precision=rand_p,
         random_recall=rand_r,
         random_f1=rand_f1,
+        selected_skills=selected_skills,
+        skill_recall_at_3=skill_recall,
+        skill_precision_at_3=skill_precision,
+        skill_mrr=skill_mrr,
+        skill_noise_rate=skill_noise,
+        skill_token_cost=skill_token_cost,
         missed_expected=missed_expected,
     )
 
@@ -756,6 +789,60 @@ def _precision_recall(result: CaseResult) -> tuple[float, float, float]:
     r = tp / len(expected)
     f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
     return p, r, f1
+
+
+def _route_skills_for_case(root: Path, case: BenchmarkCase) -> tuple[list[str], int]:
+    if not case.expected_skills and not case.avoid_skills:
+        return [], 0
+    from agentpack.router.service import RouteService
+
+    service = RouteService()
+    route = service.route_task(root, case.task)
+    selected = [item.skill.name for item in route.selected_skills[:3]]
+    selected_keys = {_normalize_skill_name(name) for name in selected}
+    token_cost = 0
+    inventory = service.inventory(root)
+    for skill in inventory.skills:
+        keys = {
+            _normalize_skill_name(skill.name),
+            _normalize_skill_name(skill.path),
+            _normalize_skill_name(str(Path(skill.path).parent)),
+        }
+        if selected_keys & keys:
+            token_cost += estimate_tokens(skill.raw_text or skill.description or skill.name)
+    return selected, token_cost
+
+
+def _skill_metrics(
+    selected_skills: list[str],
+    *,
+    expected_skills: list[str],
+    avoid_skills: list[str],
+) -> tuple[float | None, float | None, float | None, float | None]:
+    selected = [_normalize_skill_name(skill) for skill in selected_skills[:3]]
+    expected = {_normalize_skill_name(skill) for skill in expected_skills}
+    avoided = {_normalize_skill_name(skill) for skill in avoid_skills}
+    selected_set = set(selected)
+
+    recall = len(selected_set & expected) / len(expected) if expected else None
+    precision = len(selected_set & expected) / len(selected) if expected and selected else (0.0 if expected else None)
+    mrr = None
+    if expected:
+        for idx, skill in enumerate(selected, start=1):
+            if skill in expected:
+                mrr = 1 / idx
+                break
+        if mrr is None:
+            mrr = 0.0
+    noise = len(selected_set & avoided) / len(selected) if avoided and selected else (0.0 if avoided else None)
+    return recall, precision, mrr, noise
+
+
+def _normalize_skill_name(value: str) -> str:
+    normalized = value.strip().lower().replace("\\", "/").rstrip("/")
+    if normalized.endswith("/skill.md"):
+        normalized = normalized[: -len("/skill.md")]
+    return normalized
 
 
 def _miss_status(
@@ -810,6 +897,12 @@ def _persist_result(root: Path, result: CaseResult) -> None:
         "noise_pct": round(result.noise_pct, 1) if result.noise_pct is not None else None,
         "token_precision": round(1 - (result.noise_pct / 100), 3) if result.noise_pct is not None else None,
         "random_f1": round(result.random_f1, 3) if result.random_f1 is not None else None,
+        "selected_skills": result.selected_skills,
+        "skill_recall_at_3": round(result.skill_recall_at_3, 3) if result.skill_recall_at_3 is not None else None,
+        "skill_precision_at_3": round(result.skill_precision_at_3, 3) if result.skill_precision_at_3 is not None else None,
+        "skill_mrr": round(result.skill_mrr, 3) if result.skill_mrr is not None else None,
+        "skill_noise_rate": round(result.skill_noise_rate, 3) if result.skill_noise_rate is not None else None,
+        "skill_token_cost": result.skill_token_cost,
         "misses": result.missed_expected,
     }
     try:
@@ -891,6 +984,21 @@ def _print_case_detail(result: CaseResult, show_misses: bool = False) -> None:
                     f"rank={rank}  score={score}  why={reasons}"
                 )
 
+    if result.case.expected_skills or result.case.avoid_skills:
+        mrr_text = f"{result.skill_mrr:.2f}" if result.skill_mrr is not None else "-"
+        console.print(
+            "  skill recall@3 "
+            f"[bold]{_fmt_pct(result.skill_recall_at_3)}[/]  "
+            "precision@3 "
+            f"[bold]{_fmt_pct(result.skill_precision_at_3)}[/]  "
+            f"MRR [bold]{mrr_text}[/]"
+        )
+        if result.skill_noise_rate is not None:
+            console.print(f"  skill noise [bold]{result.skill_noise_rate:.1%}[/]")
+        console.print(f"  skill token cost [bold]{result.skill_token_cost:,}[/]")
+        if result.selected_skills:
+            console.print("  [dim]top skills:[/] " + ", ".join(result.selected_skills[:3]))
+
     console.print("  [dim]top files:[/] " + ", ".join(result.selected_paths[:5]))
 
 
@@ -915,6 +1023,7 @@ def _format_mode_counts(counts: dict[str, int]) -> str:
 
 def _print_summary_table(results: list[CaseResult]) -> None:
     has_gt = any(r.case.expected_files for r in results)
+    has_skill_gt = any(r.case.expected_skills or r.case.avoid_skills for r in results)
 
     tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
     tbl.add_column("task", max_width=40)
@@ -931,6 +1040,11 @@ def _print_summary_table(results: list[CaseResult]) -> None:
         tbl.add_column("rand F1", justify="right")
         tbl.add_column("rank@K", justify="right")
         tbl.add_column("noise%", justify="right")
+    if has_skill_gt:
+        tbl.add_column("skill R@3", justify="right")
+        tbl.add_column("skill P@3", justify="right")
+        tbl.add_column("skill MRR", justify="right")
+        tbl.add_column("skill noise", justify="right")
 
     for r in results:
         p, rec, f1 = _precision_recall(r) if r.case.expected_files else (0.0, 0.0, 0.0)
@@ -951,6 +1065,13 @@ def _print_summary_table(results: list[CaseResult]) -> None:
                 f"{r.random_f1:.1%}" if r.random_f1 is not None else "—",
                 str(r.rank_at_k) if r.rank_at_k is not None else "—",
                 f"{r.noise_pct:.0f}%" if r.noise_pct is not None else "—",
+            ]
+        if has_skill_gt:
+            row += [
+                _fmt_pct(r.skill_recall_at_3) if r.case.expected_skills else "—",
+                _fmt_pct(r.skill_precision_at_3) if r.case.expected_skills else "—",
+                f"{r.skill_mrr:.2f}" if r.skill_mrr is not None else "—",
+                _fmt_pct(r.skill_noise_rate) if r.case.avoid_skills else "—",
             ]
         tbl.add_row(*row)
 
@@ -1043,6 +1164,10 @@ def _print_task_type_summary(results: list[CaseResult]) -> None:
 
     console.print("\n[bold]By Task Type[/]")
     console.print(tbl)
+
+
+def _fmt_pct(value: float | None) -> str:
+    return f"{value:.1%}" if value is not None else "-"
 
 
 def _print_miss_details(results: list[CaseResult]) -> None:
@@ -1250,6 +1375,66 @@ def benchmark_scan_modes(
         console.print(table)
 
 
+@benchmark_app.command("e2e-init")
+def benchmark_e2e_init(
+    output: str = typer.Option("", "--output", help="Output TOML path. Default: .agentpack/e2e_cases.toml."),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file."),
+) -> None:
+    """Scaffold a guarded E2E benchmark suite for real coding agents."""
+    root = _root()
+    out_path = Path(output) if output else root / ".agentpack" / "e2e_cases.toml"
+    if not out_path.is_absolute():
+        out_path = root / out_path
+    if out_path.exists() and not force:
+        console.print(f"[yellow]E2E cases file already exists:[/] {out_path}")
+        console.print("  Pass [bold]--force[/] to overwrite.")
+        raise typer.Exit(1)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(_e2e_cases_template(root), encoding="utf-8")
+    console.print(f"[green]✓[/] Created [bold]{out_path}[/]")
+    console.print("  Fill in setup/test commands, then run [bold]agentpack benchmark e2e[/].")
+
+
+def _e2e_cases_template(root: Path) -> str:
+    repo = json.dumps(str(root))
+    categories = [
+        ("caller_signature_change", "Function signature or behavior change requiring caller updates."),
+        ("api_service_model_contract", "API route, service, serializer, and model contract change."),
+        ("config_env_runtime", "Bug depends on config/env/default behavior."),
+        ("deleted_or_renamed_file", "Snapshot or reference logic must handle deleted/renamed files."),
+        ("omitted_related_test", "Related test is not obvious from the primary source file."),
+        ("cross_package_monorepo", "Change spans workspace/package boundaries."),
+        ("side_effect_eventing", "Fix needs awareness of emitted events, analytics, or side effects."),
+        ("schema_migration_contract", "Schema/model/migration contract impacts runtime behavior."),
+        ("generated_file_noise", "Generated or ignored files should not steer the fix."),
+        ("broad_task_precision", "Broad task wording where noisy context hurts precision."),
+    ]
+    lines = [
+        "# AgentPack guarded E2E benchmark cases",
+        "#",
+        "# Each case should protect validation tests from edits and name expected source files.",
+        "# Run at least 3 trials across no-context, grep, agentpack-lite, hybrid, and agentpack.",
+        "# Example:",
+        "#   agentpack benchmark e2e --cases .agentpack/e2e_cases.toml \\",
+        "#     --agent-command 'codex exec --dangerously-bypass-approvals-and-sandbox --cd {repo} --skip-git-repo-check \"$(cat {prompt})\"' \\",
+        "#     --strategies no-context,grep,agentpack-lite,hybrid,agentpack --trials 3",
+        "",
+    ]
+    for name, description in categories:
+        lines.extend([
+            "# [[cases]]",
+            f"# name = \"{name}\"",
+            f"# repo = {repo}",
+            f"# task = \"{description}\"",
+            f"# setup_command = \"python /absolute/path/to/setup_{name}.py\"",
+            "# test_command = \"PYTHONPATH=src pytest -q tests/path/to_targeted_test.py\"",
+            "# protected_paths = [\"tests/path/to_targeted_test.py\"]",
+            "# expected_edit_paths = [\"src/path/to_expected_source.py\"]",
+            "",
+        ])
+    return "\n".join(lines)
+
+
 @benchmark_app.command("e2e")
 def benchmark_e2e(
     cases: str = typer.Option(..., "--cases", help="TOML file with [[cases]] entries."),
@@ -1257,6 +1442,8 @@ def benchmark_e2e(
     strategies: str = typer.Option("no-context,grep,agentpack-lite,hybrid,agentpack", "--strategies", help="Comma-separated: no-context,grep,agentpack-lite,hybrid,agentpack."),
     trials: int = typer.Option(1, "--trials", help="Runs per case per strategy."),
     timeout: int = typer.Option(300, "--timeout", help="Agent command timeout seconds."),
+    input_cost_per_mtok: float = typer.Option(0.0, "--input-cost-per-mtok", help="Optional input token price in USD per 1M tokens."),
+    output_cost_per_mtok: float = typer.Option(0.0, "--output-cost-per-mtok", help="Optional output token price in USD per 1M tokens."),
     output: str = typer.Option("", "--output", help="JSONL output path. Default: .agentpack/e2e_results.jsonl"),
     keep_workdirs: bool = typer.Option(False, "--keep-workdirs", help="Keep temp workdirs for failed-result inspection."),
 ) -> None:
@@ -1283,6 +1470,8 @@ def benchmark_e2e(
                     trial=trial,
                     agent_command=agent_command,
                     timeout=timeout,
+                    input_cost_per_mtok=input_cost_per_mtok,
+                    output_cost_per_mtok=output_cost_per_mtok,
                     keep_workdir=keep_workdirs,
                 )
                 results.append(result)
@@ -1327,6 +1516,8 @@ def _run_e2e_case(
     agent_command: str,
     timeout: int,
     keep_workdir: bool,
+    input_cost_per_mtok: float = 0.0,
+    output_cost_per_mtok: float = 0.0,
 ) -> E2EResult:
     start = time.perf_counter()
     work_root = Path(tempfile.mkdtemp(prefix=f"agentpack-e2e-{case.name}-{strategy}-"))
@@ -1356,6 +1547,10 @@ def _run_e2e_case(
         timed_out = True
         test = _timeout_result(case.test_command, exc)
     _write_e2e_process_log(test_log_path, test)
+    input_tokens = estimate_tokens(prompt)
+    agent_output_tokens = _process_output_tokens(agent)
+    input_cost = _estimate_token_cost(input_tokens, input_cost_per_mtok)
+    output_cost = _estimate_token_cost(agent_output_tokens, output_cost_per_mtok)
     changed = sorted(git.dirty_files(repo)) if git.is_git_repo(repo) else []
     public_changed = _public_changed_files(changed)
     source_changed = [path for path in public_changed if not _is_test_path(path)]
@@ -1377,7 +1572,11 @@ def _run_e2e_case(
         trial=trial,
         passed=passed,
         duration_s=round(duration, 3),
-        input_tokens=estimate_tokens(prompt),
+        input_tokens=input_tokens,
+        agent_output_tokens=agent_output_tokens,
+        estimated_input_cost_usd=round(input_cost, 8),
+        estimated_output_cost_usd=round(output_cost, 8),
+        estimated_total_cost_usd=round(input_cost + output_cost, 8),
         agent_returncode=agent.returncode,
         test_returncode=test.returncode,
         timed_out=timed_out,
@@ -1434,6 +1633,16 @@ def _unexpected_files_touched(changed: list[str], expected_edit_paths: list[str]
         return []
     expected = set(expected_edit_paths)
     return sorted(path for path in changed if path not in expected)
+
+
+def _process_output_tokens(result: subprocess.CompletedProcess[str]) -> int:
+    return estimate_tokens("\n".join(part for part in (result.stdout, result.stderr) if part))
+
+
+def _estimate_token_cost(tokens: int, cost_per_mtok: float) -> float:
+    if tokens <= 0 or cost_per_mtok <= 0:
+        return 0.0
+    return tokens / 1_000_000 * cost_per_mtok
 
 
 def _hash_protected_paths(repo: Path, paths: list[str]) -> dict[str, str | None]:
@@ -1529,7 +1738,7 @@ def _agentpack_lite_context(case: E2ECase, repo: Path) -> str:
         root=repo,
         agent="generic",
         task=case.task,
-        mode="minimal",
+        mode="lite",
         budget=lite.budget,
         since=None,
         refresh=False,
@@ -1640,8 +1849,10 @@ def _print_e2e_summary(results: list[E2EResult], out_path: Path) -> None:
     table.add_column("timeouts", justify="right")
     table.add_column("expected touch", justify="right")
     table.add_column("avg tokens", justify="right")
+    table.add_column("avg cost", justify="right")
     table.add_column("avg seconds", justify="right")
     table.add_column("pass/min", justify="right")
+    table.add_column("pass/$", justify="right")
     for strategy in sorted({result.strategy for result in results}):
         subset = [result for result in results if result.strategy == strategy]
         pass_rate = sum(1 for result in subset if result.passed) / len(subset)
@@ -1653,9 +1864,12 @@ def _print_e2e_summary(results: list[E2EResult], out_path: Path) -> None:
             else None
         )
         avg_tokens = sum(result.input_tokens for result in subset) / len(subset)
+        avg_cost = sum(result.estimated_total_cost_usd for result in subset) / len(subset)
         avg_seconds = sum(result.duration_s for result in subset) / len(subset)
         total_seconds = sum(result.duration_s for result in subset)
+        total_cost = sum(result.estimated_total_cost_usd for result in subset)
         pass_per_minute = (sum(1 for result in subset if result.passed) / total_seconds * 60) if total_seconds else 0.0
+        pass_per_dollar = (sum(1 for result in subset if result.passed) / total_cost) if total_cost else 0.0
         table.add_row(
             strategy,
             str(len(subset)),
@@ -1663,8 +1877,10 @@ def _print_e2e_summary(results: list[E2EResult], out_path: Path) -> None:
             f"{timeout_rate:.0%}",
             f"{expected_touch_rate:.0%}" if expected_touch_rate is not None else "-",
             f"{avg_tokens:,.0f}",
+            f"${avg_cost:.4f}" if avg_cost else "-",
             f"{avg_seconds:.1f}",
             f"{pass_per_minute:.2f}",
+            f"{pass_per_dollar:.2f}" if total_cost else "-",
         )
     console.print(table)
     console.print(f"[dim]JSONL: {out_path}[/]")
@@ -1711,7 +1927,7 @@ def _init_synthetic_git(root: Path) -> None:
 def benchmark(
     ctx: typer.Context,
     task: str = typer.Option("", "--task", help="Single task to benchmark (skips cases file)."),
-    mode: str = typer.Option("balanced", "--mode", help="Mode for single-task run (minimal|balanced|deep)."),
+    mode: str = typer.Option("balanced", "--mode", help="Mode for single-task run (lite|minimal|balanced|deep)."),
     workspace: str = typer.Option("", "--workspace", help="Restrict benchmark packs to a workspace, e.g. apps/web."),
     cases: str = typer.Option("", "--cases", help="Path to TOML cases file (default: .agentpack/benchmark.toml)."),
     compare: bool = typer.Option(False, "--compare", is_flag=True, help="Compare minimal/balanced/deep for each task."),
@@ -1766,7 +1982,7 @@ def benchmark(
         if compare:
             expanded_fixtures: list[FixtureCase] = []
             for fixture_case in fixture_cases:
-                for fixture_mode in ("minimal", "balanced", "deep"):
+                for fixture_mode in ("lite", "minimal", "balanced", "deep"):
                     expanded_fixtures.append(
                         FixtureCase(
                             fixture=fixture_case.fixture,
@@ -1913,7 +2129,7 @@ def benchmark(
     if compare:
         expanded: list[BenchmarkCase] = []
         for c in bench_cases:
-            for m in ("minimal", "balanced", "deep"):
+            for m in ("lite", "minimal", "balanced", "deep"):
                 expanded.append(
                     BenchmarkCase(
                         task=c.task,

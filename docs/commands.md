@@ -31,6 +31,8 @@ Command map:
 | `agentpack route` | Route a task to files, rules, skills, commands, and safety warnings |
 | `agentpack skills scan` | Print discovered local/global skills and rules |
 | `agentpack skills index` | Write `.agentpack/skills_index.json` metadata for faster routing |
+| `agentpack skills recommend` | Explain task-specific skill recommendations and confidence |
+| `agentpack skills feedback` | Record local skill outcome feedback for future routing boosts |
 | `agentpack watch` | Keep the context pack fresh while you work |
 | `agentpack doctor` | Audit hooks, agent files, CLI path, and repo health |
 | `agentpack diagnose-selection` | Explain latest selection noise and write tuning advice |
@@ -460,7 +462,7 @@ Options:
 |------|---------|-------------|
 | `--agent` | `auto` | Target agent (`auto` \| `claude` \| `cursor` \| `windsurf` \| `codex` \| `antigravity` \| `generic`). `auto` detects the active IDE from env and project files. |
 | `--task` | `auto` | Backward-compatible task source. Only `auto` is supported; write task text to `.agentpack/task.md`. |
-| `--mode` | `balanced` | Budget mode: `minimal`, `balanced`, `deep` |
+| `--mode` | `balanced` | Budget mode: `lite`, `minimal`, `balanced`, `deep` |
 | `--budget` | 0 (uses config default 40000) | Token budget |
 | `--workspace` | — | Restrict packing to a monorepo workspace and write `.agentpack/workspaces/<workspace>/context.md` |
 | `--since` | — | Only include files changed since this git ref |
@@ -584,9 +586,11 @@ Inspect or index installed skills and rule files.
 ```bash
 agentpack skills scan
 agentpack skills index
+agentpack skills recommend --task "fix flaky payment webhook test" --explain
+agentpack skills feedback --task "fix auth" --used-skill pytest-debugging --tests-passed --user-feedback helpful
 ```
 
-`scan` prints discovered artifacts. `index` writes `.agentpack/skills_index.json` with metadata only; raw skill and rule bodies are omitted from the index.
+`scan` prints discovered artifacts. `index` writes `.agentpack/skills_index.json` with metadata only; raw skill and rule bodies are omitted from the index. `recommend` runs the route planner and prints confidence-based skill recommendations with load paths and reasons. `feedback` appends a local `.agentpack/skill_feedback.jsonl` record; repeated helpful use gives that skill a small future boost.
 
 ---
 
@@ -698,6 +702,7 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 |---|---|
 | `route_task(task)` | Read-only task router. Returns relevant files, applied rules, recommended skills, suggested commands, safety warnings, and an agent prompt as JSON. |
 | `get_skills()` | Return discovered skill/rule inventory as JSON. |
+| `get_skill(name_or_path)` | Return one skill's raw `SKILL.md` content after `route_task` recommends it. |
 | `explain_route(task)` | Return route JSON with positive skill score reasons for debugging router choices. |
 | `start_task(task, mode, budget, max_tokens, thread_id)` | Recommended MCP-first entry point. Writes global or scoped task.md, generates a ranked pack, and returns packed markdown. |
 | `pack_context(task, mode, budget, max_tokens, thread_id)` | Generate a ranked context pack. If `task` is provided, writes global/scoped task.md; if omitted, reads task.md or infers from git. |
@@ -1233,6 +1238,7 @@ Use CLI for inspection or scripting:
 ```bash
 agentpack skills scan
 agentpack skills index
+agentpack skills recommend --task "fix flaky payment webhook test" --explain
 agentpack route --task "fix flaky payment webhook test"
 agentpack route --task "fix flaky payment webhook test" --format json
 ```
@@ -1243,4 +1249,5 @@ Safety defaults:
 
 - skills are recommended, not executed
 - suggested commands are returned as strings with reasons
+- `expected_skills` and `avoid_skills` in benchmark cases report Skill Recall@3, Precision@3, MRR, noise, and skill token cost
 - external side-effect skills, such as deploy or cloud mutation checklists, are warned and not selected unless explicitly allowed in config

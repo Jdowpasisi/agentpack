@@ -13,7 +13,7 @@ ignore_file = ".agentignore"
 
 [context]
 default_budget = 40000
-default_mode = "balanced"
+default_mode = "balanced"  # lite | minimal | balanced | deep
 max_file_tokens = 4000
 min_summary_score = 60
 max_summary_files_minimal = 15
@@ -22,6 +22,13 @@ max_summary_files_deep = 0
 include_tests = true
 include_configs = true
 include_receipts = true
+
+[context_lite]
+budget = 8000
+max_selected_files = 12
+max_omitted_files = 5
+max_stubs = 8
+summary_chars = 500
 
 [hooks]
 task_switch_detection = true

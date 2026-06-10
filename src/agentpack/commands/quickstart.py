@@ -16,12 +16,12 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def quickstart(
         task: str = typer.Option("", "--task", help="Optional task to show or write into .agentpack/task.md."),
-        mode: str = typer.Option("balanced", "--mode", help="Suggested mode (minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help="Suggested mode (lite|minimal|balanced|deep)."),
         write: bool = typer.Option(False, "--write", help="Write --task into .agentpack/task.md."),
     ) -> None:
         """Show the fastest useful path for a new repo."""
-        if mode not in ("minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
+        if mode not in ("lite", "minimal", "balanced", "deep"):
+            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
             raise typer.Exit(1)
         if write and not task.strip():
             console.print("[red]--write requires --task.[/]")

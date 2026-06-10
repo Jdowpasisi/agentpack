@@ -20,9 +20,22 @@ def build_agent_prompt(result: RouteResult) -> str:
         lines += ["", "Apply these rules:"]
         lines.extend(f"- {item.rule.name} ({item.rule.path})" for item in result.applied_rules)
 
+    if result.baseline_skills:
+        lines += ["", "Baseline guidance:"]
+        lines.extend(
+            f"- Load `{item.skill.name}` ({item.skill.path}) for standing guidance."
+            for item in result.baseline_skills
+        )
+
     if result.selected_skills:
-        lines += ["", "Use these skills if available:"]
-        lines.extend(f"- {item.skill.name} ({item.skill.path})" for item in result.selected_skills)
+        lines += ["", "Skill Plan:"]
+        for idx, item in enumerate(result.selected_skills, start=1):
+            reason = "; ".join(item.reasons[:2]) if item.reasons else "recommended by route"
+            lines.extend([
+                f"{idx}. Use `{item.skill.name}` because {reason}.",
+                f"   - Load: {item.skill.path}",
+                "   - Apply before editing matching files.",
+            ])
 
     if result.safety_warnings:
         lines += ["", "Safety warnings:"]
@@ -65,7 +78,16 @@ def render_plain(result: RouteResult) -> str:
             reason = "; ".join(item.reasons[:2])
             suffix = f" — {reason}" if reason else ""
             lines.append(
-                f"- {item.skill.name} ({item.skill.side_effect_level}, score {item.score:.0f}){suffix}"
+                f"- {item.skill.name} ({item.skill.side_effect_level}, confidence {item.confidence:.2f}, score {item.score:.0f}){suffix}"
+            )
+    else:
+        lines.append("- none")
+
+    lines += ["", "Baseline skills:"]
+    if result.baseline_skills:
+        for item in result.baseline_skills:
+            lines.append(
+                f"- {item.skill.name} ({item.skill.side_effect_level}, confidence {item.confidence:.2f})"
             )
     else:
         lines.append("- none")

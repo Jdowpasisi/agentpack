@@ -37,7 +37,7 @@ def register(app: typer.Typer) -> None:
             "--refresh-context",
             help="Refresh the context pack when it is missing or stale.",
         ),
-        mode: str = typer.Option("balanced", "--mode", help="Refresh mode (minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help="Refresh mode (lite|minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Refresh token budget (0 = config default)."),
         thread: str = typer.Option("", "--thread", help="Use thread-scoped context state."),
     ) -> None:
@@ -45,8 +45,8 @@ def register(app: typer.Typer) -> None:
         if agent not in SUPPORTED_AGENTS:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
-        if mode not in ("minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
+        if mode not in ("lite", "minimal", "balanced", "deep"):
+            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
             raise typer.Exit(1)
 
         root = _root()

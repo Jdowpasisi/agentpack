@@ -18,6 +18,7 @@ Tools exposed:
     pack_context        — generate/refresh a context pack for a task
     route_task          — read-only route: files + rules + skills + commands
     get_skills          — read-only skill/rule inventory
+    get_skill           — read one skill by name or path
     explain_route       — read-only route with skill score reasons
     get_context         — read latest context pack; auto-refreshes when task.md changed
     refresh             — refresh using the current task.md
@@ -458,6 +459,13 @@ def _get_skills_impl(root: Path) -> str:
     return inventory.model_dump_json(indent=2)
 
 
+def _get_skill_impl(root: Path, name_or_path: str) -> str:
+    """Return one skill's raw SKILL.md content by name or path."""
+    from agentpack.router.service import RouteService
+
+    return RouteService().get_skill(root, name_or_path)
+
+
 def _explain_route_impl(root: Path, task: str) -> str:
     """Return task route JSON including all positive skill scores."""
     from agentpack.router.service import RouteService
@@ -529,6 +537,14 @@ def serve() -> None:
     def get_skills() -> str:
         """Return the discovered Agentpack skill/rule inventory as JSON."""
         return _get_skills_impl(_repo_root())
+
+    @mcp.tool()
+    def get_skill(name_or_path: str) -> str:
+        """Return one AgentPack skill by name or path.
+
+        Use after route_task/explain_route recommends a skill and before applying it.
+        """
+        return _get_skill_impl(_repo_root(), name_or_path)
 
     @mcp.tool()
     def explain_route(task: str) -> str:

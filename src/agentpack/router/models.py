@@ -12,10 +12,17 @@ class SkillArtifact(BaseModel):
     source: str
     path: str
     description: str = ""
+    task_types: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+    frameworks: list[str] = Field(default_factory=list)
     triggers: list[str] = Field(default_factory=list)
+    anti_triggers: list[str] = Field(default_factory=list)
     tools_required: list[str] = Field(default_factory=list)
     side_effect_level: SideEffectLevel = "none"
     applies_to_paths: list[str] = Field(default_factory=list)
+    anti_paths: list[str] = Field(default_factory=list)
+    priority: int = 50
+    confidence_threshold: float = 0.45
     raw_text: str = ""
 
 
@@ -32,6 +39,7 @@ class RuleArtifact(BaseModel):
 class SelectedSkill(BaseModel):
     skill: SkillArtifact
     score: float
+    confidence: float = 0.0
     reasons: list[str] = Field(default_factory=list)
 
 
@@ -57,6 +65,7 @@ class RouteResult(BaseModel):
     task: str
     selected_files: list[dict] = Field(default_factory=list)
     selected_skills: list[SelectedSkill] = Field(default_factory=list)
+    baseline_skills: list[SelectedSkill] = Field(default_factory=list)
     applied_rules: list[AppliedRule] = Field(default_factory=list)
     suggested_commands: list[CommandSuggestion] = Field(default_factory=list)
     safety_warnings: list[str] = Field(default_factory=list)

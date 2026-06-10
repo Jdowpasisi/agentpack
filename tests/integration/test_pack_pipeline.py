@@ -39,6 +39,10 @@ def _setup_repo(tmp_path: Path, fixture_name: str) -> Path:
         "[agents.claude]\noutput = \".agentpack/context.claude.md\"\n\n"
         "[agents.generic]\noutput = \".agentpack/context.md\"\n"
     )
+    (agentpack_dir / ".gitignore").write_text(
+        "cache/\ncontext.*.md\ncontext.md\nmetrics.jsonl\npack_metadata.json\nsnapshots/\nterm_stats.json\n",
+        encoding="utf-8",
+    )
     (dest / ".agentpackignore").write_text("__pycache__/\n*.pyc\n.git/\n.agentpack/\n")
     return dest
 
@@ -60,7 +64,7 @@ def _init_git_repo(root: Path) -> None:
     subprocess.run(["git", "config", "user.email", "agentpack@example.com"], cwd=root, check=True)
     subprocess.run(["git", "config", "user.name", "AgentPack Tests"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
-    subprocess.run(["git", "commit", "--quiet", "-m", "initial"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "--quiet", "--no-verify", "-m", "initial"], cwd=root, check=True)
 
 
 class TestPyFastapiApp:
@@ -121,7 +125,7 @@ class TestPyFastapiApp:
         new_file.write_text("SETTING = 'x'\n", encoding="utf-8")
         result = _pack(root, task="add settings helper")
 
-        assert result.scan_result.scan_mode == "incremental"
+        assert result.scan_result.scan_mode == "incremental", result.scan_result.full_scan_reason
         assert "src/app/new_settings.py" in {fi.path for fi in result.scan_result.packable}
         assert "src/app/new_settings.py" in result.changed_files
 
@@ -134,7 +138,7 @@ class TestPyFastapiApp:
         target.unlink()
         result = _pack(root, task="remove users helper")
 
-        assert result.scan_result.scan_mode == "incremental"
+        assert result.scan_result.scan_mode == "incremental", result.scan_result.full_scan_reason
         assert "src/app/users.py" not in {fi.path for fi in result.scan_result.packable}
         assert "src/app/users.py" in result.changed_files
 
@@ -144,16 +148,16 @@ class TestPyFastapiApp:
 
         _pack(root, task="track hook changed file")
         subprocess.run(["git", "add", "."], cwd=root, check=True)
-        subprocess.run(["git", "commit", "--quiet", "-m", "save snapshot"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "--quiet", "--no-verify", "--allow-empty", "-m", "save snapshot"], cwd=root, check=True)
         target = root / "src" / "app" / "auth.py"
         target.write_text(target.read_text(encoding="utf-8") + "\n# ledger\n", encoding="utf-8")
         record_changed_paths(root, ["src/app/auth.py"], source="test")
         subprocess.run(["git", "add", "src/app/auth.py"], cwd=root, check=True)
-        subprocess.run(["git", "commit", "--quiet", "-m", "commit outside pack"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "--quiet", "--no-verify", "-m", "commit outside pack"], cwd=root, check=True)
 
         result = _pack(root, task="track hook changed file")
 
-        assert result.scan_result.scan_mode == "incremental"
+        assert result.scan_result.scan_mode == "incremental", result.scan_result.full_scan_reason
         assert result.scan_result.rehashed_count == 1
         assert read_changed_paths(root) == set()
 
@@ -389,6 +393,26 @@ class TestBudgetEnforcement:
         ))
         # budget=0 → uses config default (50000) — result must be valid
         assert result.packed_tokens >= 0
+        assert result.out_path.exists()
+
+    def test_lite_mode_uses_lite_budget_when_budget_zero(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        config = root / ".agentpack" / "config.toml"
+        config.write_text(config.read_text(encoding="utf-8") + "\n[context_lite]\nbudget = 1200\n", encoding="utf-8")
+
+        result = PackService().run(PackRequest(
+            root=root,
+            agent="claude",
+            task="fix auth token refresh",
+            mode="lite",
+            budget=0,
+            since=None,
+            refresh=False,
+        ))
+
+        assert result.pack.mode == "lite"
+        assert result.pack.budget == 1200
+        assert result.packed_tokens <= 1200
         assert result.out_path.exists()
 
 

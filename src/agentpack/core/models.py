@@ -105,7 +105,7 @@ class OmittedRelevantFile(BaseModel):
 class ContextPack(BaseModel):
     task: str
     agent: str
-    mode: Literal["minimal", "balanced", "deep"]
+    mode: Literal["lite", "minimal", "balanced", "deep"]
     task_class: str = "general"
     budget: int
     token_estimate: int

@@ -25,13 +25,17 @@ npx @vishal2612200/agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](https://raw.githubusercontent.com/vishal2612200/agentpack/main/docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.14).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.15).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
 ## Latest Update
+
+`0.3.15` improves the skill router with richer metadata, confidence thresholds,
+negative triggers, diversity-aware recommendations, MCP `get_skill`, and local
+`agentpack skills feedback` outcome records.
 
 `0.3.14` expands `agentpack learn` from a local post-task summary into a
 developer learning layer: provider-command enrichment, static dashboard export,

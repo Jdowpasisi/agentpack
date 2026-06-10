@@ -62,6 +62,20 @@ def test_pack_plain_ignores_ambient_thread_env(tmp_path, monkeypatch) -> None:
     assert not (tmp_path / ".agentpack" / "threads" / "codex-env" / "context.md").exists()
 
 
+def test_pack_accepts_lite_mode(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "task.md").write_text("Fix auth bug\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context_lite]\nbudget = 1200\n", encoding="utf-8")
+    (tmp_path / "auth.py").write_text("def check_auth(): return True\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["pack", "--agent", "generic", "--mode", "lite"])
+
+    assert result.exit_code == 0, result.output
+    assert "Context Pack Ready" in result.output
+    assert (tmp_path / ".agentpack" / "context.md").exists()
+
+
 def test_pack_thread_auto_uses_agentpack_thread_env(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AGENTPACK_THREAD_ID", "codex/env")
