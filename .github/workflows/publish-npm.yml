@@ -66,6 +66,22 @@ jobs:
       - name: Dry-run npm package contents
         run: npm pack --dry-run
         working-directory: npm
+      - name: Verify npm version is not already published
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version >/tmp/npm-version.txt 2>/tmp/npm-version.err; then
+            echo "ERROR: ${PACKAGE_NAME}@${PACKAGE_VERSION} already exists on npm."
+            cat /tmp/npm-version.txt
+            exit 1
+          fi
+          if ! grep -qi "E404\\|404" /tmp/npm-version.err; then
+            echo "ERROR: npm registry lookup failed."
+            cat /tmp/npm-version.err
+            exit 1
+          fi
+          echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is available on npm."
+        working-directory: npm
       - name: Verify npm token is configured
         run: |
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then

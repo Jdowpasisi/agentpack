@@ -54,12 +54,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify pyproject.toml and __init__.py versions match
         run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
           PYPROJECT=$(python3 -c "import tomllib; d=tomllib.loads(open('pyproject.toml').read()); print(d['project']['version'])" 2>/dev/null || python3 -c "import re; m=re.search(r'version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read()); print(m.group(1))")
           INIT=$(python3 -c "import re; m=re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/agentpack/__init__.py').read()); print(m.group(1))")
           NPM=$(python3 -c "import json; print(json.load(open('npm/package.json'))['version'])")
+          echo "tag:            $TAG_VERSION"
           echo "pyproject.toml: $PYPROJECT"
           echo "__init__.py:    $INIT"
           echo "npm/package.json: $NPM"
+          if [ "$TAG_VERSION" != "$PYPROJECT" ]; then
+            echo "ERROR: version mismatch — tag=$TAG_VERSION pyproject.toml=$PYPROJECT"
+            exit 1
+          fi
           if [ "$PYPROJECT" != "$INIT" ]; then
             echo "ERROR: version mismatch — pyproject.toml=$PYPROJECT __init__.py=$INIT"
             exit 1
@@ -70,8 +76,37 @@ jobs:
           fi
           echo "Versions in sync: $PYPROJECT"
 
+  check-pypi-version-available:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify PyPI version is not already published
+        run: |
+          python3 - <<'PY'
+          import sys
+          import tomllib
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          with open("pyproject.toml", "rb") as fh:
+              project = tomllib.load(fh)["project"]
+          name = project["name"]
+          version = project["version"]
+          url = f"https://pypi.org/pypi/{urllib.parse.quote(name, safe='')}/{urllib.parse.quote(version, safe='')}/json"
+          try:
+              urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=8).close()
+          except urllib.error.HTTPError as exc:
+              if exc.code == 404:
+                  print(f"{name}=={version} is available on PyPI.")
+                  sys.exit(0)
+              raise
+          print(f"ERROR: {name}=={version} already exists on PyPI.")
+          sys.exit(1)
+          PY
+
   test:
-    needs: [check-release-branch, check-changelog, check-version-sync]
+    needs: [check-release-branch, check-changelog, check-version-sync, check-pypi-version-available]
     runs-on: ubuntu-latest
     strategy:
       matrix:

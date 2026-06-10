@@ -40,6 +40,8 @@ def test_release_check_json_orchestrates_stages(tmp_path, monkeypatch) -> None:
         "npm-launcher-tests",
     ]
     assert calls[0] == ["node", "npm/test/version-sync.test.js"]
+    pytest_call = next(call for call in calls if "pytest" in call)
+    assert pytest_call == ["python", "-m", "pytest", "tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"] or pytest_call[1:] == ["-m", "pytest", "tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"]
 
 
 def test_release_check_fails_missing_changelog_entry(tmp_path, monkeypatch) -> None:
@@ -52,6 +54,26 @@ def test_release_check_fails_missing_changelog_entry(tmp_path, monkeypatch) -> N
 
     assert result.exit_code == 1
     assert "Missing CHANGELOG.md entry for 1.2.3" in result.output
+
+
+def test_release_check_tag_version_must_match_packages(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "agentpack-cli"\nversion = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("## [1.2.3]\n", encoding="utf-8")
+    init_file = tmp_path / "src" / "agentpack" / "__init__.py"
+    init_file.parent.mkdir(parents=True)
+    init_file.write_text('__version__ = "1.2.3"\n', encoding="utf-8")
+    npm_dir = tmp_path / "npm"
+    npm_dir.mkdir()
+    (npm_dir / "package.json").write_text('{"version": "1.2.3"}', encoding="utf-8")
+    monkeypatch.setattr("agentpack.commands.release_check.subprocess.run", lambda *args, **kwargs: type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+
+    result = CliRunner().invoke(app, ["release-check", "--tag", "v1.2.4", "--skip-benchmark", "--skip-build", "--json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    failed = {stage["name"]: stage for stage in payload["stages"] if stage["status"] == "failed"}
+    assert failed["tag-version"]["detail"] == "tag=1.2.4 pyproject=1.2.3 __init__=1.2.3 npm=1.2.3"
 
 
 def test_release_check_build_uses_temp_outdir(tmp_path, monkeypatch) -> None:

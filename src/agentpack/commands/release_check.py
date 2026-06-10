@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -45,23 +46,38 @@ def register(app: typer.Typer) -> None:
     def release_check(
         skip_benchmark: bool = typer.Option(False, "--skip-benchmark", help="Skip public benchmark release gate."),
         skip_build: bool = typer.Option(False, "--skip-build", help="Skip wheel/sdist build."),
+        tag: str | None = typer.Option(None, "--tag", help="Verify a release tag such as v1.2.3 matches package versions."),
         check_release_branch: bool = typer.Option(False, "--check-release-branch", help="Require HEAD to be present on an origin/release/* branch."),
         check_registry: bool = typer.Option(False, "--check-registry", help="Fail if this version already exists on PyPI or npm."),
+        check_pypi_registry: bool = typer.Option(False, "--check-pypi-registry", help="Fail if this version already exists on PyPI."),
+        check_npm_registry: bool = typer.Option(False, "--check-npm-registry", help="Fail if this version already exists on npm."),
         json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
     ) -> None:
         """Run release readiness checks without mutating tracked files."""
         root = _root()
         stages: list[StageResult] = []
-        stages.append(_check_changelog(root))
+        expected_version = _version_from_tag(tag) if tag else None
+        stages.append(_check_changelog(root, expected_version=expected_version))
         stages.append(_run_stage(root, "version-sync", ["node", "npm/test/version-sync.test.js"]))
+        if tag:
+            stages.append(_check_tag_version(root, tag))
         if check_release_branch:
             stages.append(_check_release_branch(root))
-        if check_registry:
+        if check_registry or check_pypi_registry:
             stages.append(_check_pypi_version_available(root))
+        if check_registry or check_npm_registry:
             stages.append(_check_npm_version_available(root))
         stages.append(_check_pytest_plugin_dependencies(root))
         stages.append(_run_stage(root, "ruff", [sys.executable, "-m", "ruff", "check", "src", "tests"]))
-        stages.append(_run_stage(root, "pytest", [sys.executable, "-m", "pytest", "-q"]))
+        with tempfile.TemporaryDirectory(prefix="agentpack-coverage-") as coverage_dir:
+            stages.append(
+                _run_stage(
+                    root,
+                    "pytest",
+                    [sys.executable, "-m", "pytest", "tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"],
+                    env={"COVERAGE_FILE": str(Path(coverage_dir) / ".coverage")},
+                )
+            )
         stages.append(_run_stage(root, "npm-launcher-tests", ["node", "npm/test/launcher.test.js"]))
         if not skip_build:
             with tempfile.TemporaryDirectory(prefix="agentpack-build-") as out_dir:
@@ -100,11 +116,16 @@ def _project_name_version(root: Path) -> tuple[str, str]:
     return str(project.get("name", "")), str(project.get("version", ""))
 
 
-def _check_changelog(root: Path) -> StageResult:
+def _version_from_tag(tag: str) -> str:
+    return tag[1:] if tag.startswith("v") else tag
+
+
+def _check_changelog(root: Path, *, expected_version: str | None = None) -> StageResult:
     started = time.perf_counter()
     _name, current = _project_name_version(root)
+    current = expected_version or current
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8") if (root / "CHANGELOG.md").exists() else ""
-    ok = bool(current and f"## [{current}]" in changelog)
+    ok = bool(current and (f"## [{current}]" in changelog or f"## {current}" in changelog))
     return StageResult(
         name="changelog",
         command="grep CHANGELOG.md",
@@ -112,6 +133,31 @@ def _check_changelog(root: Path) -> StageResult:
         duration_s=time.perf_counter() - started,
         returncode=0 if ok else 1,
         detail="" if ok else f"Missing CHANGELOG.md entry for {current or 'unknown version'}",
+    )
+
+
+def _check_tag_version(root: Path, tag: str) -> StageResult:
+    started = time.perf_counter()
+    tag_version = _version_from_tag(tag)
+    _project_name, project_version = _project_name_version(root)
+    init_text = (root / "src" / "agentpack" / "__init__.py").read_text(encoding="utf-8")
+    init_match = re.search(r'__version__\s*=\s*"([^"]+)"', init_text)
+    init_version = init_match.group(1) if init_match else ""
+    package_json = json.loads((root / "npm" / "package.json").read_text(encoding="utf-8"))
+    npm_version = str(package_json.get("version", ""))
+    ok = bool(tag_version and tag_version == project_version == init_version == npm_version)
+    detail = (
+        f"tag={tag_version} pyproject={project_version} __init__={init_version} npm={npm_version}"
+        if not ok
+        else f"tag version {tag_version}"
+    )
+    return StageResult(
+        name="tag-version",
+        command=f"check release tag {tag}",
+        status="passed" if ok else "failed",
+        duration_s=time.perf_counter() - started,
+        returncode=0 if ok else 1,
+        detail=detail,
     )
 
 
@@ -203,10 +249,11 @@ def _registry_url_exists(url: str) -> tuple[bool, str]:
         return True, f"registry lookup failed: {exc.reason}"
 
 
-def _run_stage(root: Path, name: str, command: list[str]) -> StageResult:
+def _run_stage(root: Path, name: str, command: list[str], *, env: dict[str, str] | None = None) -> StageResult:
     started = time.perf_counter()
     try:
-        result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+        run_env = {**os.environ, **env} if env else None
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True, env=run_env)
     except OSError as exc:
         return StageResult(name=name, command=" ".join(command), status="failed", duration_s=time.perf_counter() - started, returncode=1, detail=str(exc))
     combined_output = (result.stdout + "\n" + result.stderr).strip()

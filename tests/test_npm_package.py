@@ -42,3 +42,14 @@ def test_npm_publish_workflow_preflights_scope_access() -> None:
     assert "npm whoami" in workflow
     assert "npm access list packages" in workflow
     assert "NPM_TOKEN is authenticated as" in workflow
+
+
+def test_publish_workflows_preflight_existing_versions() -> None:
+    pypi_workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    npm_workflow = (ROOT / ".github" / "workflows" / "publish-npm.yml").read_text(encoding="utf-8")
+
+    assert "check-pypi-version-available" in pypi_workflow
+    assert "already exists on PyPI" in pypi_workflow
+    assert 'TAG_VERSION="${GITHUB_REF_NAME#v}"' in pypi_workflow
+    assert "Verify npm version is not already published" in npm_workflow
+    assert "already exists on npm" in npm_workflow

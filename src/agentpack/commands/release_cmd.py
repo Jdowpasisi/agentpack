@@ -24,7 +24,7 @@ def prepare_release(
     """Run release-check, publish benchmark evidence, and verify the built wheel."""
     root = _root()
     stages: list[dict[str, Any]] = []
-    stages.append(_run("release-check", cli_module_argv("release-check", "--check-release-branch", "--check-registry")))
+    stages.append(_run("release-check", cli_module_argv("release-check", "--check-release-branch", "--check-registry", "--tag", _expected_tag(root))))
     if stages[-1]["returncode"] == 0:
         stages.append(_run("benchmark-public-table", cli_module_argv("benchmark", "--release-gate")))
     if stages[-1]["returncode"] == 0:
@@ -52,3 +52,13 @@ def _run(name: str, command: list[str]) -> dict[str, Any]:
         "returncode": result.returncode,
         "detail": ((result.stderr or result.stdout).strip().splitlines() or [""])[-1],
     }
+
+
+def _expected_tag(root) -> str:
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    return f"v{pyproject['project']['version']}"

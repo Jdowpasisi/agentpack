@@ -69,6 +69,7 @@ def test_verify_wheel_json_uses_existing_wheel(tmp_path: Path, monkeypatch) -> N
 
 def test_release_prepare_json_orchestrates(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
     calls: list[list[str]] = []
 
     class Result:
@@ -94,3 +95,5 @@ def test_release_prepare_json_orchestrates(monkeypatch, tmp_path: Path) -> None:
     assert [stage["name"] for stage in payload["stages"]] == ["release-check", "benchmark-public-table", "verify-wheel:build"]
     assert "--check-release-branch" in calls[0]
     assert "--check-registry" in calls[0]
+    assert "--tag" in calls[0]
+    assert "v1.2.3" in calls[0]
