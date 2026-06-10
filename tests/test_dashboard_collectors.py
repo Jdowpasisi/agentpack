@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+from agentpack.dashboard.collectors import build_project_dashboard_snapshot
 from agentpack.dashboard.models import (
     ContextHealth,
     DashboardSnapshot,
@@ -47,3 +50,118 @@ def test_dashboard_snapshot_is_json_safe() -> None:
     assert payload["project"]["name"] == "repo"
     assert payload["selected_files"][0]["path"] == "src/auth.py"
     assert payload["skills"]["task_specific"][0]["status"] == "used_helpful"
+
+
+def test_project_dashboard_missing_agentpack_has_empty_states(tmp_path) -> None:
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    assert snapshot.project.name == tmp_path.name
+    assert snapshot.context.status == "missing"
+    assert any(action.command == "agentpack init --yes" for action in snapshot.suggested_actions)
+
+
+def test_project_dashboard_reads_pack_metadata_and_metrics(tmp_path) -> None:
+    agentpack = tmp_path / ".agentpack"
+    agentpack.mkdir()
+    (agentpack / "task.md").write_text("fix auth token expiry\n", encoding="utf-8")
+    (agentpack / "pack_metadata.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-06-10T10:30:00Z",
+                "task": "fix auth token expiry",
+                "mode": "balanced",
+                "token_estimate": 1450,
+                "raw_tokens": 40000,
+                "saving_pct": 96.3,
+                "selected_files_meta": [
+                    {
+                        "path": "src/auth/token.py",
+                        "mode": "full",
+                        "score": 120,
+                        "tokens": 450,
+                        "reasons": ["task keyword match", "related test"],
+                    }
+                ],
+                "freshness": {"status": "fresh"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (agentpack / "metrics.jsonl").write_text(
+        json.dumps({"selection_recall": 0.8, "selection_token_precision": 0.5}) + "\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    assert snapshot.task.text == "fix auth token expiry"
+    assert snapshot.context.status == "fresh"
+    assert snapshot.context.packed_tokens == 1450
+    assert snapshot.context.raw_tokens == 40000
+    assert snapshot.selected_files[0].path == "src/auth/token.py"
+    assert snapshot.benchmarks.averages["selection_recall"] == 0.8
+
+
+def test_project_dashboard_summarizes_skill_feedback(tmp_path) -> None:
+    agentpack = tmp_path / ".agentpack"
+    agentpack.mkdir()
+    (agentpack / "skill_feedback.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"recommended_skills": ["auth-review"], "task": "fix auth"}),
+                json.dumps({"used_skills": ["auth-review"], "tests_passed": True, "user_feedback": "helpful"}),
+                json.dumps({"ignored_skills": ["deploy-checklist"], "user_feedback": "ignored"}),
+                json.dumps({"bad_recommendations": ["deploy-checklist"], "user_feedback": "noisy"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (agentpack / "pack_metadata.json").write_text(
+        json.dumps(
+            {
+                "selected_skills": [
+                    {
+                        "skill": {
+                            "name": "auth-review",
+                            "path": "skills/auth-review/SKILL.md",
+                            "side_effect_level": "none",
+                        },
+                        "confidence": 0.8,
+                        "score": 80,
+                        "reasons": ["task keyword match"],
+                    },
+                    {
+                        "skill": {
+                            "name": "deploy-checklist",
+                            "path": "skills/deploy/SKILL.md",
+                            "side_effect_level": "external",
+                        },
+                        "confidence": 0.7,
+                        "score": 70,
+                        "reasons": ["task keyword match"],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    statuses = {skill.name: skill.status for skill in snapshot.skills.task_specific}
+    assert statuses["auth-review"] == "used_helpful"
+    assert statuses["deploy-checklist"] == "bad_recommendation"
+
+
+def test_project_dashboard_caps_jsonl_rows(tmp_path) -> None:
+    agentpack = tmp_path / ".agentpack"
+    agentpack.mkdir()
+    (agentpack / "metrics.jsonl").write_text(
+        "".join(json.dumps({"selection_recall": idx / 1000}) + "\n" for idx in range(700)),
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    assert 0.0 < snapshot.benchmarks.averages["selection_recall"] <= 1.0
