@@ -45,6 +45,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
       --text: #131820;
       --muted: #526071;
       --subtle: #768293;
+      --focus: #0f62fe;
       --good: #137047;
       --good-bg: rgba(222, 245, 231, 0.9);
       --warn: #8a6100;
@@ -56,42 +57,46 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
       --accent-bg: rgba(225, 235, 255, 0.9);
       --code: rgba(231, 237, 244, 0.92);
       --shadow: 0 1px 2px rgba(19, 24, 32, 0.06), 0 12px 32px rgba(19, 24, 32, 0.07);
+      --shadow-soft: 0 1px 1px rgba(19, 24, 32, 0.04), 0 10px 24px rgba(19, 24, 32, 0.055);
     }}
     * {{ box-sizing: border-box; }}
     html {{ scroll-behavior: smooth; }}
-    body {{ margin: 0; background-color: var(--bg); background-image: linear-gradient(rgba(31, 42, 68, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(31, 42, 68, 0.045) 1px, transparent 1px); background-size: 28px 28px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.45; }}
-    .topbar {{ position: sticky; top: 0; z-index: 2; background: var(--glass); border-bottom: 1px solid rgba(255,255,255,0.68); box-shadow: 0 1px 0 rgba(111,126,148,0.16); backdrop-filter: blur(16px) saturate(145%); }}
+    body {{ margin: 0; background-color: var(--bg); background-image: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0) 220px), linear-gradient(rgba(31, 42, 68, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(31, 42, 68, 0.045) 1px, transparent 1px); background-size: auto, 28px 28px, 28px 28px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; line-height: 1.5; }}
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible {{ outline: 3px solid rgba(15, 98, 254, 0.34); outline-offset: 3px; }}
+    .skip-link {{ position: absolute; left: 16px; top: -48px; z-index: 4; padding: 10px 12px; border-radius: 8px; background: var(--text); color: #fff; text-decoration: none; }}
+    .skip-link:focus {{ top: 12px; }}
+    .topbar {{ position: sticky; top: 0; z-index: 2; background: rgba(255,255,255,0.76); border-bottom: 1px solid rgba(137,151,172,0.24); box-shadow: 0 1px 0 rgba(111,126,148,0.12); backdrop-filter: blur(18px) saturate(150%); }}
     .topbar-inner {{ max-width: 1240px; margin: 0 auto; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
     .brand {{ font-weight: 760; letter-spacing: 0; color: var(--accent-strong); }}
     nav {{ display: flex; flex-wrap: wrap; gap: 6px; }}
-    nav a {{ color: var(--muted); text-decoration: none; font-size: 13px; padding: 5px 9px; border: 1px solid transparent; border-radius: 999px; }}
-    nav a:hover, nav a:focus-visible {{ background: rgba(255,255,255,0.72); border-color: var(--border); color: var(--text); outline: none; }}
+    nav a {{ min-height: 36px; display: inline-flex; align-items: center; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 560; padding: 7px 11px; border: 1px solid transparent; border-radius: 999px; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }}
+    nav a:hover, nav a:focus-visible {{ background: rgba(255,255,255,0.82); border-color: var(--border); color: var(--text); }}
     main {{ max-width: 1240px; margin: 0 auto; padding: 24px; }}
-    header.hero {{ padding: 28px 0 22px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(137,151,172,0.24); }}
+    header.hero {{ padding: 30px 0 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); gap: 24px; align-items: end; border-bottom: 1px solid rgba(137,151,172,0.24); }}
     h1, h2, h3 {{ line-height: 1.2; margin: 0; letter-spacing: 0; }}
     h1 {{ font-size: 34px; font-weight: 780; }}
     h2 {{ font-size: 18px; font-weight: 720; }}
     h3 {{ font-size: 15px; font-weight: 680; }}
-    section {{ margin: 20px 0; }}
+    section {{ margin: 22px 0; }}
     .section {{ padding: 6px 0 10px; }}
-    .section-header {{ margin-bottom: 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }}
+    .section-header {{ margin-bottom: 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }}
     .section-body {{ padding: 0; }}
     .section-body > h3 {{ margin: 18px 0 8px; color: var(--text); }}
     .eyebrow {{ color: var(--accent); font-size: 12px; font-weight: 760; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }}
-    .subtitle {{ color: var(--muted); margin: 10px 0 0; max-width: 760px; font-size: 15px; }}
+    .subtitle {{ color: var(--muted); margin: 10px 0 0; max-width: 760px; font-size: 15px; line-height: 1.6; }}
     .meta-stack {{ display: grid; gap: 8px; }}
-    .meta {{ color: var(--muted); margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--glass); box-shadow: 0 1px 1px rgba(19,24,32,0.03); backdrop-filter: blur(12px) saturate(130%); }}
+    .meta {{ color: var(--muted); margin: 0; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; background: var(--glass); box-shadow: var(--shadow-soft); backdrop-filter: blur(12px) saturate(130%); }}
     .meta strong {{ color: var(--text); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }}
-    .metric {{ background: var(--panel); border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; padding: 14px; min-height: 78px; box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
+    .metric {{ background: var(--panel); border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; padding: 14px; min-height: 78px; box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
     .metric strong {{ display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }}
     .metric span {{ display: block; margin-top: 6px; font-size: 22px; font-weight: 720; }}
     .metric.compact span {{ font-size: 17px; }}
-    .callout {{ margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--glass); color: var(--muted); backdrop-filter: blur(12px) saturate(125%); }}
+    .callout {{ margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--glass); color: var(--muted); backdrop-filter: blur(12px) saturate(125%); }}
     table {{ width: 100%; border-collapse: collapse; }}
-    .table-wrap {{ overflow-x: auto; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
-    th, td {{ border-bottom: 1px solid rgba(137,151,172,0.24); padding: 9px 10px; text-align: left; vertical-align: top; }}
-    th {{ background: rgba(248,250,252,0.9); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 43px; z-index: 1; }}
+    .table-wrap {{ overflow-x: auto; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    th, td {{ border-bottom: 1px solid rgba(137,151,172,0.24); padding: 10px 12px; text-align: left; vertical-align: top; }}
+    th {{ background: rgba(248,250,252,0.94); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 54px; z-index: 1; }}
     tr:last-child td {{ border-bottom: 0; }}
     tbody tr:hover {{ background: rgba(234,240,255,0.38); }}
     code {{ background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-word; }}
@@ -99,6 +104,10 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     li {{ margin: 7px 0; }}
     small {{ color: var(--muted); }}
     .pill {{ display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; background: rgba(255,255,255,0.64); color: var(--muted); font-size: 12px; white-space: nowrap; }}
+    .domain-list {{ display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 0; list-style: none; }}
+    .domain-list li {{ margin: 0; }}
+    .domain-item {{ display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 10px; border: 1px solid rgba(148,163,184,0.42); border-radius: 999px; background: rgba(255,255,255,0.68); color: var(--muted); }}
+    .domain-item strong {{ color: var(--text); font-variant-numeric: tabular-nums; }}
     .fresh, .used_helpful {{ color: var(--good); }}
     .stale, .ignored, .used_noisy {{ color: var(--warn); }}
     .missing, .bad_recommendation {{ color: var(--bad); }}
@@ -110,7 +119,11 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     .reason-col {{ min-width: 260px; }}
     .two-col {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr); gap: 18px; align-items: start; }}
     .action-list {{ display: grid; gap: 10px; padding: 0; list-style: none; }}
-    .action-list li {{ margin: 0; padding: 12px; border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
+    .action-list li {{ margin: 0; padding: 12px; border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    @media (prefers-reduced-motion: reduce) {{
+      html {{ scroll-behavior: auto; }}
+      nav a {{ transition: none; }}
+    }}
     @supports not ((backdrop-filter: blur(1px))) {{
       .topbar, .meta, .metric, .callout, .table-wrap, .action-list li {{ background: #ffffff; }}
     }}
@@ -123,6 +136,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to dashboard</a>
 <div class="topbar">
   <div class="topbar-inner">
     <div class="brand">AgentPack</div>
@@ -138,7 +152,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     </nav>
   </div>
 </div>
-<main>
+<main id="main">
   <header class="hero">
     <div>
     <p class="eyebrow">Local control plane</p>
@@ -244,9 +258,9 @@ def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
   </section>"""
 
     domains = "".join(
-        f"<li>{_e(item.name)}: {item.count}</li>"
+        f'<li><span class="domain-item">{_e(item.name)} <strong>{item.count}</strong></span></li>'
         for item in inventory.domains[:20]
-    ) or "<li>No domains found.</li>"
+    ) or '<li><span class="domain-item">No domains found.</span></li>'
     sources = "".join(
         "<tr>"
         f"<td><code>{_e(item.configured_path)}</code></td>"
@@ -280,7 +294,7 @@ def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
     </div>
     <p class="callout"><small>Index: {_e(inventory.index_reason or "unknown")}; refreshed: {'yes' if inventory.index_refreshed else 'no'}; duplicate names: {_e(duplicate_names)}</small></p>
     <h3>Domains</h3>
-    <ul>{domains}</ul>
+    <ul class="domain-list">{domains}</ul>
     <h3>Directories</h3>
     <div class="table-wrap"><table><thead><tr><th>Configured</th><th>Resolved</th><th>Exists</th><th>Files</th></tr></thead><tbody>{sources}</tbody></table></div>
     <h3>Discovered Skills</h3>

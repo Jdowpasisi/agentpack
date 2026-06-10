@@ -160,58 +160,67 @@ def render_dashboard_html(report: LearningReport) -> str:
       --border: rgba(137, 151, 172, 0.34);
       --text: #131820;
       --muted: #526071;
+      --focus: #0f62fe;
       --accent: #2157bd;
       --accent-strong: #173f8c;
       --accent-bg: rgba(225, 235, 255, 0.9);
       --code: rgba(231, 237, 244, 0.92);
       --shadow: 0 1px 2px rgba(19, 24, 32, 0.06), 0 12px 32px rgba(19, 24, 32, 0.07);
+      --shadow-soft: 0 1px 1px rgba(19, 24, 32, 0.04), 0 10px 24px rgba(19, 24, 32, 0.055);
     }}
     * {{ box-sizing: border-box; }}
     html {{ scroll-behavior: smooth; }}
-    body {{ margin: 0; background-color: var(--bg); background-image: linear-gradient(rgba(31, 42, 68, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(31, 42, 68, 0.045) 1px, transparent 1px); background-size: 28px 28px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.45; }}
-    .topbar {{ position: sticky; top: 0; z-index: 2; background: var(--glass); border-bottom: 1px solid rgba(255,255,255,0.68); box-shadow: 0 1px 0 rgba(111,126,148,0.16); backdrop-filter: blur(16px) saturate(145%); }}
+    body {{ margin: 0; background-color: var(--bg); background-image: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0) 220px), linear-gradient(rgba(31, 42, 68, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(31, 42, 68, 0.045) 1px, transparent 1px); background-size: auto, 28px 28px, 28px 28px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; line-height: 1.5; }}
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible {{ outline: 3px solid rgba(15, 98, 254, 0.34); outline-offset: 3px; }}
+    .skip-link {{ position: absolute; left: 16px; top: -48px; z-index: 4; padding: 10px 12px; border-radius: 8px; background: var(--text); color: #fff; text-decoration: none; }}
+    .skip-link:focus {{ top: 12px; }}
+    .topbar {{ position: sticky; top: 0; z-index: 2; background: rgba(255,255,255,0.76); border-bottom: 1px solid rgba(137,151,172,0.24); box-shadow: 0 1px 0 rgba(111,126,148,0.12); backdrop-filter: blur(18px) saturate(150%); }}
     .topbar-inner {{ max-width: 1120px; margin: 0 auto; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
     .brand {{ font-weight: 760; color: var(--accent-strong); }}
     nav {{ display: flex; flex-wrap: wrap; gap: 6px; }}
-    nav a {{ color: var(--muted); text-decoration: none; font-size: 13px; padding: 5px 9px; border: 1px solid transparent; border-radius: 999px; }}
-    nav a:hover, nav a:focus-visible {{ background: rgba(255,255,255,0.72); border-color: var(--border); color: var(--text); outline: none; }}
+    nav a {{ min-height: 36px; display: inline-flex; align-items: center; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 560; padding: 7px 11px; border: 1px solid transparent; border-radius: 999px; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }}
+    nav a:hover, nav a:focus-visible {{ background: rgba(255,255,255,0.82); border-color: var(--border); color: var(--text); }}
     main {{ max-width: 1120px; margin: 0 auto; padding: 24px; }}
-    header.hero {{ padding: 28px 0 22px; display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; align-items: end; border-bottom: 1px solid rgba(137,151,172,0.24); }}
+    header.hero {{ padding: 30px 0 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 260px); gap: 24px; align-items: end; border-bottom: 1px solid rgba(137,151,172,0.24); }}
     h1, h2, h3 {{ line-height: 1.2; margin: 0; letter-spacing: 0; }}
     h1 {{ font-size: 34px; font-weight: 780; }}
     h2 {{ font-size: 18px; font-weight: 720; }}
     h3 {{ font-size: 15px; font-weight: 680; }}
-    section {{ margin: 20px 0; }}
+    section {{ margin: 22px 0; }}
     .eyebrow {{ color: var(--accent); font-size: 12px; font-weight: 760; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }}
-    .subtitle {{ color: var(--muted); margin: 10px 0 0; max-width: 760px; font-size: 15px; }}
+    .subtitle {{ color: var(--muted); margin: 10px 0 0; max-width: 760px; font-size: 15px; line-height: 1.6; }}
     .meta-stack {{ display: grid; gap: 8px; }}
-    .meta {{ color: var(--muted); margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--glass); box-shadow: 0 1px 1px rgba(19,24,32,0.03); backdrop-filter: blur(12px) saturate(130%); }}
+    .meta {{ color: var(--muted); margin: 0; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; background: var(--glass); box-shadow: var(--shadow-soft); backdrop-filter: blur(12px) saturate(130%); }}
     .meta strong {{ color: var(--text); }}
     .metric-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }}
-    .metric {{ background: var(--panel); border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; padding: 14px; min-height: 78px; box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
+    .metric {{ background: var(--panel); border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; padding: 14px; min-height: 78px; box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
     .metric strong {{ display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }}
     .metric span {{ display: block; margin-top: 6px; font-size: 22px; font-weight: 720; }}
     .section {{ padding: 6px 0 10px; }}
-    .section-header {{ margin-bottom: 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }}
+    .section-header {{ margin-bottom: 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }}
     .section-body {{ padding: 0; }}
     .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }}
-    .learning-card {{ border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; padding: 14px; background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
+    .learning-card {{ border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; padding: 14px; background: var(--panel); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
     .learning-card p {{ margin: 10px 0 0; }}
     .topic-card {{ display: grid; gap: 8px; }}
     .copy-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0.04em; }}
-    .copy-prompt {{ margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: rgba(246,248,251,0.84); color: var(--text); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; user-select: all; }}
+    .copy-prompt {{ margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: rgba(246,248,251,0.88); color: var(--text); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; user-select: all; }}
     .chips {{ display: flex; flex-wrap: wrap; gap: 6px; }}
     .chip {{ display: inline-flex; align-items: center; border: 1px solid rgba(148,163,184,0.48); border-radius: 999px; padding: 2px 8px; background: var(--accent-bg); color: var(--accent); font-size: 12px; margin: 2px 4px 2px 0; }}
     table {{ width: 100%; border-collapse: collapse; }}
-    .table-wrap {{ overflow-x: auto; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
-    th, td {{ border-bottom: 1px solid rgba(137,151,172,0.24); padding: 9px 10px; text-align: left; vertical-align: top; }}
-    th {{ background: rgba(248,250,252,0.9); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }}
+    .table-wrap {{ overflow-x: auto; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    th, td {{ border-bottom: 1px solid rgba(137,151,172,0.24); padding: 10px 12px; text-align: left; vertical-align: top; }}
+    th {{ background: rgba(248,250,252,0.94); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }}
     tr:last-child td {{ border-bottom: 0; }}
     code {{ background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-word; }}
     ul {{ margin: 0; padding-left: 18px; }}
     li {{ margin: 7px 0; }}
     small, .muted {{ color: var(--muted); }}
-    .practice {{ margin: 0; padding: 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--glass); color: var(--muted); backdrop-filter: blur(12px) saturate(125%); }}
+    .practice {{ margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--glass); color: var(--muted); backdrop-filter: blur(12px) saturate(125%); }}
+    @media (prefers-reduced-motion: reduce) {{
+      html {{ scroll-behavior: auto; }}
+      nav a {{ transition: none; }}
+    }}
     @supports not ((backdrop-filter: blur(1px))) {{
       .topbar, .meta, .metric, .learning-card, .practice, .table-wrap {{ background: #ffffff; }}
     }}
@@ -224,6 +233,7 @@ def render_dashboard_html(report: LearningReport) -> str:
   </style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to learning dashboard</a>
 <div class="topbar">
   <div class="topbar-inner">
     <div class="brand">AgentPack</div>
@@ -237,7 +247,7 @@ def render_dashboard_html(report: LearningReport) -> str:
     </nav>
   </div>
 </div>
-<main>
+<main id="main">
   <header class="hero">
     <div>
     <p class="eyebrow">Learning dashboard</p>
