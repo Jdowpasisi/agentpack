@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from agentpack.core.config import LoopConfig
+from agentpack.core.loop_protocol import LoopCommandResult, initialize_loop, save_loop_state
 from agentpack.dashboard.collectors import build_project_dashboard_snapshot
 from agentpack.dashboard.models import (
     ContextHealth,
@@ -165,3 +167,17 @@ def test_project_dashboard_caps_jsonl_rows(tmp_path) -> None:
     snapshot = build_project_dashboard_snapshot(tmp_path)
 
     assert 0.0 < snapshot.benchmarks.averages["selection_recall"] <= 1.0
+
+
+def test_project_dashboard_collects_loop_state(tmp_path) -> None:
+    state = initialize_loop(tmp_path, "fix auth", LoopConfig(runner="agent", verification_commands=["pytest -q"]))
+    state.status = "ready_to_finish"
+    state.last_verification = LoopCommandResult(command="pytest -q", returncode=0, output_excerpt="passed")
+    save_loop_state(tmp_path, state)
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    assert snapshot.loop.exists is True
+    assert snapshot.loop.status == "ready_to_finish"
+    assert snapshot.loop.last_verification_status == "passed"
+    assert snapshot.loop.next_action == "agentpack finish --since main"

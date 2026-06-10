@@ -22,6 +22,7 @@ Command map:
 | `agentpack install` | Refresh or add an agent integration without changing project state |
 | `agentpack repair` | Restore missing or drifted integration files |
 | `agentpack work` | Initialize if needed, write a task, refresh context, and show next steps |
+| `agentpack work --run` | Run the configured Ralph Loop generic runner with verification |
 | `agentpack start` | Write a task and run the default guard/refresh workflow |
 | `agentpack finish` | Run finish checks, capture benchmark evidence, and mark state done |
 | `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons from task context and git changes |
@@ -215,6 +216,39 @@ Also installs the detected agent integration:
 - Codex: `AGENTS.md`, `.codex/hooks.json`, git hooks
 - Antigravity: `GEMINI.md`, git hooks, VS Code task
 - Generic: no agent-specific files
+
+---
+
+### `agentpack work --run`
+
+Run the Ralph Loop protocol with a generic local runner after preparing fresh
+context.
+
+```bash
+agentpack work "fix auth token expiry" --run --runner "claude < .agentpack/context.claude.md" --verify "pytest -q"
+agentpack work "fix auth token expiry" --run --dry-run --runner "python scripts/agent.py" --verify "pytest -q"
+```
+
+New initialized repos include `[loop]` config enabled by default. The runner is
+empty by default and must be set in `.agentpack/config.toml` or passed with
+`--runner`; AgentPack never guesses which coding agent to launch.
+
+```toml
+[loop]
+enabled = true
+runner = "claude < .agentpack/context.claude.md"
+max_iterations = 10
+verification_commands = ["pytest -q"]
+require_verification = true
+require_progress_update = true
+require_clean_tree = true
+```
+
+Each iteration refreshes context, runs the configured shell command, runs the
+verification commands, records progress in `.agentpack/progress.md`, and writes
+structured events to `.agentpack/loop_events.jsonl`. When verification passes,
+the loop stops at `ready_to_finish`; `agentpack finish` then enforces the final
+completion checks. AgentPack does not auto-push or run destructive git commands.
 
 ---
 

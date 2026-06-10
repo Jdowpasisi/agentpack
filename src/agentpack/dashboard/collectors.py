@@ -7,6 +7,7 @@ from typing import Any
 
 from agentpack.core import git
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.core.loop_protocol import load_loop_state
 from agentpack.core.task_freshness import task_freshness
 from agentpack.core.thread_context import list_thread_rows
 from agentpack.dashboard.models import (
@@ -14,6 +15,7 @@ from agentpack.dashboard.models import (
     ContextHealth,
     DashboardSnapshot,
     LearningArtifact,
+    LoopSummary,
     ProjectInfo,
     SelectedFileRow,
     SkillFeedbackStatus,
@@ -48,6 +50,7 @@ def build_project_dashboard_snapshot(root: Path) -> DashboardSnapshot:
         _load_jsonl(agentpack_dir / "benchmark_results.jsonl"),
     )
     threads = _thread_summary(root, meta)
+    loop = _loop_summary(root)
     actions = _suggested_actions(agentpack_dir, task_text, context, learning, benchmarks, feedback_rows)
 
     return DashboardSnapshot(
@@ -65,6 +68,7 @@ def build_project_dashboard_snapshot(root: Path) -> DashboardSnapshot:
         learning=learning,
         benchmarks=benchmarks,
         threads=threads,
+        loop=loop,
         suggested_actions=actions,
     )
 
@@ -322,6 +326,24 @@ def _thread_summary(root: Path, meta: dict[str, Any] | None) -> ThreadSummary:
     return ThreadSummary(active_count=len(rows), conflicts=conflicts)
 
 
+def _loop_summary(root: Path) -> LoopSummary:
+    state = load_loop_state(root)
+    if state is None:
+        return LoopSummary()
+    return LoopSummary(
+        exists=True,
+        status=state.status,
+        task=state.task,
+        iteration=state.iteration,
+        max_iterations=state.max_iterations,
+        runner=state.runner,
+        last_runner_status=_result_status(state.last_runner),
+        last_verification_status=_result_status(state.last_verification),
+        blocked_reason=state.blocked_reason,
+        next_action=_loop_next_action(state.status, state.task, state.runner, bool(state.verification_commands)),
+    )
+
+
 def _suggested_actions(
     agentpack_dir: Path,
     task_text: str,
@@ -404,3 +426,21 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _result_status(result: Any) -> str:
+    if result is None:
+        return ""
+    return "passed" if getattr(result, "returncode", 1) == 0 else "failed"
+
+
+def _loop_next_action(status: str, task: str, runner: str, has_verification: bool) -> str:
+    if not runner:
+        return 'agentpack work "..." --run --runner "..."'
+    if not has_verification:
+        return f'agentpack work "{task}" --run --verify "pytest -q"'
+    if status == "ready_to_finish":
+        return "agentpack finish --since main"
+    if status == "blocked":
+        return "agentpack dashboard"
+    return f'agentpack work "{task}" --run'

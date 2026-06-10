@@ -5,6 +5,7 @@ from agentpack.dashboard.models import (
     ContextHealth,
     DashboardSnapshot,
     LearningArtifact,
+    LoopSummary,
     ProjectInfo,
     SelectedFileRow,
     SkillRow,
@@ -28,6 +29,15 @@ def test_render_dashboard_html_contains_core_sections() -> None:
             ),
             learning=[LearningArtifact(label="Learning notes", path=".agentpack/learning.md", exists=True)],
             benchmarks=BenchmarkSummary(averages={"selection_recall": 0.8}),
+            loop=LoopSummary(
+                exists=True,
+                status="ready_to_finish",
+                task="fix auth",
+                iteration=1,
+                max_iterations=10,
+                last_verification_status="passed",
+                next_action="agentpack finish --since main",
+            ),
             suggested_actions=[SuggestedAction(label="Refresh context", command="agentpack pack --task auto")],
         )
     )
@@ -37,6 +47,8 @@ def test_render_dashboard_html_contains_core_sections() -> None:
     assert "src/auth.py" in html
     assert "auth-review" in html
     assert "selection_recall" in html
+    assert "Ralph Loop" in html
+    assert "agentpack finish --since main" in html
     assert "agentpack pack --task auto" in html
 
 

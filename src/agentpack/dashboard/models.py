@@ -82,6 +82,19 @@ class ThreadSummary(BaseModel):
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class LoopSummary(BaseModel):
+    exists: bool = False
+    status: str = ""
+    task: str = ""
+    iteration: int = 0
+    max_iterations: int = 0
+    runner: str = ""
+    last_runner_status: str = ""
+    last_verification_status: str = ""
+    blocked_reason: str = ""
+    next_action: str = ""
+
+
 class SuggestedAction(BaseModel):
     label: str
     command: str
@@ -100,4 +113,5 @@ class DashboardSnapshot(BaseModel):
     learning: list[LearningArtifact] = Field(default_factory=list)
     benchmarks: BenchmarkSummary = Field(default_factory=BenchmarkSummary)
     threads: ThreadSummary = Field(default_factory=ThreadSummary)
+    loop: LoopSummary = Field(default_factory=LoopSummary)
     suggested_actions: list[SuggestedAction] = Field(default_factory=list)

@@ -19,6 +19,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     benchmarks = _benchmark_rows(snapshot)
     misses = _miss_rows(snapshot)
     actions = _action_rows(snapshot)
+    loop = _loop_panel(snapshot)
     status_class = _status_class(snapshot.context.status)
 
     return f"""<!doctype html>
@@ -105,6 +106,8 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     <table><thead><tr><th>Expected File</th><th>Reason</th></tr></thead><tbody>{misses}</tbody></table>
   </section>
 
+  {loop}
+
   <section>
     <h2>Suggested Actions</h2>
     <ul>{actions}</ul>
@@ -176,6 +179,28 @@ def _action_rows(snapshot: DashboardSnapshot) -> str:
         for item in snapshot.suggested_actions
     ]
     return "".join(rows) or "<li>No suggested actions.</li>"
+
+
+def _loop_panel(snapshot: DashboardSnapshot) -> str:
+    if not snapshot.loop.exists:
+        return """
+  <section>
+    <h2>Ralph Loop</h2>
+    <p>No Ralph Loop state found.</p>
+  </section>"""
+    return f"""
+  <section>
+    <h2>Ralph Loop</h2>
+    <div class="grid">
+      <div class="metric"><strong>Status</strong><span>{_e(snapshot.loop.status)}</span></div>
+      <div class="metric"><strong>Iteration</strong><span>{snapshot.loop.iteration}/{snapshot.loop.max_iterations}</span></div>
+      <div class="metric"><strong>Runner</strong><span>{_e(snapshot.loop.last_runner_status or "not run")}</span></div>
+      <div class="metric"><strong>Verification</strong><span>{_e(snapshot.loop.last_verification_status or "not run")}</span></div>
+    </div>
+    <p><strong>Task:</strong> {_e(snapshot.loop.task)}</p>
+    <p><strong>Blocked reason:</strong> {_e(snapshot.loop.blocked_reason or "none")}</p>
+    <p><strong>Next:</strong> <code>{_e(snapshot.loop.next_action)}</code></p>
+  </section>"""
 
 
 def _stale_reason(snapshot: DashboardSnapshot) -> str:
