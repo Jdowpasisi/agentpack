@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from agentpack.router.models import SkillInventory
 from agentpack.router.parser import parse_rule_file, parse_skill_file
+from agentpack.router.skills_index import (
+    INDEX_PATH,
+    inventory_for_route,
+    load_inventory_index,
+    write_inventory_index,
+)
 
 DEFAULT_SKILL_PATHS = [
     "skills",
@@ -19,7 +23,6 @@ DEFAULT_SKILL_PATHS = [
     ".cursor/rules",
 ]
 ROOT_RULE_FILES = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
-INDEX_PATH = ".agentpack/skills_index.json"
 
 
 def discover_inventory(root: Path, paths: list[str] | None = None) -> SkillInventory:
@@ -45,34 +48,6 @@ def discover_inventory(root: Path, paths: list[str] | None = None) -> SkillInven
     inventory.skills = _dedupe_by_path(inventory.skills)
     inventory.rules = _dedupe_by_path(inventory.rules)
     return inventory
-
-
-def load_inventory_index(root: Path) -> SkillInventory | None:
-    path = root / INDEX_PATH
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return SkillInventory.model_validate(data)
-    except (OSError, json.JSONDecodeError, ValidationError):
-        return None
-
-
-def write_inventory_index(root: Path, inventory: SkillInventory) -> Path:
-    path = root / INDEX_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = inventory.model_dump(
-        exclude={
-            "skills": {"__all__": {"raw_text"}},
-            "rules": {"__all__": {"raw_text"}},
-        }
-    )
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return path
-
-
-def inventory_for_route(root: Path, paths: list[str] | None = None) -> SkillInventory:
-    return load_inventory_index(root) or discover_inventory(root, paths)
 
 
 def _discover_skills(path: Path, root: Path, source: str) -> list:

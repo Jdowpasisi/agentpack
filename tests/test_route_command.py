@@ -50,11 +50,14 @@ def test_skills_index_writes_valid_json(tmp_path, monkeypatch):
 
     assert result.exit_code == 0, result.output
     data = json.loads((tmp_path / ".agentpack" / "skills_index.json").read_text(encoding="utf-8"))
-    assert data["version"] == 1
-    assert data["skills"][0]["name"] == "django-pytest"
-    assert data["rules"][0]["path"] == "AGENTS.md"
-    assert "raw_text" not in data["skills"][0]
-    assert "raw_text" not in data["rules"][0]
+    assert data["schema_version"] == 2
+    assert data["inventory"]["version"] == 1
+    assert data["inventory"]["skills"][0]["name"] == "django-pytest"
+    assert data["inventory"]["rules"][0]["path"] == "AGENTS.md"
+    assert data["configured_paths"] == [".agentpack/skills", ".cursor/rules"]
+    assert data["sources"]
+    assert "raw_text" not in data["inventory"]["skills"][0]
+    assert "raw_text" not in data["inventory"]["rules"][0]
 
 
 def test_skills_recommend_explain_prints_skill_plan(tmp_path, monkeypatch):
@@ -128,3 +131,25 @@ def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, mon
     assert "pytest" in data["suggested_commands"][0]["command"]
     assert not (tmp_path / ".agentpack" / "context.md").exists()
     assert not (tmp_path / ".agentpack" / "context.claude.md").exists()
+
+
+def test_route_refreshes_stale_skills_index(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_route_fixture(tmp_path)
+    runner = CliRunner()
+
+    index = runner.invoke(app, ["skills", "index"])
+    assert index.exit_code == 0, index.output
+
+    skill = tmp_path / ".agentpack" / "skills" / "django-pytest" / "SKILL.md"
+    skill.write_text(
+        "# django-pytest\n\nUse for pytest test debugging, fixtures, mocks, flaky tests, and regression tests.\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["route", "--task", "fix pytest regression", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    names = [item["skill"]["name"] for item in payload["selected_skills"]]
+    assert "django-pytest" in names
