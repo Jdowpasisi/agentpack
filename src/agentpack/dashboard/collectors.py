@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agentpack.core import git
+from agentpack.core.config import load_config
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.loop_protocol import load_loop_state
 from agentpack.core.task_freshness import task_freshness
@@ -19,12 +20,18 @@ from agentpack.dashboard.models import (
     ProjectInfo,
     SelectedFileRow,
     SkillFeedbackStatus,
+    SkillDomainSummary,
+    SkillInventoryRow,
+    SkillInventorySourceSummary,
     SkillRow,
     SkillSection,
+    SkillsInventorySummary,
     SuggestedAction,
     TaskInfo,
     ThreadSummary,
 )
+from agentpack.router.models import SkillArtifact
+from agentpack.router.skills_index import ensure_inventory_index
 
 
 MAX_JSONL_ROWS = 500
@@ -32,6 +39,7 @@ MAX_RECENT_FEEDBACK = 20
 MAX_EXCERPT_CHARS = 1200
 MAX_REASONS = 5
 MAX_MISSES = 20
+MAX_SKILL_INVENTORY_ROWS = 100
 
 
 def build_project_dashboard_snapshot(root: Path) -> DashboardSnapshot:
@@ -44,6 +52,7 @@ def build_project_dashboard_snapshot(root: Path) -> DashboardSnapshot:
     selected_files = _selected_files(meta)
     feedback_rows = _load_jsonl(agentpack_dir / "skill_feedback.jsonl")
     skill_section = _skill_section(meta, feedback_rows)
+    skills_inventory = _skills_inventory_summary(root, initialized=agentpack_dir.exists())
     learning = _learning_artifacts(agentpack_dir)
     benchmarks = _benchmark_summary(
         _load_jsonl(agentpack_dir / "metrics.jsonl"),
@@ -64,6 +73,7 @@ def build_project_dashboard_snapshot(root: Path) -> DashboardSnapshot:
         context=context,
         selected_files=selected_files,
         skills=skill_section,
+        skills_inventory=skills_inventory,
         skill_feedback=_feedback_summary(feedback_rows),
         learning=learning,
         benchmarks=benchmarks,
@@ -203,6 +213,70 @@ def _skill_rows(values: list[Any], feedback: dict[str, SkillFeedbackStatus]) -> 
             )
         )
     return rows
+
+
+def _skills_inventory_summary(root: Path, *, initialized: bool) -> SkillsInventorySummary:
+    if not initialized:
+        return SkillsInventorySummary(index_error="AgentPack is not initialized.")
+    try:
+        cfg = load_config(root)
+        result = ensure_inventory_index(root, cfg.skills.paths)
+    except Exception as exc:
+        return SkillsInventorySummary(index_error=str(exc))
+
+    inventory = result.document.inventory
+    rows = [_skill_inventory_row(skill) for skill in inventory.skills]
+    names: dict[str, int] = {}
+    for row in rows:
+        key = row.name.lower()
+        names[key] = names.get(key, 0) + 1
+    return SkillsInventorySummary(
+        available=True,
+        index_refreshed=result.refreshed,
+        index_reason=result.reason,
+        total_skills=len(inventory.skills),
+        total_rules=len(inventory.rules),
+        uncategorized_count=sum(1 for row in rows if row.domains == ["uncategorized"]),
+        missing_metadata_count=sum(1 for row in rows if row.metadata_quality == "inferred"),
+        duplicate_names=sorted(name for name, count in names.items() if count > 1),
+        sources=[
+            SkillInventorySourceSummary(
+                configured_path=source.configured_path,
+                resolved_path=source.resolved_path,
+                exists=source.exists,
+                file_count=source.file_count,
+            )
+            for source in result.document.sources
+        ],
+        domains=_domain_counts(rows),
+        rows=rows[:MAX_SKILL_INVENTORY_ROWS],
+    )
+
+
+def _skill_inventory_row(skill: SkillArtifact) -> SkillInventoryRow:
+    domains = skill.task_types or skill.frameworks or skill.languages or ["uncategorized"]
+    metadata_quality = "explicit" if skill.task_types or skill.languages or skill.frameworks else "inferred"
+    return SkillInventoryRow(
+        name=skill.name,
+        path=skill.path,
+        source=skill.source,
+        domains=domains,
+        languages=skill.languages,
+        frameworks=skill.frameworks,
+        side_effect_level=skill.side_effect_level,
+        metadata_quality=metadata_quality,
+    )
+
+
+def _domain_counts(rows: list[SkillInventoryRow]) -> list[SkillDomainSummary]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        for domain in row.domains:
+            counts[domain] = counts.get(domain, 0) + 1
+    return [
+        SkillDomainSummary(name=name, count=count)
+        for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:

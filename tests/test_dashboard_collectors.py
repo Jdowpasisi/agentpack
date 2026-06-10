@@ -181,3 +181,29 @@ def test_project_dashboard_collects_loop_state(tmp_path) -> None:
     assert snapshot.loop.status == "ready_to_finish"
     assert snapshot.loop.last_verification_status == "passed"
     assert snapshot.loop.next_action == "agentpack finish --since main"
+
+
+def test_project_dashboard_collects_skills_inventory(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    skill = tmp_path / ".agentpack" / "skills" / "pytest-debugging" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\n"
+        "name: pytest-debugging\n"
+        "task_types: [testing]\n"
+        "languages: [python]\n"
+        "frameworks: [pytest]\n"
+        "---\n\n"
+        "Use for pytest failures.\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    assert snapshot.skills_inventory.total_skills == 1
+    assert snapshot.skills_inventory.total_rules == 0
+    assert snapshot.skills_inventory.domains[0].name == "testing"
+    assert snapshot.skills_inventory.rows[0].name == "pytest-debugging"
+    assert snapshot.skills_inventory.rows[0].domains == ["testing"]
+    assert snapshot.skills_inventory.rows[0].metadata_quality == "explicit"
+    assert snapshot.skills_inventory.index_refreshed is True

@@ -64,6 +64,44 @@ class SkillSection(BaseModel):
     baseline: list[SkillRow] = Field(default_factory=list)
 
 
+class SkillInventorySourceSummary(BaseModel):
+    configured_path: str
+    resolved_path: str
+    exists: bool
+    file_count: int = 0
+
+
+class SkillDomainSummary(BaseModel):
+    name: str
+    count: int
+
+
+class SkillInventoryRow(BaseModel):
+    name: str
+    path: str
+    source: str
+    domains: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+    frameworks: list[str] = Field(default_factory=list)
+    side_effect_level: str = ""
+    metadata_quality: str = "inferred"
+
+
+class SkillsInventorySummary(BaseModel):
+    available: bool = False
+    index_refreshed: bool = False
+    index_reason: str = ""
+    index_error: str = ""
+    total_skills: int = 0
+    total_rules: int = 0
+    uncategorized_count: int = 0
+    missing_metadata_count: int = 0
+    duplicate_names: list[str] = Field(default_factory=list)
+    sources: list[SkillInventorySourceSummary] = Field(default_factory=list)
+    domains: list[SkillDomainSummary] = Field(default_factory=list)
+    rows: list[SkillInventoryRow] = Field(default_factory=list)
+
+
 class LearningArtifact(BaseModel):
     label: str
     path: str
@@ -109,6 +147,7 @@ class DashboardSnapshot(BaseModel):
     context: ContextHealth = Field(default_factory=ContextHealth)
     selected_files: list[SelectedFileRow] = Field(default_factory=list)
     skills: SkillSection = Field(default_factory=SkillSection)
+    skills_inventory: SkillsInventorySummary = Field(default_factory=SkillsInventorySummary)
     skill_feedback: dict[str, Any] = Field(default_factory=dict)
     learning: list[LearningArtifact] = Field(default_factory=list)
     benchmarks: BenchmarkSummary = Field(default_factory=BenchmarkSummary)
