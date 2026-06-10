@@ -19,9 +19,16 @@ from agentpack.core.task_freshness import task_hash
 from agentpack.core.token_estimator import estimate_tokens
 
 
-Mode = Literal["minimal", "balanced", "deep"]
+Mode = Literal["lite", "minimal", "balanced", "deep"]
 
 _MODE_WEIGHTS: dict[str, dict[str, bool]] = {
+    "lite": {
+        "include_unchanged_deps": False,
+        "include_rev_deps": False,
+        "include_tests": False,
+        "include_docs": False,
+        "extra_full": False,
+    },
     "minimal": {
         "include_unchanged_deps": False,
         "include_rev_deps": False,

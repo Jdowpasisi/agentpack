@@ -30,7 +30,7 @@ def register(app: typer.Typer) -> None:
             "--task",
             help="Task source. Only 'auto' is supported; write the task to .agentpack/task.md.",
         ),
-        mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help="Budget mode (lite|minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         workspace: str = typer.Option("", "--workspace", help="Restrict pack to a monorepo workspace, e.g. apps/web."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
@@ -40,8 +40,8 @@ def register(app: typer.Typer) -> None:
         thread: str = typer.Option("", "--thread", help="Use thread-scoped task/context state."),
     ) -> None:
         """Generate a context pack for an AI coding agent."""
-        if mode not in ("minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
+        if mode not in ("lite", "minimal", "balanced", "deep"):
+            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
             raise typer.Exit(1)
 
         resolved_agent = _resolve_agent(agent)

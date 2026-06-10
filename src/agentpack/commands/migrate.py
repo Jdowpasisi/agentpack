@@ -42,15 +42,15 @@ def register(app: typer.Typer) -> None:
             help="Refresh context packs after repair.",
         ),
         dry_run: bool = typer.Option(False, "--dry-run", help="Show actions without writing files."),
-        mode: str = typer.Option("balanced", "--mode", help="Refresh mode (minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help="Refresh mode (lite|minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Refresh token budget (0 = config default)."),
     ) -> None:
         """Migrate existing repos to current AgentPack guard/freshness integrations."""
         if agent not in SUPPORTED_AGENTS:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
-        if mode not in ("minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
+        if mode not in ("lite", "minimal", "balanced", "deep"):
+            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
             raise typer.Exit(1)
         if max_depth < 0:
             console.print("[red]--max-depth must be >= 0[/]")

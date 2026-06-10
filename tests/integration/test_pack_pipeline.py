@@ -391,6 +391,26 @@ class TestBudgetEnforcement:
         assert result.packed_tokens >= 0
         assert result.out_path.exists()
 
+    def test_lite_mode_uses_lite_budget_when_budget_zero(self, tmp_path: Path) -> None:
+        root = _setup_repo(tmp_path, "py_fastapi_app")
+        config = root / ".agentpack" / "config.toml"
+        config.write_text(config.read_text(encoding="utf-8") + "\n[context_lite]\nbudget = 1200\n", encoding="utf-8")
+
+        result = PackService().run(PackRequest(
+            root=root,
+            agent="claude",
+            task="fix auth token refresh",
+            mode="lite",
+            budget=0,
+            since=None,
+            refresh=False,
+        ))
+
+        assert result.pack.mode == "lite"
+        assert result.pack.budget == 1200
+        assert result.packed_tokens <= 1200
+        assert result.out_path.exists()
+
 
 # ---------------------------------------------------------------------------
 # Helpers for new test classes

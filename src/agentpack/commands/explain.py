@@ -290,7 +290,7 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def explain(
         task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
-        mode: str = typer.Option("balanced", "--mode", help="Budget mode (minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help="Budget mode (lite|minimal|balanced|deep)."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
         file: Optional[str] = typer.Option(None, "--file", help="Show detailed score breakdown for a specific file."),
@@ -299,8 +299,8 @@ def register(app: typer.Typer) -> None:
         budget_plan: bool = typer.Option(False, "--budget-plan", is_flag=True, help="Show selected modes, token costs, and value per token."),
     ) -> None:
         """Explain which files would be selected and why, without writing a context file."""
-        if mode not in ("minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use minimal|balanced|deep.[/]")
+        if mode not in ("lite", "minimal", "balanced", "deep"):
+            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
             raise typer.Exit(1)
 
         root = _root()

@@ -294,7 +294,6 @@ def _scan_metadata(
         "ignore_hash": _hash_text(ignore_text),
         "include_globs": include_globs,
         "exclude_globs": exclude_globs,
-        "generated_paths": sorted(generated_paths),
         "max_file_tokens": cfg.context.max_file_tokens,
         "workspace": workspace,
     }
@@ -372,7 +371,7 @@ class PackPlanner:
     def plan(self, request: PackRequest) -> PackPlan:
         root = request.root
         cfg = load_config(root)
-        effective_budget = request.budget if request.budget > 0 else cfg.context.default_budget
+        effective_budget = _resolve_effective_budget(request, cfg)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
         phase_times: dict[str, float] = {}
 
@@ -950,8 +949,16 @@ def _rank_omitted_relevant_files(files: list[OmittedRelevantFile]) -> list[Omitt
 
 
 def _repo_map_budget_for_mode(mode: str, effective_budget: int) -> int:
-    caps = {"minimal": 300, "balanced": 600, "deep": 900}
+    caps = {"lite": 150, "minimal": 300, "balanced": 600, "deep": 900}
     return min(caps.get(mode, 500), max(0, effective_budget // 20))
+
+
+def _resolve_effective_budget(request: PackRequest, cfg: Any) -> int:
+    if request.budget > 0:
+        return request.budget
+    if request.mode == "lite":
+        return cfg.context_lite.budget
+    return cfg.context.default_budget
 
 
 _FRONTEND_TASK_TERMS = {
@@ -1247,7 +1254,10 @@ def _summary_score_floor(cfg: Any, generic_ratio: float) -> float:
 
 
 def _summary_cap_for_mode(cfg: Any, mode: str, generic_ratio: float = 0.0) -> int:
-    if mode == "minimal":
+    if mode == "lite":
+        minimal_cap = cfg.context.max_summary_files_minimal
+        cap = min(minimal_cap, cfg.context_lite.max_selected_files) if minimal_cap > 0 else cfg.context_lite.max_selected_files
+    elif mode == "minimal":
         cap = cfg.context.max_summary_files_minimal
     elif mode == "balanced":
         cap = cfg.context.max_summary_files_balanced
@@ -1299,17 +1309,17 @@ def _guarded_summary_cap(
     if rows < 3:
         if no_live_changes and cap > 0:
             if effective_budget and effective_budget <= 2500:
-                return min(cap, 4 if mode == "minimal" else 6)
+                return min(cap, 4 if mode in ("lite", "minimal") else 6)
             if effective_budget and effective_budget <= 6000:
-                return min(cap, 12 if mode == "minimal" else 16)
+                return min(cap, 12 if mode in ("lite", "minimal") else 16)
             return min(cap, 16)
         return cap
     if avg_summary_precision <= 0.05:
         if no_live_changes:
             return -1
-        strict_cap = 3 if mode == "minimal" else 5 if mode == "balanced" else 10
+        strict_cap = 2 if mode == "lite" else 3 if mode == "minimal" else 5 if mode == "balanced" else 10
     elif avg_summary_precision <= 0.15:
-        strict_cap = 3 if no_live_changes else 6 if mode == "minimal" else 12 if mode == "balanced" else 20
+        strict_cap = 2 if mode == "lite" else 3 if no_live_changes else 6 if mode == "minimal" else 12 if mode == "balanced" else 20
     else:
         if no_live_changes and cap > 0:
             return min(cap, 8)
@@ -1367,15 +1377,15 @@ def _guarded_weak_signal_cap(
     if not no_live_changes:
         return 0
     if generic_ratio >= 0.5:
-        base = {"minimal": 0, "balanced": 1, "deep": 2}.get(mode, 1)
+        base = {"lite": 0, "minimal": 0, "balanced": 1, "deep": 2}.get(mode, 1)
     elif generic_ratio >= 0.35:
-        base = {"minimal": 1, "balanced": 2, "deep": 3}.get(mode, 2)
+        base = {"lite": 0, "minimal": 1, "balanced": 2, "deep": 3}.get(mode, 2)
     else:
-        base = {"minimal": 2, "balanced": 4, "deep": 6}.get(mode, 3)
+        base = {"lite": 1, "minimal": 2, "balanced": 4, "deep": 6}.get(mode, 3)
     avg_precision, rows = _recent_token_precision(root)
     if rows >= 3:
         if avg_precision <= 0.1:
-            base = min(base, 0 if mode == "minimal" else 1)
+            base = min(base, 0 if mode in ("lite", "minimal") else 1)
         elif avg_precision <= 0.2:
             base = min(base, 1 if mode != "deep" else 2)
     if effective_budget and effective_budget <= 2500:

@@ -192,9 +192,14 @@ Generated instructions keep thread mode explicit. They recommend `AGENTPACK_THRE
 default_mode = "balanced"
 default_budget = 40000
 
+[context_lite]
+budget = 8000
+
 [agents.generic]
 output = ".agentpack/context.md"
 ```
+
+Use `agentpack pack --mode lite` when you want a cheap ranked map before deeper file reads. Use `minimal`, `balanced`, or `deep` when you want progressively more file content in the generated pack.
 
 Use `.agentignore` to remove generated output, vendored code, large exports, or files that repeatedly appear as ranking noise. AgentPack imports obvious generated/noisy entries from gitignore sources during init, but repository-specific outputs should still be added by hand.
 

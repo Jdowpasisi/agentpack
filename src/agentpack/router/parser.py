@@ -23,6 +23,7 @@ def parse_skill_file(path: Path, *, root: Path | None = None, source: str = "") 
     name = str(frontmatter.get("name") or _first_h1(body) or _fallback_name(path))
     description = str(frontmatter.get("description") or _first_paragraph(body))
     applies_to_paths = _list_value(frontmatter, "applies_to_paths") or _list_value(frontmatter, "globs")
+    explicit_triggers = _list_value(frontmatter, "triggers")
 
     trigger_text = "\n".join([
         name,
@@ -38,10 +39,20 @@ def parse_skill_file(path: Path, *, root: Path | None = None, source: str = "") 
         source=source or _source_for_path(path, root),
         path=rel_path,
         description=description.strip(),
-        triggers=_terms(trigger_text),
+        task_types=_normalized_list(frontmatter, "task_types"),
+        languages=_normalized_list(frontmatter, "languages"),
+        frameworks=_normalized_list(frontmatter, "frameworks"),
+        triggers=sorted(
+            set(_terms("\n".join([trigger_text, *explicit_triggers])))
+            | {item.lower() for item in explicit_triggers}
+        ),
+        anti_triggers=_normalized_list(frontmatter, "anti_triggers"),
         tools_required=_tools(raw_for_classification),
         side_effect_level=_side_effect_level(raw_for_classification),
         applies_to_paths=applies_to_paths,
+        anti_paths=_list_value(frontmatter, "anti_paths"),
+        priority=_int_value(frontmatter.get("priority"), default=50),
+        confidence_threshold=_float_value(frontmatter.get("confidence_threshold"), default=0.45),
         raw_text=text,
     )
 
@@ -122,12 +133,34 @@ def _clean_scalar(value: str) -> Any:
         return True
     if value.lower() == "false":
         return False
+    if re.fullmatch(r"-?\d+", value):
+        return int(value)
+    if re.fullmatch(r"-?\d+\.\d+", value):
+        return float(value)
     if value.startswith("[") and value.endswith("]"):
         inner = value[1:-1].strip()
         if not inner:
             return []
         return [_clean_scalar(part.strip()) for part in inner.split(",")]
     return value.strip("\"'")
+
+
+def _normalized_list(frontmatter: dict[str, Any], key: str) -> list[str]:
+    return [item.lower() for item in _list_value(frontmatter, key)]
+
+
+def _int_value(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_value(value: Any, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _first_h1(text: str) -> str:

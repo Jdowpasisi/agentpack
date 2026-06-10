@@ -16,6 +16,7 @@ from agentpack.commands.benchmark import (
     CaseResult,
     E2ECase,
     _precision_recall,
+    _skill_metrics,
     _sample_fixture_cases,
     _load_cases,
     _load_e2e_cases,
@@ -37,6 +38,9 @@ from agentpack.commands.benchmark import (
     _unexpected_files_touched,
     _timeout_result,
     _e2e_prompt,
+    _e2e_cases_template,
+    _estimate_token_cost,
+    _process_output_tokens,
 )
 
 
@@ -241,6 +245,35 @@ def test_load_cases_parses_workspace(tmp_path: Path) -> None:
     )
     cases = _load_cases(f)
     assert cases[0].workspace == "apps/web"
+
+
+def test_load_cases_parses_expected_and_avoid_skills(tmp_path: Path) -> None:
+    f = tmp_path / "bench.toml"
+    f.write_text(
+        '[[cases]]\n'
+        'task = "fix auth bug"\n'
+        'expected_skills = ["pytest-debugging", "auth-review"]\n'
+        'avoid_skills = ["frontend-review"]\n',
+        encoding="utf-8",
+    )
+
+    cases = _load_cases(f)
+
+    assert cases[0].expected_skills == ["pytest-debugging", "auth-review"]
+    assert cases[0].avoid_skills == ["frontend-review"]
+
+
+def test_skill_metrics_scores_recall_precision_mrr_and_noise() -> None:
+    recall, precision, mrr, noise = _skill_metrics(
+        ["pytest-debugging", "frontend-review", "auth-review"],
+        expected_skills=["auth-review", "pytest-debugging"],
+        avoid_skills=["frontend-review"],
+    )
+
+    assert recall == 1.0
+    assert precision == pytest.approx(2 / 3)
+    assert mrr == 1.0
+    assert noise == pytest.approx(1 / 3)
 
 
 def test_load_cases_defaults_mode(tmp_path: Path) -> None:
@@ -732,6 +765,14 @@ def test_timeout_result_records_failed_process() -> None:
     assert "Timed out after 7 seconds" in result.stderr
 
 
+def test_e2e_cost_helpers_estimate_prompt_and_output_cost() -> None:
+    result = subprocess.CompletedProcess(args=["agent"], returncode=0, stdout="hello world", stderr="done")
+
+    assert _process_output_tokens(result) >= 1
+    assert _estimate_token_cost(1_000_000, 2.5) == 2.5
+    assert _estimate_token_cost(1000, 0.0) == 0.0
+
+
 def test_run_e2e_case_fails_when_protected_file_changes(tmp_path: Path) -> None:
     repo = tmp_path / "source"
     (repo / "tests").mkdir(parents=True)
@@ -758,6 +799,8 @@ def test_run_e2e_case_fails_when_protected_file_changes(tmp_path: Path) -> None:
         trial=1,
         agent_command=f"python {agent} {{repo}} {{prompt}}",
         timeout=10,
+        input_cost_per_mtok=1.0,
+        output_cost_per_mtok=2.0,
         keep_workdir=True,
     )
 
@@ -765,6 +808,8 @@ def test_run_e2e_case_fails_when_protected_file_changes(tmp_path: Path) -> None:
     assert result.protected_files_changed == ["tests/test_guard.py"]
     assert result.test_files_changed == ["tests/test_guard.py"]
     assert result.missing_expected_edits == ["src/app.py"]
+    assert result.agent_output_tokens >= 1
+    assert result.estimated_total_cost_usd > 0
 
 
 def test_e2e_hybrid_prompt_combines_grep_and_lite(tmp_path: Path) -> None:
@@ -814,8 +859,31 @@ def test_e2e_agentpack_lite_prompt_uses_compact_map(tmp_path: Path) -> None:
 
     request = service.return_value.run.call_args.args[0]
     assert request.budget == 1234
+    assert request.mode == "lite"
     assert "Selected File Map" in prompt
     assert "`src/refund.py`" in prompt
     assert "High-Risk Omitted Files" in prompt
     assert "`api/refund_route.py`" in prompt
     assert "def refund_order(order_id):" in prompt
+
+
+def test_e2e_cases_template_scaffolds_guarded_hard_categories(tmp_path: Path) -> None:
+    content = _e2e_cases_template(tmp_path)
+
+    assert "caller_signature_change" in content
+    assert "api_service_model_contract" in content
+    assert "protected_paths" in content
+    assert "expected_edit_paths" in content
+    assert "agentpack-lite,hybrid,agentpack" in content
+
+
+def test_benchmark_e2e_init_writes_template(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["benchmark", "e2e-init"])
+
+    assert result.exit_code == 0, result.output
+    out = tmp_path / ".agentpack" / "e2e_cases.toml"
+    assert out.exists()
+    assert "guarded E2E benchmark cases" in out.read_text(encoding="utf-8")

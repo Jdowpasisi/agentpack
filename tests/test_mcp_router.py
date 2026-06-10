@@ -6,7 +6,8 @@ import types
 
 import pytest
 
-from agentpack.mcp_server import _explain_route_impl, _get_skills_impl, _route_task_impl, serve
+from agentpack.mcp_server import _explain_route_impl, _get_skill_impl, _get_skills_impl, _route_task_impl, serve
+from agentpack.router.service import RouteService
 
 
 def _write_route_fixture(root):
@@ -40,6 +41,7 @@ def test_mcp_route_task_returns_json_and_does_not_write_context(tmp_path):
 
     assert data["selected_files"]
     assert data["selected_skills"][0]["skill"]["name"] == "django-pytest"
+    assert data["selected_skills"][0]["skill"]["raw_text"] == ""
     assert data["applied_rules"][0]["rule"]["path"] == "AGENTS.md"
     assert "agent_prompt" in data
     assert not (tmp_path / ".agentpack" / "task.md").exists()
@@ -55,6 +57,15 @@ def test_mcp_get_skills_returns_inventory_json(tmp_path):
     assert data["rules"][0]["path"] == "AGENTS.md"
 
 
+def test_mcp_get_skill_returns_raw_skill_content(tmp_path):
+    _write_route_fixture(tmp_path)
+
+    content = _get_skill_impl(tmp_path, "django-pytest")
+
+    assert "# django-pytest" in content
+    assert "pytest test debugging" in content
+
+
 def test_mcp_explain_route_includes_skill_scores(tmp_path):
     _write_route_fixture(tmp_path)
 
@@ -62,6 +73,28 @@ def test_mcp_explain_route_includes_skill_scores(tmp_path):
 
     assert data["skill_scores"]
     assert data["skill_scores"][0]["reasons"]
+
+
+def test_route_service_separates_always_recommend_baseline_skill(tmp_path):
+    (tmp_path / ".agentpack").mkdir(exist_ok=True)
+    (tmp_path / ".agentpack" / "config.toml").write_text(
+        "[skills]\npaths = [\".agentpack/skills\"]\nalways_recommend = [\"team-quality-bar\"]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "auth.py").write_text("def validate():\n    return True\n", encoding="utf-8")
+    skill = tmp_path / ".agentpack" / "skills" / "team-quality-bar" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "# team-quality-bar\n\nInternal behavior guide.\n",
+        encoding="utf-8",
+    )
+
+    result = RouteService().route_task(tmp_path, "fix auth bug")
+
+    assert [item.skill.name for item in result.baseline_skills] == ["team-quality-bar"]
+    assert result.selected_skills == []
+    assert "Baseline guidance" in result.agent_prompt
 
 
 def test_mcp_server_registers_router_tools(monkeypatch):
@@ -90,4 +123,4 @@ def test_mcp_server_registers_router_tools(monkeypatch):
         serve()
 
     tool_names = set(FakeMCP.instances[0].tools)
-    assert {"route_task", "get_skills", "explain_route"} <= tool_names
+    assert {"route_task", "get_skills", "get_skill", "explain_route"} <= tool_names
