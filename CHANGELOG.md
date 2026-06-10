@@ -10,6 +10,16 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.19] — 2026-06-11
+
+### Added
+- Added prompt-cache friendly stable prefixes to markdown and compact context renderers so provider prefix caches can reuse invariant instructions across context refreshes.
+
+### Changed
+- Documented AgentPack's compress/cache/retrieve model and automatic prompt-prefix cache alignment in the README, runtime loop docs, and architecture docs.
+
+---
+
 ## [0.3.18] — 2026-06-10
 
 ### Added
