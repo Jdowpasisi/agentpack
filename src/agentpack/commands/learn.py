@@ -12,7 +12,7 @@ from agentpack.learning.collector import collect_learning_inputs
 from agentpack.learning.extractor import build_learning_report
 from agentpack.learning.feedback import apply_feedback_to_report, load_feedback_summary, record_learning_feedback
 from agentpack.learning.lesson_ranker import rank_agent_lessons
-from agentpack.learning.provider import LearningProviderError, run_provider_command
+from agentpack.learning.provider import LearningProviderError, run_concept_provider_command, run_provider_command
 from agentpack.learning.quality import score_learning_report
 from agentpack.learning.renderers import (
     learning_report_to_dict,
@@ -41,6 +41,16 @@ def register(app: typer.Typer) -> None:
         pr_comment: bool = typer.Option(False, "--pr-comment", help="Write a PR-comment-ready learning summary artifact."),
         provider_preview: bool = typer.Option(False, "--provider-preview", help="Print the bounded provider payload without making a network call."),
         provider_command: str = typer.Option("", "--provider-command", help="Run a local JSON-in/JSON-out provider command to enrich the report."),
+        concept_provider_command: str = typer.Option(
+            "",
+            "--concept-provider-command",
+            help="Run a local JSON-in/JSON-out provider command to enrich detected learning concepts.",
+        ),
+        no_concept_provider: bool = typer.Option(
+            False,
+            "--no-concept-provider",
+            help="Disable configured concept provider enrichment for this run.",
+        ),
         dashboard: bool = typer.Option(False, "--dashboard", help="Write a static HTML learning dashboard artifact."),
         open_dashboard: bool = typer.Option(False, "--open", help="Open the generated learning dashboard in a browser."),
         team_export: bool = typer.Option(False, "--team-export", help="Write an opt-in team lesson export without personal skill history."),
@@ -110,6 +120,21 @@ def register(app: typer.Typer) -> None:
         if provider_preview:
             typer.echo(render_provider_preview_markdown(report), nl=False)
             return
+
+        concept_command = concept_provider_command or ("" if no_concept_provider else cfg.learning.concept_provider_command)
+        if concept_command:
+            try:
+                report = run_concept_provider_command(
+                    concept_command,
+                    inputs,
+                    report,
+                    timeout_seconds=cfg.learning.concept_provider_timeout_seconds,
+                )
+            except LearningProviderError as exc:
+                if concept_provider_command or cfg.learning.concept_provider_required:
+                    console.print(f"[red]Concept provider command failed:[/] {exc}")
+                    raise typer.Exit(1) from exc
+                console.print(f"[yellow]Concept provider skipped:[/] {exc}")
 
         command = provider_command or cfg.learning.provider_command
         if command:

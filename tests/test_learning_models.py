@@ -29,6 +29,9 @@ def test_learning_config_defaults():
     assert cfg.learning.feedback_output == ".agentpack/learning-feedback.jsonl"
     assert cfg.learning.provider_command == ""
     assert cfg.learning.provider_timeout_seconds == 60
+    assert cfg.learning.concept_provider_command == ""
+    assert cfg.learning.concept_provider_timeout_seconds == 30
+    assert cfg.learning.concept_provider_required is False
     assert cfg.learning.inject_agent_lessons is True
     assert cfg.learning.min_groundedness_score == 70
 
@@ -51,6 +54,9 @@ def test_learning_config_model_accepts_overrides():
             "feedback_output": ".agentpack/custom-feedback.jsonl",
             "provider_command": "learn-provider",
             "provider_timeout_seconds": 12,
+            "concept_provider_command": "concept-provider",
+            "concept_provider_timeout_seconds": 8,
+            "concept_provider_required": True,
             "inject_agent_lessons": False,
             "min_groundedness_score": 80,
         }
@@ -71,6 +77,9 @@ def test_learning_config_model_accepts_overrides():
     assert cfg.learning.feedback_output == ".agentpack/custom-feedback.jsonl"
     assert cfg.learning.provider_command == "learn-provider"
     assert cfg.learning.provider_timeout_seconds == 12
+    assert cfg.learning.concept_provider_command == "concept-provider"
+    assert cfg.learning.concept_provider_timeout_seconds == 8
+    assert cfg.learning.concept_provider_required is True
     assert cfg.learning.inject_agent_lessons is False
     assert cfg.learning.min_groundedness_score == 80
 

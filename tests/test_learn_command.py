@@ -205,6 +205,37 @@ def test_learn_provider_command_enriches_report(tmp_path, monkeypatch):
     assert "Explain provider output for Add CLI learning summaries" in text
 
 
+def test_learn_concept_provider_command_enriches_concepts_and_topics(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    provider = repo / "concept_provider.py"
+    provider.write_text(
+        "import json, sys\n"
+        "payload = json.load(sys.stdin)\n"
+        "assert payload['current_report']['task'] == 'Add CLI learning summaries'\n"
+        "print(json.dumps({\n"
+        "  'concepts': ['developer education'],\n"
+        "  'source_file_concepts': {'cli.py': ['developer education']},\n"
+        "  'learning_topics': [{\n"
+        "    'title': 'Developer Education',\n"
+        "    'why': 'Study how CLI output teaches workflow concepts.',\n"
+        "    'prompt': 'Teach me developer education from this AgentPack task.',\n"
+        "    'files': ['cli.py'],\n"
+        "    'concepts': ['developer education']\n"
+        "  }]\n"
+        "}))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--concept-provider-command", f"python {provider}"])
+
+    assert result.exit_code == 0, result.output
+    text = (repo / ".agentpack" / "learning.md").read_text(encoding="utf-8")
+    assert "developer education" in text
+    assert "Developer Education" in text
+    assert "Teach me developer education" in text
+
+
 def test_learn_provider_command_failure_exits_nonzero(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     provider = repo / "provider.py"
@@ -215,6 +246,18 @@ def test_learn_provider_command_failure_exits_nonzero(tmp_path, monkeypatch):
 
     assert result.exit_code == 1
     assert "Provider command failed" in result.output
+
+
+def test_learn_concept_provider_command_failure_exits_nonzero_when_explicit(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    provider = repo / "concept_provider.py"
+    provider.write_text("raise SystemExit('bad concept provider')\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--concept-provider-command", f"python {provider}"])
+
+    assert result.exit_code == 1
+    assert "Concept provider command failed" in result.output
 
 
 def test_learn_records_feedback(tmp_path, monkeypatch):
@@ -260,6 +303,42 @@ def test_learn_provider_preview_does_not_write_default_file(tmp_path, monkeypatc
     assert "# AgentPack Provider Preview" in result.output
     assert "`cli.py`" in result.output
     assert not (repo / ".agentpack" / "learning.md").exists()
+
+
+def test_learn_provider_preview_skips_configured_concept_provider(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    provider = repo / "concept_provider.py"
+    provider.write_text("raise SystemExit('should not run')\n", encoding="utf-8")
+    (repo / ".agentpack" / "config.toml").write_text(
+        "[learning]\n"
+        f"concept_provider_command = \"python {provider}\"\n"
+        "concept_provider_required = true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--provider-preview"])
+
+    assert result.exit_code == 0, result.output
+    assert "# AgentPack Provider Preview" in result.output
+
+
+def test_learn_configured_concept_provider_failure_warns_by_default(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    provider = repo / "concept_provider.py"
+    provider.write_text("raise SystemExit('temporary unavailable')\n", encoding="utf-8")
+    (repo / ".agentpack" / "config.toml").write_text(
+        "[learning]\n"
+        f"concept_provider_command = \"python {provider}\"\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn"])
+
+    assert result.exit_code == 0, result.output
+    assert "Concept provider skipped" in result.output
+    assert (repo / ".agentpack" / "learning.md").exists()
 
 
 def test_learn_ci_quality_prints_quality_report(tmp_path, monkeypatch):
