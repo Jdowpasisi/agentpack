@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 from agentpack.analysis.repo_map import build_repo_map
@@ -104,6 +105,21 @@ def test_celery_task_and_typer_click_command_detection(tmp_path: Path) -> None:
     assert "Celery task: send_email" in task_summary.entrypoints
     assert task_summary.role == "background email task"
     assert "CLI command: pack" in cli_summary.entrypoints
+
+
+def test_python_summary_invalid_escape_does_not_warn(tmp_path: Path) -> None:
+    src = _write(
+        tmp_path,
+        "regex.py",
+        'PATTERN = "' + "\\(" + '"\n\ndef compile_pattern():\n    return PATTERN\n',
+    )
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", SyntaxWarning)
+        summary = summarize("regex.py", src, "python", "h1")
+
+    assert "compile_pattern" in summary.defines
+    assert not [warning for warning in captured if issubclass(warning.category, SyntaxWarning)]
 
 
 def test_js_role_inference_react_component_and_next_routes(tmp_path: Path) -> None:

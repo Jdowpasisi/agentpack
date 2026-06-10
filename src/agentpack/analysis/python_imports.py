@@ -3,11 +3,13 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from agentpack.analysis.python_ast import parse_python_source
+
 
 def extract_imports(path: Path, text: str | None = None) -> list[str]:
     try:
         source = text if text is not None else path.read_text(errors="replace")
-        tree = ast.parse(source)
+        tree = parse_python_source(source, path)
     except SyntaxError:
         return []
 

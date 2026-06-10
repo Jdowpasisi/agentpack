@@ -4,13 +4,14 @@ import ast
 import re
 from pathlib import Path
 
+from agentpack.analysis.python_ast import parse_python_source
 from agentpack.core.models import Symbol
 
 
 def extract_python_symbols(path: Path) -> list[Symbol]:
     try:
         source = path.read_text(errors="replace")
-        tree = ast.parse(source)
+        tree = parse_python_source(source, path)
     except (SyntaxError, OSError):
         return []
 

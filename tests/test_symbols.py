@@ -1,3 +1,5 @@
+import warnings
+
 from agentpack.analysis.naming_signals import (
     classify_public_name,
     collect_public_name_candidates,
@@ -33,6 +35,18 @@ def test_python_invalid_syntax(tmp_path):
     f = tmp_path / "bad.py"
     f.write_text("def (broken:")
     assert extract_python_symbols(f) == []
+
+
+def test_python_invalid_escape_does_not_warn(tmp_path):
+    f = tmp_path / "regex.py"
+    f.write_text('PATTERN = "' + "\\(" + '"\n\ndef hello():\n    pass\n')
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", SyntaxWarning)
+        syms = extract_python_symbols(f)
+
+    assert "hello" in [s.name for s in syms]
+    assert not [warning for warning in captured if issubclass(warning.category, SyntaxWarning)]
 
 
 def test_js_function(tmp_path):

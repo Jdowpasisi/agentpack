@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agentpack.analysis.python_ast import parse_python_source
 from agentpack.core.models import Symbol
 
 
@@ -239,7 +240,7 @@ def extract_failure_hints(text: str) -> list[str]:
 
 def _python_intelligence(path: str, text: str, symbols: list[Symbol]) -> CodeIntelligence:
     try:
-        tree = ast.parse(text)
+        tree = parse_python_source(text, path)
     except SyntaxError:
         return CodeIntelligence(defines=[s.name for s in symbols[:40]])
 

@@ -1,8 +1,11 @@
 """Tests for Go, Rust, and Java/Kotlin import extractors."""
 
+import warnings
+
 from agentpack.analysis.go_imports import extract_imports as go_extract
 from agentpack.analysis.rust_imports import extract_imports as rust_extract
 from agentpack.analysis.java_imports import extract_imports as java_extract
+from agentpack.analysis.python_imports import extract_imports as py_extract
 from agentpack.analysis.dependency_graph import build
 from agentpack.core.models import FileInfo
 
@@ -67,6 +70,18 @@ def test_kotlin_imports(tmp_path):
 
 def test_go_missing_file(tmp_path):
     assert go_extract(tmp_path / "nonexistent.go") == []
+
+
+def test_python_invalid_escape_import_extraction_does_not_warn(tmp_path):
+    f = tmp_path / "regex.py"
+    f.write_text('import re\nPATTERN = "' + "\\(" + '"\n', encoding="utf-8")
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", SyntaxWarning)
+        imports = py_extract(f)
+
+    assert imports == ["re"]
+    assert not [warning for warning in captured if issubclass(warning.category, SyntaxWarning)]
 
 
 def test_rust_missing_file(tmp_path):
