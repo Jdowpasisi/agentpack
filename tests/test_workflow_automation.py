@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from agentpack.cli import app
+from agentpack.core.loop_protocol import load_loop_state
 
 
 def test_work_initializes_starts_and_runs_next(tmp_path: Path, monkeypatch) -> None:
@@ -33,6 +34,92 @@ def test_work_initializes_starts_and_runs_next(tmp_path: Path, monkeypatch) -> N
     assert payload["passed"] is True
     assert [stage["name"] for stage in payload["stages"]] == ["init", "start", "next"]
     assert any("start" in call for call in calls)
+
+
+def test_work_run_dry_run_writes_loop_state_without_runner_execution(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n", encoding="utf-8")
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr("agentpack.commands.workflow_cmd.subprocess.run", lambda *args, **kwargs: Result())
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "work",
+            "fix auth",
+            "--run",
+            "--dry-run",
+            "--runner",
+            "python -c 'raise SystemExit(9)'",
+            "--verify",
+            "python -c 'print(1)'",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["passed"] is True
+    assert payload["loop_plan"]["runner"] == "python -c 'raise SystemExit(9)'"
+    assert load_loop_state(tmp_path).task == "fix auth"
+
+
+def test_work_run_requires_runner(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n[loop]\nverification_commands = [\"python -c 'print(1)'\"]\n", encoding="utf-8")
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr("agentpack.commands.workflow_cmd.subprocess.run", lambda *args, **kwargs: Result())
+
+    result = CliRunner().invoke(app, ["work", "fix auth", "--run", "--pack-only"])
+
+    assert result.exit_code == 1
+    assert "Ralph Loop runner missing" in result.output
+
+
+def test_work_run_executes_generic_runner_and_verification(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n", encoding="utf-8")
+    monkeypatch.setattr("agentpack.commands.workflow_cmd.run_refresh", lambda *args, **kwargs: {"ok": True})
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr("agentpack.commands.workflow_cmd.subprocess.run", lambda *args, **kwargs: Result())
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "work",
+            "fix auth",
+            "--run",
+            "--pack-only",
+            "--runner",
+            "python -c 'print(\"runner\")'",
+            "--verify",
+            "python -c 'print(\"verify\")'",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["loop_summary"]["status"] == "ready_to_finish"
+    assert load_loop_state(tmp_path).status == "ready_to_finish"
 
 
 def test_finish_runs_diagnosis_capture_checks_done_and_archive(tmp_path: Path, monkeypatch) -> None:
