@@ -100,12 +100,12 @@ Suggested commands:
 
 - **Task-focused packing**: ranks files from git changes, task terms, symbols, imports, related tests, configs, churn, repo history, and deterministic offline summaries.
 - **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
-- **Rendered-token accounting**: budgets against the actual markdown context, not only file payloads.
-- **Reserve buckets**: changed files, tests, docs, and dependencies each get protected selection capacity so one dirty area cannot starve the others.
+- **Rendered-token accounting and reserve buckets**: budgets against actual markdown while protecting changed files, tests, docs, and dependencies.
 - **Execution state**: optional task state files and git-derived fallback status show whether work is planned, in progress, blocked, done, committed, or committed but not pushed.
 - **Thread-scoped context**: explicit `--thread <id>` or `--thread auto` isolates task/context files for multiple agents in one repo and warns on same-branch file overlap.
 - **Task router**: MCP and CLI surfaces route a task to relevant files, scoped rules, installed skills, suggested commands, and safety warnings without executing skills automatically.
-- **Learning layer**: turns task diffs into developer learning notes, skill evidence, and compact lessons future agents can reuse.
+- **Reversible registry and learning layer**: retrieves packed context by block ID, writes developer lessons, and feeds bounded selected-file miss feedback into future ranking.
+- **Runtime scorecard and output compression**: `perf --history` tracks activity, while `compress-output` preserves failures, paths, diffs, and search hits from noisy logs.
 - **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
 - **Local and measurable**: no API calls for scan, summarize, rank, pack, stats, or benchmark; quality is measured with expected-file evals.
 

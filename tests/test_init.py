@@ -28,6 +28,8 @@ def test_repo_gitignore_block_ignores_generated_artifacts() -> None:
     assert ".agentpack/.mcp_reminded" in lines
     assert ".agentpack/session.json" in lines
     assert ".agentpack/task.md" in lines
+    assert ".agentpack/session-events.jsonl" in lines
+    assert ".agentpack/pack-registry.json" in lines
     assert ".agentpack/learning.md" in lines
     assert ".agentpack/daily-summary.md" in lines
     assert ".agentpack/skills-progress.json" in lines
@@ -37,6 +39,7 @@ def test_repo_gitignore_block_ignores_generated_artifacts() -> None:
     assert ".agentpack/learning-dashboard.html" in lines
     assert ".agentpack/team-lessons.md" in lines
     assert ".agentpack/learning-feedback.jsonl" in lines
+    assert ".agentpack/ranking-feedback.jsonl" in lines
     assert ".agentpack/loop_state.json" in lines
     assert ".agentpack/progress.md" in lines
     assert ".agentpack/loop_events.jsonl" in lines

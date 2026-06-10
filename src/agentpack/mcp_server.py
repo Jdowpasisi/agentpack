@@ -443,6 +443,46 @@ def _get_delta_context_impl(root: Path, max_files: int = 12) -> str:
     return "\n".join(lines)
 
 
+def _retrieve_context_impl(root: Path, path: str = "", block_id: str = "", mode: str = "as_stored", allow_stale: bool = False) -> str:
+    from agentpack.core.config import load_config
+    from agentpack.core.pack_registry import retrieve_from_registry
+    from agentpack.session.events import record_event
+
+    cfg = load_config(root)
+    result = retrieve_from_registry(
+        root,
+        path=path,
+        block_id=block_id,
+        mode=mode,
+        allow_stale=allow_stale,
+        max_chars=cfg.runtime.max_retrieve_chars,
+        registry_file=root / cfg.runtime.pack_registry_output,
+    )
+    record_event(
+        root,
+        "retrieve",
+        {"path": path, "block_id": block_id, "mode": mode, "allow_stale": allow_stale},
+        output_path=cfg.runtime.session_events_output,
+    )
+    return result
+
+
+def _compress_output_impl(root: Path, content: str, kind: str = "auto") -> str:
+    from agentpack.core.config import load_config
+    from agentpack.output_compression import compress_output
+    from agentpack.session.events import record_event
+
+    cfg = load_config(root)
+    result = compress_output(content, kind=kind, max_items=cfg.runtime.max_output_summary_items)
+    record_event(
+        root,
+        "compress_output",
+        {"kind": kind, "input_chars": len(content), "output_chars": len(result)},
+        output_path=cfg.runtime.session_events_output,
+    )
+    return result
+
+
 def _route_task_impl(root: Path, task: str) -> str:
     """Return read-only task route JSON; does not write task/context files."""
     from agentpack.router.service import RouteService
@@ -619,6 +659,23 @@ def serve() -> None:
         Returns a compact markdown delta suitable for hooks and agent refresh checks.
         """
         return _get_delta_context_impl(_repo_root(), max_files)
+
+    @mcp.tool()
+    def retrieve_context(path: str = "", block_id: str = "", mode: str = "as_stored", allow_stale: bool = False) -> str:
+        """Retrieve full or stored content for a selected/omitted pack registry record.
+
+        Args:
+            path: Repo-relative path to retrieve.
+            block_id: Stable block id from the pack registry. Optional if path is set.
+            mode: as_stored | full | skeleton | summary.
+            allow_stale: If false, refuse retrieval when file changed since the latest pack.
+        """
+        return _retrieve_context_impl(_repo_root(), path=path, block_id=block_id, mode=mode, allow_stale=allow_stale)
+
+    @mcp.tool()
+    def compress_output(content: str, kind: str = "auto") -> str:
+        """Summarize noisy command output while preserving errors, failures, paths, and diffs."""
+        return _compress_output_impl(_repo_root(), content=content, kind=kind)
 
     @mcp.tool()
     def get_stats() -> str:

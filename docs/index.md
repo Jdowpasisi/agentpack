@@ -23,3 +23,4 @@ AgentPack is a local MCP context router for Claude Code, Codex, Cursor, Windsurf
 
 - [AgentPack vs Repomix](agentpack-vs-repomix.md)
 - [AgentPack vs Augment Context Engine](agentpack-vs-augment-context-engine.md)
+- [AgentPack runtime loop](runtime-loop.md)

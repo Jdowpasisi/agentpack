@@ -30,6 +30,12 @@ Command map:
 | `agentpack pack` | Generate a ranked context pack for one task |
 | `agentpack next` | Recommend the next AgentPack action from repo/task/context state |
 | `agentpack route` | Route a task to files, rules, skills, commands, and safety warnings |
+| `agentpack retrieve` | Retrieve file or symbol context from the latest pack registry |
+| `agentpack learn` | Generate local learning notes, skill evidence, future-agent lessons, selected-file miss feedback, and local feedback signals |
+| `agentpack perf` | Show runtime scorecard and optional recent history from pack, retrieval, and output-compression events |
+| `agentpack wrap` | Pack fresh task context, then launch a coding agent binary |
+| `agentpack compress-output` | Summarize noisy command output while preserving failures, paths, and diffs |
+| `agentpack memory` | Show local cross-agent task memory from events and learning artifacts |
 | `agentpack skills scan` | Print discovered local/global skills and rules |
 | `agentpack skills index` | Write `.agentpack/skills_index.json` metadata for faster routing |
 | `agentpack skills recommend` | Explain task-specific skill recommendations and confidence |
@@ -56,6 +62,88 @@ Command map:
 | `agentpack ci init` | Generate a GitHub Actions workflow for AgentPack checks |
 | `agentpack global-install` | Install opt-in global hooks for initialized repos |
 | `agentpack global-repair-hooks` | Repair stale global template hooks and current repo git hooks |
+
+### `agentpack learn`
+
+Generate local learning notes from the latest task, pack metadata, and git diff.
+
+```bash
+agentpack learn --since main
+agentpack learn --json
+agentpack learn feedback helpful --target card:1
+agentpack learn feedback not-helpful --note "too generic"
+```
+
+Writes `.agentpack/learning.md`, `.agentpack/agent-lessons.md`, and
+`.agentpack/skills-progress.json`. Missed selected files are appended to
+`.agentpack/ranking-feedback.jsonl`; later packs give overlapping tasks a small
+boost for those missed paths. Explicit feedback writes
+`.agentpack/learning-feedback.jsonl`. Future packs inject bounded agent lessons
+when `[learning].inject_agent_lessons = true`.
+
+### `agentpack retrieve`
+
+Retrieve content from the latest `.agentpack/pack-registry.json`.
+
+```bash
+agentpack retrieve src/app.py
+agentpack retrieve --block-id src__app.py__run:abc123def456
+agentpack retrieve src/app.py --mode skeleton
+agentpack retrieve src/app.py --mode full --allow-stale
+```
+
+Use `--block-id` for exact file or symbol blocks printed by pack-registry
+retrieval output. Full-file retrieval refuses stale hashes unless
+`--allow-stale` is passed.
+
+### `agentpack perf`
+
+Show a local runtime scorecard from `.agentpack/session-events.jsonl`.
+
+```bash
+agentpack perf
+agentpack perf --history 10
+agentpack perf --history 10 --json
+```
+
+### `agentpack wrap`
+
+Write/refresh task context, then launch a coding agent.
+
+```bash
+agentpack wrap codex --task "fix auth retry" --dry-run
+agentpack wrap codex --task "fix auth retry" --dry-run --print-env
+agentpack wrap claude --task "update docs" -- --model opus
+```
+
+`--dry-run` prints the launch command without starting the agent. `wrap` passes
+`AGENTPACK_ROOT`, `AGENTPACK_CONTEXT`, and `AGENTPACK_TASK` to the launched
+process and warns when expected local agent setup files are absent.
+
+### `agentpack compress-output`
+
+Summarize noisy output while preserving failures, paths, diffs, and repeated
+lines.
+
+```bash
+pytest -q 2>&1 | agentpack compress-output --kind pytest
+agentpack compress-output test-output.txt --kind npm
+git diff | agentpack compress-output --kind git-diff
+rg "TODO" src | agentpack compress-output --kind rg
+```
+
+Specialized kinds currently cover test logs (`pytest`, `npm`, `vitest`, `jest`),
+diffs (`git-diff`, `diff`, `patch`), search output (`rg`, `grep`, `search`),
+and listings (`ls`, `find`, `tree`). Unknown kinds use the generic fallback.
+
+### `agentpack memory`
+
+Show local cross-agent task memory from AgentPack events and learning output.
+
+```bash
+agentpack memory
+agentpack memory --json
+```
 
 ### `agentpack global-install`
 

@@ -16,6 +16,7 @@ from agentpack.learning.models import (
 
 
 CONCEPT_RULES: list[tuple[str, tuple[str, ...]]] = [
+    ("mcp", ("mcp", "model context protocol", "retrieve_context")),
     ("authentication", ("auth", "token", "login", "permission", "jwt", "expired")),
     ("retry logic", ("retry", "retries", "attempt", "backoff", "timeout")),
     ("caching", ("cache", "redis", "memo", "ttl")),
@@ -31,8 +32,8 @@ CONCEPT_RULES: list[tuple[str, tuple[str, ...]]] = [
 def build_learning_report(
     inputs: LearningInputs,
     *,
-    max_cards: int,
-    max_quiz_questions: int,
+    max_cards: int = 5,
+    max_quiz_questions: int = 5,
 ) -> LearningReport:
     source_files = [
         LearningSourceFile(
@@ -57,6 +58,8 @@ def build_learning_report(
     quiz = _quiz_questions(concepts)[:max_quiz_questions]
     agent_lessons = _agent_lessons(concepts, source_files)[:max_cards]
     skill_evidence = _skill_evidence(inputs, concepts, source_files)
+    selected = set(inputs.selected_files)
+    changed = set(inputs.changed_files)
 
     return LearningReport(
         task=inputs.task,
@@ -74,6 +77,8 @@ def build_learning_report(
         agent_lessons=agent_lessons,
         skill_evidence=skill_evidence,
         next_practice=_next_practice(concepts, source_files),
+        selected_hits=sorted(changed & selected),
+        selected_misses=sorted(changed - selected) if selected else [],
     )
 
 

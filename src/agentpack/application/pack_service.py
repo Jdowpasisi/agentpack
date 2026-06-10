@@ -27,6 +27,7 @@ from agentpack.core.models import (
     ScanResult,
     SelectedFile,
 )
+from agentpack.core.pack_registry import save_pack_registry
 from agentpack.core.task_freshness import read_task_md, task_metadata
 from agentpack.core.thread_context import (
     append_thread_index,
@@ -36,6 +37,7 @@ from agentpack.core.thread_context import (
     thread_paths,
 )
 from agentpack.core.token_estimator import estimate_tokens
+from agentpack.learning.feedback import ranking_feedback_boosts
 from agentpack.renderers.markdown import render_claude, render_generic
 from agentpack.analysis.ranking import (
     build_keyword_plan,
@@ -59,6 +61,7 @@ from agentpack.analysis.task_classifier import classify_task
 from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
 from agentpack.summaries.base import build_all_summaries
+from agentpack.session.events import record_event
 
 
 @dataclass
@@ -267,6 +270,7 @@ class FileRanker:
                 changes.all_changed,
                 generic_ratio=generic_ratio,
             )
+            scored = _apply_ranking_feedback_boosts(root, scored, task, changes.all_changed)
         return RankResult(
             keywords=keywords,
             keyword_plan=keyword_plan,
@@ -673,6 +677,9 @@ class AdapterRegistry:
                 cfg.learning.dashboard_output,
                 cfg.learning.team_lessons_output,
                 cfg.learning.feedback_output,
+                cfg.learning.ranking_feedback_output,
+                cfg.runtime.pack_registry_output,
+                cfg.runtime.session_events_output,
             }
         )
         return paths
@@ -788,6 +795,29 @@ class PackService:
             execution_state=pack_obj.execution_state,
             concurrent_context=pack_obj.concurrent_context,
             metadata_path=scoped_paths.metadata if scoped_paths else None,
+        )
+        save_pack_registry(
+            root,
+            pack_obj,
+            packable,
+            output_path=cfg.runtime.pack_registry_output,
+            max_records=cfg.runtime.max_registry_records,
+        )
+        record_event(
+            root,
+            "pack",
+            {
+                "task": request.task,
+                "agent": request.agent,
+                "mode": plan.mode,
+                "packed_tokens": packed_tokens,
+                "raw_tokens": all_tokens,
+                "selected_files": len(pack_obj.selected_files),
+                "omitted_files": len(pack_obj.omitted_relevant_files),
+                "changed_files": len(pack_obj.changed_files),
+                "context_path": str(out_path.relative_to(root)),
+            },
+            output_path=cfg.runtime.session_events_output,
         )
         if thread_row:
             append_thread_index(root, thread_row)
@@ -1142,6 +1172,25 @@ def _apply_history_penalties(
             continue
         penalty = min(45.0, count * 6.0 + max(0, count - 2) * 4.0)
         adjusted.append((fi, max(0.0, score - penalty), [*reasons, f"history noise penalty -{penalty:.0f}"]))
+    return adjusted
+
+
+def _apply_ranking_feedback_boosts(
+    root: Path,
+    scored: list[tuple[Any, float, list[str]]],
+    task: str,
+    changed_paths: set[str],
+) -> list[tuple[Any, float, list[str]]]:
+    boosts = ranking_feedback_boosts(root, task)
+    if not boosts:
+        return scored
+    adjusted: list[tuple[Any, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        boost = boosts.get(fi.path, 0.0)
+        if boost <= 0 or fi.path in changed_paths:
+            adjusted.append((fi, score, reasons))
+            continue
+        adjusted.append((fi, score + boost, [*reasons, f"learning feedback miss boost +{boost:.0f}"]))
     return adjusted
 
 

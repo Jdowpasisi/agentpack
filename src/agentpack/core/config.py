@@ -55,6 +55,7 @@ class LearningConfig(BaseModel):
     llm_prompt_output: str = ".agentpack/learning.prompt.md"
     pr_comment_output: str = ".agentpack/pr-learning-comment.md"
     feedback_output: str = ".agentpack/learning-feedback.jsonl"
+    ranking_feedback_output: str = ".agentpack/ranking-feedback.jsonl"
     dashboard_output: str = ".agentpack/learning-dashboard.html"
     team_lessons_output: str = ".agentpack/team-lessons.md"
     provider_command: str = ""
@@ -83,6 +84,14 @@ class LoopConfig(BaseModel):
     runner_timeout_seconds: int = 600
     verification_timeout_seconds: int = 600
     max_repeated_failures: int = 3
+
+
+class RuntimeConfig(BaseModel):
+    pack_registry_output: str = ".agentpack/pack-registry.json"
+    session_events_output: str = ".agentpack/session-events.jsonl"
+    max_registry_records: int = 200
+    max_retrieve_chars: int = 20000
+    max_output_summary_items: int = 40
 
 
 class HooksConfig(BaseModel):
@@ -156,6 +165,7 @@ class Config(BaseModel):
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     loop: LoopConfig = Field(default_factory=LoopConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -207,6 +217,7 @@ agent_lessons_output = ".agentpack/agent-lessons.md"
 llm_prompt_output = ".agentpack/learning.prompt.md"
 pr_comment_output = ".agentpack/pr-learning-comment.md"
 feedback_output = ".agentpack/learning-feedback.jsonl"
+ranking_feedback_output = ".agentpack/ranking-feedback.jsonl"
 dashboard_output = ".agentpack/learning-dashboard.html"
 team_lessons_output = ".agentpack/team-lessons.md"
 provider_command = ""
@@ -220,6 +231,13 @@ max_diff_chars_per_file = 1200
 max_cards = 5
 max_quiz_questions = 5
 min_groundedness_score = 70
+
+[runtime]
+pack_registry_output = ".agentpack/pack-registry.json"
+session_events_output = ".agentpack/session-events.jsonl"
+max_registry_records = 200
+max_retrieve_chars = 20000
+max_output_summary_items = 40
 
 [loop]
 enabled = true

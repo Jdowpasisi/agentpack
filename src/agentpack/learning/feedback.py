@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from agentpack.learning.models import FeedbackSignal, FeedbackSummary, LearningReport
+
+
+VALID_FEEDBACK = {"helpful", "not-helpful", "ignored", "bad"}
+RANKING_FEEDBACK_PATH = ".agentpack/ranking-feedback.jsonl"
 
 
 def record_learning_feedback(
@@ -29,6 +34,69 @@ def record_learning_feedback(
     ).model_dump(mode="json")
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def record_direct_learning_feedback(
+    path: Path,
+    feedback: str,
+    *,
+    task: str = "",
+    note: str = "",
+    target: str = "",
+) -> dict:
+    normalized = _normalize_feedback(feedback)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = FeedbackSignal(
+        created_at=datetime.now(timezone.utc).isoformat(),
+        task=task,
+        scope="task",
+        feedback=normalized,
+        note=note,
+        target=target,
+        concepts=[],
+        source_files=[],
+    ).model_dump(mode="json")
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, sort_keys=True) + "\n")
+    return payload
+
+
+def record_ranking_feedback(
+    root: Path,
+    report: LearningReport,
+    *,
+    output_path: str = RANKING_FEEDBACK_PATH,
+) -> int:
+    if not report.selected_misses:
+        return 0
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "task": report.task,
+        "concepts": report.concepts,
+        "missed_paths": report.selected_misses,
+        "hit_paths": report.selected_hits,
+    }
+    _append_jsonl(root / output_path, record)
+    return len(report.selected_misses)
+
+
+def ranking_feedback_boosts(root: Path, task: str, *, output_path: str = RANKING_FEEDBACK_PATH) -> dict[str, float]:
+    task_terms = _terms(task)
+    if not task_terms:
+        return {}
+    boosts: dict[str, float] = {}
+    for record in _read_jsonl(root / output_path):
+        feedback_terms = _terms(str(record.get("task") or ""))
+        for concept in record.get("concepts") or []:
+            if isinstance(concept, str):
+                feedback_terms |= _terms(concept)
+        overlap = task_terms & feedback_terms
+        if not overlap:
+            continue
+        for path in record.get("missed_paths") or []:
+            if isinstance(path, str) and path:
+                boosts[path] = min(60.0, boosts.get(path, 0.0) + 18.0 + min(12.0, len(overlap) * 3.0))
+    return boosts
 
 
 def load_feedback_summary(path: Path) -> FeedbackSummary:
@@ -169,3 +237,45 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(key)
         result.append(value)
     return result
+
+
+def _normalize_feedback(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"not_helpful", "nothelpful", "unhelpful", "no"}:
+        normalized = "not-helpful"
+    if normalized not in VALID_FEEDBACK:
+        allowed = ", ".join(sorted(VALID_FEEDBACK))
+        raise ValueError(f"Unknown feedback '{value}'. Expected one of: {allowed}.")
+    return normalized
+
+
+def _append_jsonl(path: Path, record: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-100:]
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            rows.append(record)
+    return rows
+
+
+def _terms(value: str) -> set[str]:
+    return {
+        term
+        for term in re.split(r"[^a-zA-Z0-9]+", value.lower())
+        if len(term) >= 3
+    }

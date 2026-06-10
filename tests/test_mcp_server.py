@@ -12,6 +12,8 @@ from agentpack.mcp_server import (
     _get_context_impl,
     _get_delta_context_impl,
     _get_stats_impl,
+    _retrieve_context_impl,
+    _compress_output_impl,
     _explain_file_impl,
     _get_related_files_impl,
     _resolve_mcp_task,
@@ -82,6 +84,18 @@ def test_truncate_no_truncation_marker_when_fits():
     small = _make_pack(n_files=1, chars_per_file=10)
     result = _truncate_to_budget(small, max_tokens=10000)
     assert "Truncated" not in result
+
+
+def test_mcp_compress_output_preserves_error(tmp_path):
+    result = _compress_output_impl(tmp_path, "noise\n" * 30 + "ERROR src/app.py:10 failed\n", kind="pytest")
+
+    assert "ERROR src/app.py:10 failed" in result
+
+
+def test_mcp_retrieve_context_missing_registry(tmp_path):
+    result = _retrieve_context_impl(tmp_path, path="src/app.py")
+
+    assert "No pack registry found" in result
 
 
 # ---------------------------------------------------------------------------

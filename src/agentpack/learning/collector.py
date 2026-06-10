@@ -4,17 +4,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentpack.core import git
+from agentpack.core.context_pack import load_pack_metadata
 from agentpack.session.state import TASK_FILE
 
 
 @dataclass
 class LearningInputs:
     task: str
-    since: str | None
     changed_files: dict[str, str]
+    since: str | None = None
     since_date: str | None = None
     diffs: dict[str, str] = field(default_factory=dict)
     redaction_warnings: list[str] = field(default_factory=list)
+    selected_files: list[str] = field(default_factory=list)
+    selected_modes: dict[str, str] = field(default_factory=dict)
 
 
 def collect_learning_inputs(
@@ -42,6 +45,7 @@ def collect_learning_inputs(
             )
         diffs[path] = diff
         warnings.extend(redaction_warnings)
+    selected_files, selected_modes = _latest_selected_files(root)
     return LearningInputs(
         task=task,
         since=since,
@@ -49,6 +53,8 @@ def collect_learning_inputs(
         changed_files={path: changed[path] for path in limited_paths},
         diffs=diffs,
         redaction_warnings=warnings,
+        selected_files=selected_files,
+        selected_modes=selected_modes,
     )
 
 
@@ -62,3 +68,25 @@ def _read_task(root: Path) -> str:
         if line.strip() and not line.startswith("#")
     ]
     return lines[0] if lines else "Current work"
+
+
+def _latest_selected_files(root: Path) -> tuple[list[str], dict[str, str]]:
+    metadata = load_pack_metadata(root) or {}
+    raw = metadata.get("selected_files_meta") or metadata.get("selected_files") or []
+    selected: list[str] = []
+    modes: dict[str, str] = {}
+    if not isinstance(raw, list):
+        return selected, modes
+    for item in raw:
+        if isinstance(item, str):
+            selected.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        if isinstance(path, str):
+            selected.append(path)
+            mode = item.get("mode")
+            if isinstance(mode, str):
+                modes[path] = mode
+    return selected, modes

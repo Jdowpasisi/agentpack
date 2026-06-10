@@ -19,6 +19,7 @@ from agentpack.application.pack_service import AdapterRegistry
 from agentpack.analysis.ranking import suggest_task_rewrite
 from agentpack.commands._shared import console, _root
 from agentpack.session.state import SessionState
+from agentpack.session.events import read_events, summarize_events
 
 
 def register(app: typer.Typer) -> None:
@@ -136,6 +137,18 @@ def register(app: typer.Typer) -> None:
         token_tbl.add_row("files full", f"{included_count:,}")
         token_tbl.add_row("files summary", f"{summarized_count:,}")
         console.print(token_tbl)
+
+        events_summary = summarize_events(read_events(root, output_path=cfg.runtime.session_events_output))
+        if events_summary["events"]:
+            console.print()
+            events_tbl = Table(title="Runtime Events", box=box.SIMPLE, show_header=False, padding=(0, 2))
+            events_tbl.add_column(style="dim")
+            events_tbl.add_column(justify="right", style="bold")
+            events_tbl.add_row("events", f"{events_summary['events']:,}")
+            events_tbl.add_row("estimated saved tokens", f"{events_summary['estimated_saved_tokens']:,}")
+            events_tbl.add_row("retrievals", f"{events_summary['retrievals']:,}")
+            events_tbl.add_row("output compressions", f"{events_summary['output_compressions']:,}")
+            console.print(events_tbl)
 
         workspace_rows = _workspace_rows(meta, top_files)
         if workspace_rows:

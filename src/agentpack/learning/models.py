@@ -106,3 +106,6 @@ class LearningReport(BaseModel):
     agent_lessons: list[AgentLesson] = Field(default_factory=list)
     skill_evidence: list[SkillEvidence] = Field(default_factory=list)
     next_practice: str = ""
+    quality_findings: list[str] = Field(default_factory=list)
+    selected_hits: list[str] = Field(default_factory=list)
+    selected_misses: list[str] = Field(default_factory=list)

@@ -53,6 +53,18 @@ Quality gates for a serious local eval:
 | Miss diagnostics | every miss has status, rank, score, and reasons |
 | Mode comparison | `minimal`, `balanced`, and `deep` all reported |
 
+Runtime-loop features also have deterministic regression checks:
+
+```bash
+pytest tests/test_runtime_loop_benchmark.py -q
+```
+
+Those tests prove two measurable claims for the new local runtime loop:
+compressed noisy output must preserve failing lines while reducing estimated
+tokens, and learning reports must expose selected-file hits and misses from
+changed-file evidence. Command-level regression tests also cover registry
+retrieval, learning feedback, perf history, and wrapper launch metadata.
+
 The synthetic `--sample-fixtures` suite is a regression smoke test over small
 committed fixtures. It is intentionally separate from the public proof gate and
 may fail the default `--prove-targets` thresholds while still producing useful
