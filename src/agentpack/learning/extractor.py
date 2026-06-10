@@ -9,6 +9,7 @@ from agentpack.learning.models import (
     LearningCard,
     LearningReport,
     LearningSourceFile,
+    LearningTopic,
     QuizQuestion,
     SkillEvidence,
 )
@@ -18,6 +19,7 @@ CONCEPT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("authentication", ("auth", "token", "login", "permission", "jwt", "expired")),
     ("retry logic", ("retry", "retries", "attempt", "backoff", "timeout")),
     ("caching", ("cache", "redis", "memo", "ttl")),
+    ("rate limiting", ("rate limit", "rate_limit", "ratelimit", "limiter", "throttle", "quota", "429")),
     ("configuration", ("config", "toml", "env", "setting")),
     ("testing", ("test_", "pytest", "assert ", "fixture")),
     ("CLI design", ("typer", "@app.command", "option", "argument", "command")),
@@ -50,6 +52,7 @@ def build_learning_report(
     decisions = _decision_lines(concepts)
     risks = _risk_lines(concepts)
     tests = _test_lines(source_files)
+    topics = _learning_topics(inputs, concepts, source_files)[:max_cards]
     cards = _learning_cards(concepts, source_files)[:max_cards]
     quiz = _quiz_questions(concepts)[:max_quiz_questions]
     agent_lessons = _agent_lessons(concepts, source_files)[:max_cards]
@@ -65,6 +68,7 @@ def build_learning_report(
         decisions=decisions,
         risks=risks,
         tests=tests,
+        learning_topics=topics,
         learning_cards=cards,
         quiz=quiz,
         agent_lessons=agent_lessons,
@@ -119,6 +123,8 @@ def _risk_lines(concepts: list[str]) -> list[str]:
         risks.append("Retry logic needs bounded attempts and visible failure paths.")
     if "caching" in concepts:
         risks.append("Caching changes can return stale data if invalidation is unclear.")
+    if "rate limiting" in concepts:
+        risks.append("Rate limiting changes need clear identity keys, windows, limits, and failure behavior.")
     if not risks:
         risks.append("Generated learning summaries can become noise if they are not specific to changed files.")
     return risks
@@ -139,6 +145,7 @@ def _learning_cards(concepts: list[str], source_files: list[LearningSourceFile])
         "authentication": "Trace trust boundaries, token lifetime, and failure mode before changing auth code.",
         "retry logic": "Retries need a maximum attempt count, idempotent operation, and clear final error.",
         "caching": "Cache behavior is correct only when read path, write path, TTL, and invalidation are understood.",
+        "rate limiting": "Rate limiting needs a stable identity key, bounded window, storage semantics, and visible 429 behavior.",
         "configuration": "Config changes need defaults, parsing behavior, docs, and migration compatibility.",
         "testing": "Good regression tests assert observable behavior and avoid depending on implementation details.",
         "CLI design": "CLI commands should keep flags explicit, output predictable, and file writes easy to inspect.",
@@ -169,6 +176,10 @@ def _quiz_questions(concepts: list[str]) -> list[QuizQuestion]:
             question="What must be checked before changing cache behavior?",
             answer="Read path, write path, TTL, invalidation, and stale-data behavior.",
         ),
+        "rate limiting": QuizQuestion(
+            question="What makes rate limiting correct and debuggable?",
+            answer="A clear identity key, window algorithm, limit, storage behavior, and observable 429 response.",
+        ),
         "testing": QuizQuestion(
             question="What should a regression test assert?",
             answer="Observable behavior that would fail if the bug returned.",
@@ -195,6 +206,10 @@ def _agent_lessons(concepts: list[str], source_files: list[LearningSourceFile]) 
         "caching": (
             "When changing cache behavior, inspect read path, write path, TTL, and invalidation together.",
             "Cache bugs often appear as stale data outside the changed file.",
+        ),
+        "rate limiting": (
+            "When implementing rate limits, verify identity keys, window semantics, storage TTLs, and 429 tests.",
+            "Rate limits can fail open, over-block users, or leak under concurrent requests.",
         ),
         "CLI design": (
             "When editing CLI commands, update command docs and add tests for default, custom output, and JSON modes.",
@@ -231,6 +246,8 @@ def _skill_evidence(
 
 
 def _next_practice(concepts: list[str], source_files: list[LearningSourceFile]) -> str:
+    if "rate limiting" in concepts:
+        return "Explain the rate-limit identity key, window, storage TTL, and one 429 regression test."
     if "retry logic" in concepts:
         return "Add or review one test that proves retry attempts stop after the configured limit."
     if "CLI design" in concepts:
@@ -238,6 +255,72 @@ def _next_practice(concepts: list[str], source_files: list[LearningSourceFile]) 
     if source_files:
         return f"Explain why {source_files[0].path} changed without looking at the diff."
     return "Write a one-paragraph summary of the task and one regression test idea."
+
+
+def _learning_topics(
+    inputs: LearningInputs,
+    concepts: list[str],
+    source_files: list[LearningSourceFile],
+) -> list[LearningTopic]:
+    files_by_concept = _files_by_concept(concepts, source_files)
+    topics: list[LearningTopic] = []
+    if "rate limiting" in concepts:
+        topic_concepts = ["rate limiting"]
+        title = "Implementing Rate Limits"
+        why = "Study how to enforce request quotas without failing open or blocking valid users."
+        files = files_by_concept.get("rate limiting", [])
+        if "caching" in concepts or _mentions_any(source_files, ("redis", "ttl")):
+            topic_concepts.append("caching")
+            title = "Implementing Rate Limits With Redis"
+            why = "Study Redis-backed counters, windows, TTLs, and atomic updates for rate limiting."
+            files = _unique([*files, *files_by_concept.get("caching", [])])[:5]
+        topics.append(_topic(inputs, title=title, why=why, concepts=topic_concepts, files=files))
+
+    templates = {
+        "authentication": ("Authentication Failure Modes", "Study how auth changes fail closed, handle expired tokens, and preserve trust boundaries."),
+        "retry logic": ("Safe Retry Logic", "Study bounded retries, idempotency, backoff, and final failure visibility."),
+        "caching": ("Cache Correctness", "Study read/write paths, TTLs, invalidation, and stale-data behavior."),
+        "configuration": ("Configuration Design", "Study defaults, parsing, migration compatibility, and documentation."),
+        "testing": ("Regression Test Design", "Study how to turn recent code changes into behavior-focused regression tests."),
+        "CLI design": ("CLI Workflow Design", "Study predictable flags, outputs, exit codes, and automation-safe command behavior."),
+        "context packing": ("Context Packing Quality", "Study how task clarity, changed files, ranking, and token budgets shape agent context."),
+        "serialization": ("Stable Serialization", "Study schema evolution, JSON-safe types, and stable field names."),
+    }
+    existing = {topic.title for topic in topics}
+    for concept in concepts:
+        if concept in {"rate limiting"}:
+            continue
+        title, why = templates.get(concept, (concept.title(), f"Study how {concept} appears in the recent task."))
+        if title in existing:
+            continue
+        topics.append(_topic(inputs, title=title, why=why, concepts=[concept], files=files_by_concept.get(concept, [])))
+        existing.add(title)
+    return topics
+
+
+def _topic(
+    inputs: LearningInputs,
+    *,
+    title: str,
+    why: str,
+    concepts: list[str],
+    files: list[str],
+) -> LearningTopic:
+    evidence = files[:5]
+    prompt = (
+        f"Teach me {title.lower()} using this recent coding task as context.\n"
+        f"Task: {inputs.task}\n"
+        f"Concepts detected: {', '.join(concepts)}\n"
+        f"Evidence files: {', '.join(evidence) or 'none'}\n\n"
+        "Explain the core idea, common implementation choices, failure modes, testing strategy, "
+        "and a small checklist I can apply before shipping. Do not assume code that is not implied by the task or evidence files."
+    )
+    return LearningTopic(title=title, why=why, prompt=prompt, files=evidence, concepts=concepts)
+
+
+def _mentions_any(source_files: list[LearningSourceFile], terms: tuple[str, ...]) -> bool:
+    haystack = "\n".join([source.path + " " + " ".join(source.concepts) for source in source_files]).lower()
+    return any(term in haystack for term in terms)
 
 
 def _files_by_concept(

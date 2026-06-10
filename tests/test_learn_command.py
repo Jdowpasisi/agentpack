@@ -163,6 +163,8 @@ def test_learn_writes_dashboard_and_team_export(tmp_path, monkeypatch):
     assert "AgentPack Learn Dashboard" in dashboard
     assert 'class="topbar"' in dashboard
     assert "Changed File Evidence" in dashboard
+    assert "Learning Topics" in dashboard
+    assert "Copy-ready study prompt" in dashboard
     assert "Learning Cards" in dashboard
     assert "<script" not in dashboard.lower()
     assert "https://" not in dashboard

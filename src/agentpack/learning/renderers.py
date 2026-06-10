@@ -106,6 +106,16 @@ def render_quality_markdown(report: LearningReport, score: int, issues: list[str
 
 def render_dashboard_html(report: LearningReport) -> str:
     concepts = "".join(f'<span class="chip">{html.escape(concept)}</span>' for concept in report.concepts) or '<span class="muted">None detected</span>'
+    topics = "".join(
+        '<article class="learning-card topic-card">'
+        f"<h3>{html.escape(topic.title)}</h3>"
+        f"<p>{html.escape(topic.why)}</p>"
+        f'<p class="evidence"><strong>Evidence</strong><br>{_file_chips(topic.files)}</p>'
+        f'<p class="evidence"><strong>Concepts</strong><br>{_file_chips(topic.concepts)}</p>'
+        f'<label class="copy-label">Copy-ready study prompt</label><pre class="copy-prompt">{html.escape(topic.prompt)}</pre>'
+        "</article>"
+        for topic in report.learning_topics
+    ) or '<p class="muted">No learning topics generated.</p>'
     cards = "".join(
         '<article class="learning-card">'
         f"<h3>{html.escape(card.title)}</h3>"
@@ -187,6 +197,9 @@ def render_dashboard_html(report: LearningReport) -> str:
     .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }}
     .learning-card {{ border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; padding: 14px; background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(14px) saturate(135%); }}
     .learning-card p {{ margin: 10px 0 0; }}
+    .topic-card {{ display: grid; gap: 8px; }}
+    .copy-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0.04em; }}
+    .copy-prompt {{ margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: rgba(246,248,251,0.84); color: var(--text); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; user-select: all; }}
     .chips {{ display: flex; flex-wrap: wrap; gap: 6px; }}
     .chip {{ display: inline-flex; align-items: center; border: 1px solid rgba(148,163,184,0.48); border-radius: 999px; padding: 2px 8px; background: var(--accent-bg); color: var(--accent); font-size: 12px; margin: 2px 4px 2px 0; }}
     table {{ width: 100%; border-collapse: collapse; }}
@@ -217,6 +230,7 @@ def render_dashboard_html(report: LearningReport) -> str:
     <nav aria-label="Learning dashboard sections">
       <a href="#concepts">Concepts</a>
       <a href="#files">Files</a>
+      <a href="#topics">Topics</a>
       <a href="#cards">Cards</a>
       <a href="#lessons">Lessons</a>
       <a href="#practice">Practice</a>
@@ -238,11 +252,13 @@ def render_dashboard_html(report: LearningReport) -> str:
   <div class="metric-grid">
     <section class="metric"><strong>Changed Files</strong><span>{len(report.source_files)}</span></section>
     <section class="metric"><strong>Concepts</strong><span>{len(report.concepts)}</span></section>
+    <section class="metric"><strong>Learning Topics</strong><span>{len(report.learning_topics)}</span></section>
     <section class="metric"><strong>Cards</strong><span>{len(report.learning_cards)}</span></section>
     <section class="metric"><strong>Agent Lessons</strong><span>{len(report.agent_lessons)}</span></section>
   </div>
   <section id="concepts" class="section"><div class="section-header"><h2>Concepts</h2><small>Detected from changed-file evidence</small></div><div class="section-body chips">{concepts}</div></section>
   <section id="files" class="section"><div class="section-header"><h2>Changed File Evidence</h2><small>Source-backed learning inputs</small></div><div class="section-body"><div class="table-wrap"><table><thead><tr><th>Path</th><th>Change</th><th>Why</th><th>Concepts</th></tr></thead><tbody>{source_rows}</tbody></table></div></div></section>
+  <section id="topics" class="section"><div class="section-header"><h2>Learning Topics</h2><small>Copy a source-backed prompt into GPT, Gemini, or another study tool</small></div><div class="section-body card-grid">{topics}</div></section>
   <section id="cards" class="section"><div class="section-header"><h2>Learning Cards</h2><small>Review-ready summaries</small></div><div class="section-body card-grid">{cards}</div></section>
   <section class="section"><div class="section-header"><h2>Risks and Tests</h2><small>What to review next</small></div><div class="section-body card-grid"><article class="learning-card"><h3>Risks</h3><ul>{risks}</ul></article><article class="learning-card"><h3>Tests</h3><ul>{tests}</ul></article></div></section>
   <section id="lessons" class="section"><div class="section-header"><h2>Agent Lessons</h2><small>Rules captured for future runs</small></div><div class="section-body"><ul>{lessons}</ul></div></section>
@@ -304,6 +320,15 @@ def render_learning_markdown(report: LearningReport) -> str:
     lines.extend(f"- {risk}" for risk in report.risks)
     lines.extend(["", "## Tests"])
     lines.extend(f"- {test}" for test in report.tests)
+    lines.extend(["", "## Learning Topics"])
+    for topic in report.learning_topics:
+        lines.append(f"### {topic.title}")
+        lines.append(topic.why)
+        if topic.files:
+            lines.append("Evidence: " + ", ".join(f"`{path}`" for path in topic.files))
+        if topic.concepts:
+            lines.append("Concepts: " + ", ".join(topic.concepts))
+        lines.extend(["", "Copy-ready study prompt:", "```text", topic.prompt, "```", ""])
     lines.extend(["", "## Skill Evidence"])
     for item in report.skill_evidence:
         files = ", ".join(f"`{path}`" for path in item.evidence_files) if item.evidence_files else "no changed file evidence"

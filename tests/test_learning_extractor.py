@@ -62,6 +62,32 @@ def test_build_learning_report_extracts_concepts_tests_and_quiz():
     assert "retry" in report.next_practice.lower()
 
 
+def test_build_learning_report_creates_copy_ready_rate_limit_redis_topic():
+    inputs = LearningInputs(
+        task="Implement Redis rate limiting",
+        since="HEAD~1",
+        changed_files={
+            "src/rate_limit.py": "modified",
+            "tests/test_rate_limit.py": "modified",
+        },
+        diffs={
+            "src/rate_limit.py": "+ redis.incr(key)\n+ redis.expire(key, ttl)\n+ raise TooManyRequests(status_code=429)\n",
+            "tests/test_rate_limit.py": "+ def test_rate_limit_returns_429():\n+     assert response.status_code == 429\n",
+        },
+    )
+
+    report = build_learning_report(inputs, max_cards=5, max_quiz_questions=5)
+
+    assert "rate limiting" in report.concepts
+    assert "caching" in report.concepts
+    topic = report.learning_topics[0]
+    assert topic.title == "Implementing Rate Limits With Redis"
+    assert "Redis-backed counters" in topic.why
+    assert "src/rate_limit.py" in topic.files
+    assert "Teach me implementing rate limits with redis" in topic.prompt
+    assert "Evidence files: src/rate_limit.py" in topic.prompt
+
+
 def test_build_learning_report_stays_bounded():
     inputs = LearningInputs(
         task="Refactor cache config",
@@ -73,5 +99,6 @@ def test_build_learning_report_stays_bounded():
     report = build_learning_report(inputs, max_cards=3, max_quiz_questions=2)
 
     assert len(report.learning_cards) <= 3
+    assert len(report.learning_topics) <= 3
     assert len(report.quiz) <= 2
     assert len(report.agent_lessons) <= 3

@@ -25,6 +25,14 @@ class LearningCard(BaseModel):
     files: list[str] = Field(default_factory=list)
 
 
+class LearningTopic(BaseModel):
+    title: str
+    why: str
+    prompt: str
+    files: list[str] = Field(default_factory=list)
+    concepts: list[str] = Field(default_factory=list)
+
+
 class QuizQuestion(BaseModel):
     question: str
     answer: str
@@ -92,6 +100,7 @@ class LearningReport(BaseModel):
     decisions: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     tests: list[str] = Field(default_factory=list)
+    learning_topics: list[LearningTopic] = Field(default_factory=list)
     learning_cards: list[LearningCard] = Field(default_factory=list)
     quiz: list[QuizQuestion] = Field(default_factory=list)
     agent_lessons: list[AgentLesson] = Field(default_factory=list)

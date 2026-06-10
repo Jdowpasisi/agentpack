@@ -3,6 +3,7 @@ from agentpack.learning.models import (
     LearningCard,
     LearningReport,
     LearningSourceFile,
+    LearningTopic,
     QuizQuestion,
     SkillEvidence,
 )
@@ -31,6 +32,15 @@ def _report() -> LearningReport:
         decisions=["Keep learning in the existing CLI."],
         risks=["Summary output can become noisy."],
         tests=["Updated tests/test_learn_command.py for CLI behavior."],
+        learning_topics=[
+            LearningTopic(
+                title="CLI Workflow Design",
+                why="Study predictable flags, outputs, and automation-safe command behavior.",
+                prompt="Teach me CLI workflow design using this recent coding task as context.",
+                files=["src/agentpack/commands/learn.py"],
+                concepts=["CLI design"],
+            )
+        ],
         learning_cards=[
             LearningCard(
                 title="CLI Design",
@@ -70,6 +80,9 @@ def test_render_learning_markdown_contains_core_sections():
     assert "## Changed Files" in rendered
     assert "`src/agentpack/commands/learn.py`" in rendered
     assert "## Learning Cards" in rendered
+    assert "## Learning Topics" in rendered
+    assert "CLI Workflow Design" in rendered
+    assert "Copy-ready study prompt" in rendered
     assert "## Agent Lessons" in rendered
     assert "## Skill Evidence" in rendered
     assert "## Quiz" in rendered
@@ -80,6 +93,7 @@ def test_learning_report_to_dict_is_json_safe():
 
     assert payload["task"] == "Add AgentPack Learn"
     assert payload["source_files"][0]["path"] == "src/agentpack/commands/learn.py"
+    assert payload["learning_topics"][0]["title"] == "CLI Workflow Design"
 
 
 def test_render_agent_lessons_markdown_is_context_pack_ready():
