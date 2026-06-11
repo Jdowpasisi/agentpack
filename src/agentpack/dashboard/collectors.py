@@ -413,7 +413,7 @@ def _skill_metadata(
     if quality == "inferred" and domains != ["uncategorized"]:
         items.append("inferred domains: " + ", ".join(domains))
     if skill.description:
-        items.append("description: " + _clip(skill.description, 120))
+        items.append("description: " + " ".join(skill.description.split()))
     if skill.task_types:
         items.append("task: " + ", ".join(skill.task_types))
     if skill.languages:
@@ -424,7 +424,7 @@ def _skill_metadata(
         items.append("tools: " + ", ".join(skill.tools_required))
     if skill.applies_to_paths:
         items.append("paths: " + ", ".join(skill.applies_to_paths[:3]))
-    name_parts = set(skill.name.lower().replace("_", "-").split("-"))
+    name_parts = _trigger_name_parts(skill.name)
     evidenced_terms = set(_domain_token_list(skill.description))
     path = Path(skill.path)
     hidden_triggers = {
@@ -432,11 +432,12 @@ def _skill_metadata(
         path.parent.name.lower().replace("_", "-"),
         path.stem.lower().replace("_", "-"),
     }
-    useful_triggers = [
+    candidate_triggers = [
         trigger
         for trigger in skill.triggers
         if _show_skill_trigger(trigger, hidden_triggers=hidden_triggers, name_parts=name_parts, evidenced_terms=evidenced_terms)
-    ][:8]
+    ]
+    useful_triggers = _rank_skill_triggers(candidate_triggers, skill=skill, domains=domains, evidenced_terms=evidenced_terms)[:8]
     if useful_triggers:
         items.append("triggers: " + ", ".join(useful_triggers))
     return items[:MAX_METADATA_ITEMS]
@@ -454,7 +455,47 @@ def _show_skill_trigger(
     parts = trigger.split("-")
     if trigger in name_parts:
         return trigger in evidenced_terms
+    if len(parts) > 1:
+        return not all(part in name_parts for part in parts)
     return not any(part in name_parts for part in parts)
+
+
+def _rank_skill_triggers(
+    triggers: list[str],
+    *,
+    skill: SkillArtifact,
+    domains: list[str],
+    evidenced_terms: set[str],
+) -> list[str]:
+    domain_terms = set(domains) | set(skill.domains) | set(skill.languages) | set(skill.frameworks) | set(skill.tools_required)
+    indexed = list(enumerate(triggers))
+
+    def score(item: tuple[int, str]) -> tuple[int, int]:
+        index, trigger = item
+        parts = trigger.split("-")
+        value = 0
+        if len(parts) > 1:
+            value += 100 + min(len(parts), 3) * 8
+            if any(char.isdigit() for char in trigger) or any(marker in trigger for marker in ("+", ".")):
+                value += 4
+        else:
+            value -= 30
+            if trigger in evidenced_terms:
+                value += 20
+            if trigger in domain_terms:
+                value += 20
+            if any(char.isdigit() for char in trigger) or any(marker in trigger for marker in ("+", ".")):
+                value += 8
+            if trigger not in domain_terms and trigger not in evidenced_terms and trigger not in {"ai", "go", "ui"}:
+                value -= 25
+        return (-value, index)
+
+    return [trigger for _index, trigger in sorted(indexed, key=score)]
+
+
+def _trigger_name_parts(value: str) -> set[str]:
+    normalized = value.lower().replace("_", "-")
+    return {part for part in re.split(r"[^a-z0-9]+", normalized) if part}
 
 
 def _domain_token_list(text: str) -> list[str]:

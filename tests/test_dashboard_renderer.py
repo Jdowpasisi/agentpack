@@ -58,6 +58,10 @@ def test_render_dashboard_html_contains_core_sections() -> None:
     assert 'class="section-header"' in html
     assert 'href="#inventory"' in html
     assert 'class="table-wrap"' in html
+    assert 'class="learning-list"' in html
+    assert 'class="benchmark-grid"' in html
+    assert 'class="empty-state">No recent benchmark misses.' in html
+    assert "top: 54px" not in html
 
 
 def test_render_dashboard_html_escapes_dynamic_content() -> None:
@@ -82,6 +86,10 @@ def test_render_dashboard_html_uses_no_remote_assets() -> None:
 
 
 def test_render_dashboard_html_contains_skills_inventory_without_bodies() -> None:
+    description = (
+        "Use for pytest failures across service, repository, and API tests where fixture setup, "
+        "mock behavior, and assertion output need careful debugging without hiding useful context."
+    )
     html = render_dashboard_html(
         DashboardSnapshot(
             project=ProjectInfo(name="repo", path="/tmp/repo"),
@@ -108,7 +116,15 @@ def test_render_dashboard_html_contains_skills_inventory_without_bodies() -> Non
                         frameworks=["pytest"],
                         side_effect_level="command",
                         metadata_quality="explicit",
-                        metadata=["domain source: explicit domains", "domain confidence: 1.00", "task: testing", "language: python", "framework: pytest"],
+                        metadata=[
+                            "domain source: explicit domains",
+                            "domain confidence: 1.00",
+                            f"description: {description}",
+                            "task: testing",
+                            "language: python",
+                            "framework: pytest",
+                            "triggers: pytest, fixtures, assertions",
+                        ],
                         domain_confidence=1.0,
                         domain_source="explicit domains",
                     )
@@ -118,10 +134,19 @@ def test_render_dashboard_html_contains_skills_inventory_without_bodies() -> Non
     )
 
     assert "Skills Inventory" in html
+    assert 'class="inventory-list"' in html
+    assert 'class="inventory-card"' in html
+    assert 'class="inventory-description"' in html
+    assert 'class="trigger-chip"' in html
     assert "pytest-debugging" in html
     assert "testing" in html
-    assert "domain confidence: 1.00" in html
-    assert "task: testing" in html
-    assert "framework: pytest" in html
+    assert "Domain Source" in html
+    assert "explicit domains" in html
+    assert "Domain Confidence" in html
+    assert "1.00" in html
+    assert "Task" in html
+    assert "Framework" in html
+    assert "pytest" in html
+    assert description in html
+    assert description[:120] + "..." not in html
     assert ".agentpack/skills" in html
-    assert "Use for pytest failures" not in html

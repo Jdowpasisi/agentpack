@@ -12,7 +12,7 @@ _COMMAND_WORDS = ("run", "execute", "test", "pytest", "npm", "docker", "kubectl"
 _FILE_WRITE_WORDS = ("write", "edit", "modify", "patch", "create")
 _STOPWORDS = {
     "a", "an", "and", "any", "are", "as", "at", "be", "but", "by", "for", "from",
-    "how", "if", "in", "into", "is", "it", "its", "of", "on", "or", "than", "the",
+    "another", "how", "if", "in", "into", "is", "it", "its", "of", "on", "one", "or", "than", "the",
     "then", "this", "that", "through", "to", "use", "uses", "using", "when", "with", "your",
     "pro", "skill", "skills",
 }
@@ -298,7 +298,7 @@ def _compound_triggers(text: str) -> list[str]:
             continue
         if _looks_like_modifier_verb(left_raw):
             continue
-        if not _is_useful_trigger_token(left) or not _is_useful_trigger_token(right):
+        if not _is_useful_phrase_token(left) or not _is_useful_phrase_token(right):
             continue
         if left == right:
             continue
@@ -338,13 +338,13 @@ def _gerund_object_terms(text: str) -> list[str]:
         gerund = match.group(1)
         objects = match.group(2)
         object_tokens = objects.split()
-        if any("-" in token or _has_internal_case_signal(token) for token in object_tokens):
+        if any("-" in token or _has_case_signal(token) for token in object_tokens):
             for term in _terms_filtered(objects):
                 if term != _canonical_trigger(gerund):
                     triggers.append(term)
         prefix = normalized[: match.start()].rstrip().lower()
         next_raw = objects.split()[0]
-        if (prefix.endswith(",") or re.search(r"\bor$", prefix)) and "-" not in next_raw and not _has_internal_case_signal(next_raw):
+        if (prefix.endswith(",") or re.search(r"\bor$", prefix)) and "-" not in next_raw and not _has_case_signal(next_raw):
             term = _canonical_trigger(gerund)
             if _is_useful_trigger_token(term):
                 triggers.append(term)
@@ -355,8 +355,16 @@ def _is_useful_trigger_token(value: str) -> bool:
     return bool(value) and (len(value) >= 3 or value in _SHORT_TRIGGER_ALLOWLIST) and value not in _STOPWORDS
 
 
+def _is_useful_phrase_token(value: str) -> bool:
+    return _is_useful_trigger_token(value) or value == "skill"
+
+
 def _has_internal_case_signal(value: str) -> bool:
     return value.isupper() or any(char.isupper() for char in value[1:])
+
+
+def _has_case_signal(value: str) -> bool:
+    return value[:1].isupper() or _has_internal_case_signal(value)
 
 
 def _looks_like_modifier_verb(value: str) -> bool:

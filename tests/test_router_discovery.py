@@ -4,7 +4,7 @@ import json
 
 from agentpack.router.discovery import INDEX_PATH
 from agentpack.router.discovery import discover_inventory
-from agentpack.router.skills_index import ensure_inventory_index, load_inventory_index_document
+from agentpack.router.skills_index import INDEX_GENERATOR_VERSION, ensure_inventory_index, load_inventory_index_document
 
 
 def test_discovery_finds_repo_global_cursor_and_agent_rules(tmp_path, monkeypatch):
@@ -104,6 +104,25 @@ def test_ensure_inventory_index_reuses_fresh_index(tmp_path):
     assert first.refreshed is True
     assert second.refreshed is False
     assert second.reason == "fresh"
+
+
+def test_ensure_inventory_index_rebuilds_when_generator_changes(tmp_path):
+    skill = tmp_path / ".agentpack" / "skills" / "docs" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Docs\n\nUse for documentation updates.\n", encoding="utf-8")
+
+    first = ensure_inventory_index(tmp_path, paths=[".agentpack/skills"])
+    path = tmp_path / INDEX_PATH
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["generator_version"] = 1
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    second = ensure_inventory_index(tmp_path, paths=[".agentpack/skills"])
+
+    assert first.refreshed is True
+    assert second.refreshed is True
+    assert second.reason == "generator_changed"
+    assert second.document.generator_version == INDEX_GENERATOR_VERSION
 
 
 def test_load_inventory_index_document_accepts_old_inventory_shape(tmp_path):

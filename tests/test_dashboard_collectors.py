@@ -216,9 +216,10 @@ def test_project_dashboard_infers_skill_inventory_domains_with_bm25(tmp_path, mo
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     skill = tmp_path / ".agentpack" / "skills" / "academic-cv-builder" / "SKILL.md"
     skill.parent.mkdir(parents=True)
+    description = "Use this when creating academic CVs, resumes, cover letters, and job application portfolios."
     skill.write_text(
         "# Academic CV Builder\n\n"
-        "Use this when creating academic CVs, resumes, cover letters, and job application portfolios.\n",
+        f"{description}\n",
         encoding="utf-8",
     )
 
@@ -232,6 +233,7 @@ def test_project_dashboard_infers_skill_inventory_domains_with_bm25(tmp_path, mo
     assert "inferred domains: career" in row.metadata
     assert 0.0 < row.domain_confidence < 1.0
     assert any(item.startswith("description:") for item in row.metadata)
+    assert f"description: {description}" in row.metadata
     assert snapshot.skills_inventory.uncategorized_count == 0
 
 
@@ -251,17 +253,19 @@ def test_project_dashboard_filters_generic_inferred_skill_triggers(tmp_path, mon
 
     metadata = snapshot.skills_inventory.rows[0].metadata
     trigger_line = next(item for item in metadata if item.startswith("triggers:"))
+    triggers = [item.strip() for item in trigger_line.removeprefix("triggers:").split(",")]
     assert "graphql-architect" not in trigger_line
     assert "graphql" in trigger_line
     assert "architect" not in trigger_line
     assert "building" not in trigger_line
     assert "designing" not in trigger_line
+    assert "implementing" not in triggers
     assert "time-subscription" not in trigger_line
     assert "apollo" in trigger_line
     assert "dataloader" in trigger_line
-    assert "schema" in trigger_line
+    assert "graphql-schema" in triggers or "schema" in triggers
     assert "schemas" not in trigger_line
-    assert trigger_line.count("schema") == 1
+    assert triggers.count("schema") <= 1
 
 
 def test_project_dashboard_does_not_surface_broad_modifier_triggers(tmp_path, monkeypatch) -> None:
@@ -288,3 +292,41 @@ def test_project_dashboard_does_not_surface_broad_modifier_triggers(tmp_path, mo
     assert "building" not in triggers
     assert "maintainable" not in triggers
     assert "application" not in triggers
+
+
+def test_project_dashboard_prefers_skill_trigger_keyphrases(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    base = tmp_path / ".agentpack" / "skills"
+    career = base / "career-changer-translator" / "SKILL.md"
+    review = base / "code-reviewer" / "SKILL.md"
+    career.parent.mkdir(parents=True)
+    review.parent.mkdir(parents=True)
+    career.write_text(
+        "---\n"
+        "name: Career Changer Translator\n"
+        "description: Translate skills from one industry to another, identify transferable skills\n"
+        "---\n\n",
+        encoding="utf-8",
+    )
+    review.write_text(
+        "---\n"
+        "name: code-reviewer\n"
+        "description: Analyzes code diffs and files to identify bugs, security vulnerabilities (SQL injection, XSS, insecure deserialization), code smells, N+1 queries, naming issues, and architectural concerns, then produces a structured review report with prioritized, actionable feedback. Use when reviewing pull requests, conducting code quality audits, identifying refactoring opportunities, or checking for security issues. Invoke for PR reviews, code quality checks, refactoring suggestions, review code, code quality.\n"
+        "---\n\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    metadata_by_name = {row.name: row.metadata for row in snapshot.skills_inventory.rows}
+    career_triggers = next(item for item in metadata_by_name["Career Changer Translator"] if item.startswith("triggers:"))
+    review_triggers = next(item for item in metadata_by_name["code-reviewer"] if item.startswith("triggers:"))
+    assert "translate-skill" in career_triggers
+    assert "transferable-skill" in career_triggers
+    assert "one-industry" not in career_triggers
+    assert "another" not in career_triggers
+    assert "code-quality-check" in review_triggers
+    assert "refactoring-suggestion" in review_triggers
+    assert "security-vulnerability" in review_triggers
+    assert "actionable" not in review_triggers
+    assert "analyzes" not in review_triggers

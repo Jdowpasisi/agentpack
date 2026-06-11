@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 from agentpack.router.models import SkillInventory
 
 INDEX_PATH = ".agentpack/skills_index.json"
+INDEX_GENERATOR_VERSION = 3
 ROOT_RULE_FILES = ("AGENTS.md", "CLAUDE.md", "GEMINI.md")
 
 
@@ -22,6 +23,7 @@ class SkillIndexSource(BaseModel):
 
 class SkillsIndexDocument(BaseModel):
     schema_version: int = 2
+    generator_version: int = INDEX_GENERATOR_VERSION
     generated_at: str = ""
     configured_paths: list[str] = Field(default_factory=list)
     sources: list[SkillIndexSource] = Field(default_factory=list)
@@ -129,6 +131,8 @@ def _stale_reason(
         return "forced"
     if current is None:
         return "missing"
+    if current.generator_version != INDEX_GENERATOR_VERSION:
+        return "generator_changed"
     if not current.configured_paths or not current.sources:
         return "legacy"
     if current.configured_paths != configured_paths:

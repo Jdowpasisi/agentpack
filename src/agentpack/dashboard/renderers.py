@@ -96,7 +96,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     table {{ width: 100%; border-collapse: collapse; }}
     .table-wrap {{ overflow-x: auto; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
     th, td {{ border-bottom: 1px solid rgba(137,151,172,0.24); padding: 10px 12px; text-align: left; vertical-align: top; }}
-    th {{ background: rgba(248,250,252,0.94); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; position: sticky; top: 54px; z-index: 1; }}
+    th {{ background: rgba(248,250,252,0.94); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }}
     tr:last-child td {{ border-bottom: 0; }}
     tbody tr:hover {{ background: rgba(234,240,255,0.38); }}
     code {{ background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-word; }}
@@ -108,11 +108,44 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     .domain-list li {{ margin: 0; }}
     .domain-item {{ display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 10px; border: 1px solid rgba(148,163,184,0.42); border-radius: 999px; background: rgba(255,255,255,0.68); color: var(--muted); }}
     .domain-item strong {{ color: var(--text); font-variant-numeric: tabular-nums; }}
-    .fresh, .used_helpful {{ color: var(--good); }}
+    .inventory-list {{ display: grid; gap: 10px; }}
+    .inventory-card {{ border: 1px solid rgba(137,151,172,0.24); border-radius: 8px; background: rgba(255,255,255,0.82); box-shadow: var(--shadow-soft); overflow: hidden; }}
+    .inventory-card-header {{ display: grid; grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) auto; gap: 12px; align-items: start; padding: 14px 16px; border-bottom: 1px solid rgba(137,151,172,0.18); background: rgba(248,250,252,0.78); }}
+    .inventory-title {{ display: grid; gap: 6px; min-width: 0; }}
+    .inventory-title strong {{ font-size: 15px; overflow-wrap: anywhere; }}
+    .inventory-source {{ display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 13px; }}
+    .inventory-path {{ display: block; width: 100%; padding: 6px 8px; line-height: 1.35; }}
+    .inventory-tags {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
+    .inventory-meta {{ display: grid; gap: 12px; padding: 14px 16px 16px; }}
+    .inventory-description {{ margin: 0; max-width: 900px; color: var(--text); line-height: 1.55; overflow-wrap: anywhere; }}
+    .metadata-grid {{ margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 14px; }}
+    .metadata-grid div {{ min-width: 0; }}
+    .metadata-grid dt {{ margin: 0 0 2px; color: var(--subtle); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }}
+    .metadata-grid dd {{ margin: 0; color: var(--muted); overflow-wrap: anywhere; }}
+    .trigger-list {{ display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; list-style: none; }}
+    .trigger-list li {{ margin: 0; }}
+    .trigger-chip {{ display: inline-flex; align-items: center; min-height: 26px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(33,87,189,0.22); background: var(--accent-bg); color: var(--accent-strong); font-size: 12px; font-weight: 560; }}
+    .metadata-empty {{ margin: 0; color: var(--muted); }}
+    .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }}
+    .info-card {{ min-width: 0; padding: 14px; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    .info-card h3, .info-card strong {{ color: var(--text); }}
+    .info-card p {{ margin: 6px 0 0; color: var(--muted); }}
+    .info-card code {{ display: inline-block; max-width: 100%; overflow-wrap: anywhere; }}
+    .learning-list {{ display: grid; gap: 10px; }}
+    .learning-card {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }}
+    .benchmark-layout {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr); gap: 18px; align-items: start; }}
+    .benchmark-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }}
+    .benchmark-card strong {{ display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; overflow-wrap: anywhere; }}
+    .benchmark-card span {{ display: block; margin-top: 7px; font-size: 22px; font-weight: 720; font-variant-numeric: tabular-nums; }}
+    .miss-list {{ display: grid; gap: 10px; }}
+    .miss-card {{ display: grid; gap: 6px; }}
+    .loop-card {{ display: grid; gap: 12px; }}
+    .empty-state {{ margin: 0; padding: 14px; border: 1px dashed var(--border); border-radius: 8px; background: rgba(255,255,255,0.48); color: var(--muted); }}
+    .fresh, .present, .used_helpful {{ color: var(--good); }}
     .stale, .ignored, .used_noisy {{ color: var(--warn); }}
     .missing, .bad_recommendation {{ color: var(--bad); }}
     .unknown, .recommended_only, .none {{ color: var(--muted); }}
-    .pill.fresh, .pill.used_helpful {{ border-color: #b7e2c7; background: var(--good-bg); color: var(--good); }}
+    .pill.fresh, .pill.present, .pill.used_helpful {{ border-color: #b7e2c7; background: var(--good-bg); color: var(--good); }}
     .pill.stale, .pill.ignored, .pill.used_noisy {{ border-color: #f2d28c; background: var(--warn-bg); color: var(--warn); }}
     .pill.missing, .pill.bad_recommendation {{ border-color: #f0b7b7; background: var(--bad-bg); color: var(--bad); }}
     .path-col {{ min-width: 220px; }}
@@ -130,7 +163,9 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     @media (max-width: 760px) {{
       .topbar-inner {{ padding: 10px 16px; align-items: flex-start; flex-direction: column; }}
       main {{ padding: 16px; }}
-      header.hero, .two-col {{ grid-template-columns: 1fr; }}
+      header.hero, .two-col, .benchmark-layout {{ grid-template-columns: 1fr; }}
+      .inventory-card-header {{ grid-template-columns: 1fr; }}
+      .learning-card {{ grid-template-columns: 1fr; }}
       h1 {{ font-size: 26px; }}
     }}
   </style>
@@ -195,14 +230,14 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
 
   <section id="learning" class="section">
     <div class="section-header"><h2>Learning</h2><small>Artifacts that can improve future routing and handoffs</small></div>
-    <div class="section-body"><ul>{learning}</ul></div>
+    <div class="section-body">{learning}</div>
   </section>
 
   <section id="benchmarks" class="section">
     <div class="section-header"><h2>Benchmarks</h2><small>Recent routing quality signals</small></div>
-    <div class="section-body two-col">
-      <div><h3>Metrics</h3><div class="table-wrap"><table><thead><tr><th>Metric</th><th>Recent Average</th></tr></thead><tbody>{benchmarks}</tbody></table></div></div>
-      <div><h3>Recent Misses</h3><div class="table-wrap"><table><thead><tr><th>Expected File</th><th>Reason</th></tr></thead><tbody>{misses}</tbody></table></div></div>
+    <div class="section-body benchmark-layout">
+      <div><h3>Metrics</h3>{benchmarks}</div>
+      <div><h3>Recent Misses</h3>{misses}</div>
     </div>
   </section>
 
@@ -270,17 +305,7 @@ def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
         "</tr>"
         for item in inventory.sources
     ) or '<tr><td colspan="4">No configured skill sources found.</td></tr>'
-    rows = "".join(
-        "<tr>"
-        f"<td>{_e(item.name)}</td>"
-        f"<td>{_e(', '.join(item.domains))}</td>"
-        f"<td>{_e(item.source)}</td>"
-        f"<td><code>{_e(item.path)}</code></td>"
-        f"<td>{_e(item.side_effect_level or 'unknown')}</td>"
-        f"<td>{_metadata_cell(item.metadata_quality, item.metadata)}</td>"
-        "</tr>"
-        for item in inventory.rows
-    ) or '<tr><td colspan="6">No skills discovered.</td></tr>'
+    rows = _inventory_rows(inventory.rows)
     duplicate_names = ", ".join(inventory.duplicate_names) or "none"
     return f"""
   <section id="inventory" class="section">
@@ -298,32 +323,95 @@ def _skills_inventory_panel(snapshot: DashboardSnapshot) -> str:
     <h3>Directories</h3>
     <div class="table-wrap"><table><thead><tr><th>Configured</th><th>Resolved</th><th>Exists</th><th>Files</th></tr></thead><tbody>{sources}</tbody></table></div>
     <h3>Discovered Skills</h3>
-    <div class="table-wrap"><table><thead><tr><th>Skill</th><th>Domain</th><th>Source</th><th>Path</th><th>Side Effect</th><th>Metadata</th></tr></thead><tbody>{rows}</tbody></table></div>
+    {rows}
     </div>
   </section>"""
 
 
+def _inventory_rows(items: Iterable[object]) -> str:
+    rows = []
+    for item in items:
+        domains = _chip_list(getattr(item, "domains", []), empty="uncategorized")
+        side_effect = getattr(item, "side_effect_level", "") or "unknown"
+        quality = getattr(item, "metadata_quality", "inferred")
+        rows.append(
+            '<article class="inventory-card">'
+            '<div class="inventory-card-header">'
+            f'<div class="inventory-title"><strong>{_e(getattr(item, "name", ""))}</strong><div class="inventory-tags">{domains}</div></div>'
+            f'<div class="inventory-source"><span>{_e(getattr(item, "source", ""))}</span><code class="inventory-path">{_e(getattr(item, "path", ""))}</code></div>'
+            f'<div class="inventory-tags"><span class="pill">{_e(side_effect)}</span><span class="pill">{_e(quality)}</span></div>'
+            "</div>"
+            f'<div class="inventory-meta">{_metadata_cell(quality, getattr(item, "metadata", []))}</div>'
+            "</article>"
+        )
+    if not rows:
+        return "<p>No skills discovered.</p>"
+    return '<div class="inventory-list">' + "".join(rows) + "</div>"
+
+
 def _metadata_cell(quality: str, metadata: list[str]) -> str:
-    details = "".join(f"<li>{_e(item)}</li>" for item in metadata)
-    body = f"<ul>{details}</ul>" if details else "<small>No metadata detected.</small>"
-    return f'<span class="pill">{_e(quality)}</span>{body}'
+    description = ""
+    triggers: list[str] = []
+    facts: list[tuple[str, str]] = []
+    for item in metadata:
+        label, _, value = item.partition(": ")
+        if not value:
+            facts.append(("Metadata", item))
+            continue
+        if label == "description":
+            description = value
+        elif label == "triggers":
+            triggers = [part.strip() for part in value.split(",") if part.strip()]
+        else:
+            facts.append((label.replace("_", " ").title(), value))
+
+    parts: list[str] = []
+    if description:
+        parts.append(f'<p class="inventory-description">{_e(description)}</p>')
+    if facts:
+        fact_items = "".join(f"<div><dt>{_e(label)}</dt><dd>{_e(value)}</dd></div>" for label, value in facts)
+        parts.append(f'<dl class="metadata-grid">{fact_items}</dl>')
+    if triggers:
+        chips = "".join(f'<li><span class="trigger-chip">{_e(trigger)}</span></li>' for trigger in triggers)
+        parts.append(f'<ul class="trigger-list" aria-label="Skill triggers">{chips}</ul>')
+    return "".join(parts) if parts else '<p class="metadata-empty">No metadata detected.</p>'
+
+
+def _chip_list(values: Iterable[str], *, empty: str) -> str:
+    items = list(values)
+    if not items:
+        items = [empty]
+    return "".join(f'<span class="pill">{_e(item)}</span>' for item in items)
+
 
 
 def _learning_rows(snapshot: DashboardSnapshot) -> str:
     rows = []
     for item in snapshot.learning:
         state = "present" if item.exists else "missing"
-        excerpt = f"<br><small>{_e(item.excerpt)}</small>" if item.excerpt else ""
-        rows.append(f"<li>{_e(item.label)}: <code>{_e(item.path)}</code> <span class=\"pill\">{state}</span>{excerpt}</li>")
-    return "".join(rows) or "<li>No learning artifacts checked.</li>"
+        excerpt = f"<p>{_e(item.excerpt)}</p>" if item.excerpt else ""
+        rows.append(
+            '<article class="info-card learning-card">'
+            f'<div><strong>{_e(item.label)}</strong><br><code>{_e(item.path)}</code>{excerpt}</div>'
+            f'<span class="pill {state}">{state}</span>'
+            "</article>"
+        )
+    if not rows:
+        return '<p class="empty-state">No learning artifacts checked.</p>'
+    return '<div class="learning-list">' + "".join(rows) + "</div>"
 
 
 def _benchmark_rows(snapshot: DashboardSnapshot) -> str:
-    rows = "".join(
-        f"<tr><td><code>{_e(key)}</code></td><td>{value:.3f}</td></tr>"
+    rows = [
+        '<article class="info-card benchmark-card">'
+        f"<strong>{_e(key)}</strong>"
+        f"<span>{value:.3f}</span>"
+        "</article>"
         for key, value in sorted(snapshot.benchmarks.averages.items())
-    )
-    return rows or '<tr><td colspan="2">No benchmark metrics found.</td></tr>'
+    ]
+    if not rows:
+        return '<p class="empty-state">No benchmark metrics found.</p>'
+    return '<div class="benchmark-grid">' + "".join(rows) + "</div>"
 
 
 def _miss_rows(snapshot: DashboardSnapshot) -> str:
@@ -331,8 +419,15 @@ def _miss_rows(snapshot: DashboardSnapshot) -> str:
     for miss in snapshot.benchmarks.misses[:MAX_RENDERED_MISSES]:
         path = miss.get("path") or miss.get("file") or miss.get("expected_file") or ""
         reason = miss.get("reason") or miss.get("status") or miss.get("remediation") or ""
-        rows.append(f"<tr><td><code>{_e(path)}</code></td><td>{_e(reason)}</td></tr>")
-    return "".join(rows) or '<tr><td colspan="2">No recent benchmark misses.</td></tr>'
+        rows.append(
+            '<article class="info-card miss-card">'
+            f"<strong>{_e(path or 'Unknown file')}</strong>"
+            f"<p>{_e(reason or 'No reason recorded.')}</p>"
+            "</article>"
+        )
+    if not rows:
+        return '<p class="empty-state">No recent benchmark misses.</p>'
+    return '<div class="miss-list">' + "".join(rows) + "</div>"
 
 
 def _action_rows(snapshot: DashboardSnapshot) -> str:
@@ -348,12 +443,12 @@ def _loop_panel(snapshot: DashboardSnapshot) -> str:
         return """
   <section id="loop" class="section">
     <div class="section-header"><h2>Ralph Loop</h2><small>Improvement loop state</small></div>
-    <div class="section-body"><p>No Ralph Loop state found.</p></div>
+    <div class="section-body"><p class="empty-state">No Ralph Loop state found.</p></div>
   </section>"""
     return f"""
   <section id="loop" class="section">
     <div class="section-header"><h2>Ralph Loop</h2><small>Improvement loop state</small></div>
-    <div class="section-body">
+    <div class="section-body info-card loop-card">
       <div class="grid">
       <div class="metric"><strong>Status</strong><span>{_e(snapshot.loop.status)}</span></div>
       <div class="metric"><strong>Iteration</strong><span>{snapshot.loop.iteration}/{snapshot.loop.max_iterations}</span></div>
