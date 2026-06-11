@@ -85,6 +85,96 @@ def test_parse_karpathy_skill_frontmatter(tmp_path):
     assert skill.side_effect_level == "none"
 
 
+def test_parse_skill_inferred_triggers_use_dynamic_description_evidence(tmp_path):
+    path = tmp_path / ".claude" / "skills" / "golang-pro" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        "name: golang-pro\n"
+        "description: Implements concurrent Go patterns using goroutines and channels, designs and builds microservices with gRPC or REST.\n"
+        "---\n\n"
+        "Use this when building production Go applications.\n",
+        encoding="utf-8",
+    )
+
+    skill = parse_skill_file(path, root=tmp_path)
+
+    assert "golang" in skill.triggers
+    assert "go" in skill.triggers
+    assert "goroutine" in skill.triggers
+    assert "channel" in skill.triggers
+    assert "microservice" in skill.triggers
+    assert "grpc" in skill.triggers
+    assert "rest" in skill.triggers
+    assert "applications" not in skill.triggers
+    assert "application" not in skill.triggers
+    assert "building" not in skill.triggers
+    assert "builds" not in skill.triggers
+    assert "designs" not in skill.triggers
+    assert "implements" not in skill.triggers
+
+
+def test_parse_skill_inferred_triggers_prioritize_invoke_for_clause(tmp_path):
+    path = tmp_path / ".claude" / "skills" / "graphql-architect" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        "name: graphql-architect\n"
+        "description: Use when designing GraphQL schemas. Invoke for schema design, resolvers with DataLoader, query optimization, federation directives.\n"
+        "---\n\n",
+        encoding="utf-8",
+    )
+
+    skill = parse_skill_file(path, root=tmp_path)
+    visible = [trigger for trigger in skill.triggers if trigger not in {"graphql-architect", "graphql", "architect"}]
+
+    assert visible[:4] == ["schema-design", "schema", "design", "resolver-dataloader"]
+    assert "dataloader" in visible
+    assert "query-optimization" in visible
+
+
+def test_parse_skill_inferred_triggers_keep_compound_domain_phrases(tmp_path):
+    path = tmp_path / ".claude" / "skills" / "graphify" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        "name: graphify\n"
+        "description: Any input (code, docs, papers, images) to knowledge graph to clustered communities to HTML, JSON, and audit report.\n"
+        "---\n\n",
+        encoding="utf-8",
+    )
+
+    skill = parse_skill_file(path, root=tmp_path)
+
+    assert "knowledge-graph" in skill.triggers
+    assert "audit-report" in skill.triggers
+    assert "html" in skill.triggers
+    assert "json" in skill.triggers
+    assert "any" not in skill.triggers
+    assert "input" not in skill.triggers
+    assert "clustered" not in skill.triggers
+    assert "communities" not in skill.triggers
+
+
+def test_parse_skill_inferred_triggers_canonicalize_plural_duplicates(tmp_path):
+    path = tmp_path / ".claude" / "skills" / "graphql-architect" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "---\n"
+        "name: graphql-architect\n"
+        "description: Use when designing GraphQL schemas and schema resolvers with Apollo Federation and real-time subscriptions.\n"
+        "---\n\n",
+        encoding="utf-8",
+    )
+
+    skill = parse_skill_file(path, root=tmp_path)
+
+    assert "schema" in skill.triggers
+    assert "schemas" not in skill.triggers
+    assert skill.triggers.count("schema") == 1
+    assert "real-time" in skill.triggers
+
+
 def test_parse_skill_h1_fallback_and_dangerous_external(tmp_path):
     path = tmp_path / ".agentpack" / "skills" / "deploy" / "SKILL.md"
     path.parent.mkdir(parents=True)

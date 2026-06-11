@@ -11,9 +11,14 @@ _EXTERNAL_WORDS = ("deploy", "send", "delete", "migrate", "cloud", "slack", "ema
 _COMMAND_WORDS = ("run", "execute", "test", "pytest", "npm", "docker", "kubectl", "bash")
 _FILE_WRITE_WORDS = ("write", "edit", "modify", "patch", "create")
 _STOPWORDS = {
-    "and", "are", "but", "for", "from", "how", "into", "the", "this", "that",
-    "then", "use", "uses", "using", "when", "with", "your",
+    "a", "an", "and", "any", "are", "as", "at", "be", "but", "by", "for", "from",
+    "how", "if", "in", "into", "is", "it", "its", "of", "on", "or", "than", "the",
+    "then", "this", "that", "through", "to", "use", "uses", "using", "when", "with", "your",
+    "pro", "skill", "skills",
 }
+_SHORT_TRIGGER_ALLOWLIST = {"ai", "ci", "cv", "go", "js", "ui"}
+_SINGULAR_EXCEPTIONS = {"analysis", "redis"}
+_TOKEN_PATTERN = r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)*"
 
 
 def parse_skill_file(path: Path, *, root: Path | None = None, source: str = "") -> SkillArtifact:
@@ -25,13 +30,6 @@ def parse_skill_file(path: Path, *, root: Path | None = None, source: str = "") 
     applies_to_paths = _list_value(frontmatter, "applies_to_paths") or _list_value(frontmatter, "globs")
     explicit_triggers = _list_value(frontmatter, "triggers")
 
-    trigger_text = "\n".join([
-        name,
-        description,
-        _trigger_sections(body),
-        path.parent.name,
-        path.stem,
-    ])
     raw_for_classification = f"{description}\n{body}"
 
     return SkillArtifact(
@@ -43,9 +41,12 @@ def parse_skill_file(path: Path, *, root: Path | None = None, source: str = "") 
         task_types=_normalized_list(frontmatter, "task_types"),
         languages=_normalized_list(frontmatter, "languages"),
         frameworks=_normalized_list(frontmatter, "frameworks"),
-        triggers=sorted(
-            set(_terms("\n".join([trigger_text, *explicit_triggers])))
-            | {item.lower() for item in explicit_triggers}
+        triggers=_skill_triggers(
+            name=name,
+            description=description,
+            body=body,
+            path=path,
+            explicit_triggers=explicit_triggers,
         ),
         anti_triggers=_normalized_list(frontmatter, "anti_triggers"),
         tools_required=_tools(raw_for_classification),
@@ -212,13 +213,184 @@ def _trigger_sections(text: str) -> str:
     return "\n".join(captured)
 
 
+def _skill_triggers(
+    *,
+    name: str,
+    description: str,
+    body: str,
+    path: Path,
+    explicit_triggers: list[str],
+) -> list[str]:
+    triggers: list[str] = []
+    triggers.extend(item.lower() for item in explicit_triggers if item.strip())
+    triggers.extend(_terms_filtered(" ".join([name, path.parent.name, path.stem]), split_hyphen=True))
+    triggers.extend(_description_triggers(description))
+    trigger_sections = _trigger_sections(body)
+    if trigger_sections and not description:
+        triggers.extend(_description_triggers(trigger_sections))
+    return _dedupe_preserve_order(triggers)
+
+
 def _terms(text: str) -> list[str]:
-    terms = {
-        token.lower()
-        for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text.replace("_", "-"))
-        if token.lower() not in _STOPWORDS
+    return _terms_filtered(text)
+
+
+def _terms_filtered(text: str, *, split_hyphen: bool = False) -> list[str]:
+    terms: list[str] = []
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,}", text.replace("_", "-")):
+        lower = _canonical_trigger(token)
+        if not lower:
+            continue
+        if len(lower) < 3 and lower not in _SHORT_TRIGGER_ALLOWLIST:
+            continue
+        if lower in _STOPWORDS:
+            continue
+        terms.append(lower)
+        if split_hyphen and "-" in lower:
+            terms.extend(
+                _canonical_trigger(part)
+                for part in lower.split("-")
+                if (len(part) >= 3 or part in _SHORT_TRIGGER_ALLOWLIST)
+                and part not in _STOPWORDS
+            )
+    return _dedupe_preserve_order(terms)
+
+
+def _description_triggers(text: str) -> list[str]:
+    compounds = _compound_triggers(text)
+    compound_parts = {
+        part
+        for compound in compounds
+        for part in compound.split("-")
+        if _is_useful_trigger_token(part)
     }
-    return sorted(terms)
+    triggers: list[str] = []
+    triggers.extend(_intent_clause_triggers(text))
+    triggers.extend(compounds)
+    triggers.extend(_entity_shaped_terms(text))
+    triggers.extend(_contextual_terms(text))
+    triggers.extend(_gerund_object_terms(text))
+    triggers.extend(part for part in compound_parts if part in _SHORT_TRIGGER_ALLOWLIST)
+    return _dedupe_preserve_order(triggers)
+
+
+def _intent_clause_triggers(text: str) -> list[str]:
+    triggers: list[str] = []
+    for match in re.finditer(r"\binvoke\s+for\s+([^.;:]+)", text.replace("_", "-"), flags=re.IGNORECASE):
+        chunk = match.group(1)
+        for part in re.split(r",|\bor\b", chunk):
+            terms = _terms_filtered(part)
+            if not terms:
+                continue
+            if len(terms) > 1:
+                triggers.append("-".join(terms[:3]))
+            triggers.extend(terms)
+    return _dedupe_preserve_order(triggers)
+
+
+def _compound_triggers(text: str) -> list[str]:
+    triggers: list[str] = []
+    for match in re.finditer(rf"(?=(?<!-)\b({_TOKEN_PATTERN})\s+({_TOKEN_PATTERN})\b)", text.replace("_", "-")):
+        left_raw, right_raw = match.group(1), match.group(2)
+        left = _canonical_trigger(left_raw)
+        right = _canonical_trigger(right_raw)
+        if "-" in left or "-" in right:
+            continue
+        if _looks_like_modifier_verb(left_raw):
+            continue
+        if not _is_useful_trigger_token(left) or not _is_useful_trigger_token(right):
+            continue
+        if left == right:
+            continue
+        triggers.append(f"{left}-{right}")
+    return _dedupe_preserve_order(triggers)
+
+
+def _entity_shaped_terms(text: str) -> list[str]:
+    terms: list[str] = []
+    for match in re.finditer(rf"\b({_TOKEN_PATTERN})\b", text.replace("_", "-")):
+        raw = match.group(1)
+        lower = _canonical_trigger(raw)
+        if not _is_useful_trigger_token(lower):
+            continue
+        if "-" in lower or _has_internal_case_signal(raw):
+            terms.append(lower)
+    return _dedupe_preserve_order(terms)
+
+
+def _contextual_terms(text: str) -> list[str]:
+    triggers: list[str] = []
+    normalized = text.replace("_", "-")
+    for match in re.finditer(r"\b(?:using|with)\s+([^.;:()]+)", normalized, flags=re.IGNORECASE):
+        chunk = re.split(r",\s+[A-Za-z][A-Za-z0-9_-]*(?:ing|ed|s)\b", match.group(1), maxsplit=1)[0]
+        triggers.extend(_terms_filtered(chunk))
+    for match in re.finditer(rf"\b({_TOKEN_PATTERN})\s+with\b", normalized, flags=re.IGNORECASE):
+        term = _canonical_trigger(match.group(1))
+        if _is_useful_trigger_token(term):
+            triggers.append(term)
+    return _dedupe_preserve_order(triggers)
+
+
+def _gerund_object_terms(text: str) -> list[str]:
+    triggers: list[str] = []
+    normalized = text.replace("_", "-")
+    for match in re.finditer(rf"\b({_TOKEN_PATTERN}ing)\s+((?:{_TOKEN_PATTERN})(?:\s+(?:{_TOKEN_PATTERN}))?)", normalized):
+        gerund = match.group(1)
+        objects = match.group(2)
+        object_tokens = objects.split()
+        if any("-" in token or _has_internal_case_signal(token) for token in object_tokens):
+            for term in _terms_filtered(objects):
+                if term != _canonical_trigger(gerund):
+                    triggers.append(term)
+        prefix = normalized[: match.start()].rstrip().lower()
+        next_raw = objects.split()[0]
+        if (prefix.endswith(",") or re.search(r"\bor$", prefix)) and "-" not in next_raw and not _has_internal_case_signal(next_raw):
+            term = _canonical_trigger(gerund)
+            if _is_useful_trigger_token(term):
+                triggers.append(term)
+    return _dedupe_preserve_order(triggers)
+
+
+def _is_useful_trigger_token(value: str) -> bool:
+    return bool(value) and (len(value) >= 3 or value in _SHORT_TRIGGER_ALLOWLIST) and value not in _STOPWORDS
+
+
+def _has_internal_case_signal(value: str) -> bool:
+    return value.isupper() or any(char.isupper() for char in value[1:])
+
+
+def _looks_like_modifier_verb(value: str) -> bool:
+    lower = value.lower()
+    return not _has_internal_case_signal(value) and (lower.endswith("ing") or lower.endswith("ed") or lower.endswith("s"))
+
+
+def _canonical_trigger(value: str) -> str:
+    clean = value.lower().strip().replace("_", "-").strip("-")
+    if not clean:
+        return ""
+    if " " in clean:
+        return " ".join(_canonical_trigger(part) for part in clean.split())
+    if "-" in clean:
+        return "-".join(part for part in (_canonical_trigger(part) for part in clean.split("-")) if part)
+    if clean in _SINGULAR_EXCEPTIONS:
+        return clean
+    if len(clean) > 4 and clean.endswith("ies"):
+        return clean[:-3] + "y"
+    if len(clean) > 3 and clean.endswith("s") and not clean.endswith(("ss", "is", "us")):
+        return clean[:-1]
+    return clean
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        clean = _canonical_trigger(value)
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        result.append(clean)
+    return result
 
 
 def _tools(text: str) -> list[str]:

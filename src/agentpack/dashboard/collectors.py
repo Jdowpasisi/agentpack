@@ -424,14 +424,37 @@ def _skill_metadata(
         items.append("tools: " + ", ".join(skill.tools_required))
     if skill.applies_to_paths:
         items.append("paths: " + ", ".join(skill.applies_to_paths[:3]))
+    name_parts = set(skill.name.lower().replace("_", "-").split("-"))
+    evidenced_terms = set(_domain_token_list(skill.description))
+    path = Path(skill.path)
+    hidden_triggers = {
+        skill.name.lower().replace("_", "-"),
+        path.parent.name.lower().replace("_", "-"),
+        path.stem.lower().replace("_", "-"),
+    }
     useful_triggers = [
         trigger
         for trigger in skill.triggers
-        if trigger not in set(skill.name.lower().replace("_", "-").split("-"))
-    ][:5]
+        if _show_skill_trigger(trigger, hidden_triggers=hidden_triggers, name_parts=name_parts, evidenced_terms=evidenced_terms)
+    ][:8]
     if useful_triggers:
         items.append("triggers: " + ", ".join(useful_triggers))
     return items[:MAX_METADATA_ITEMS]
+
+
+def _show_skill_trigger(
+    trigger: str,
+    *,
+    hidden_triggers: set[str],
+    name_parts: set[str],
+    evidenced_terms: set[str],
+) -> bool:
+    if trigger in hidden_triggers:
+        return False
+    parts = trigger.split("-")
+    if trigger in name_parts:
+        return trigger in evidenced_terms
+    return not any(part in name_parts for part in parts)
 
 
 def _domain_token_list(text: str) -> list[str]:

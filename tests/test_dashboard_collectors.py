@@ -233,3 +233,58 @@ def test_project_dashboard_infers_skill_inventory_domains_with_bm25(tmp_path, mo
     assert 0.0 < row.domain_confidence < 1.0
     assert any(item.startswith("description:") for item in row.metadata)
     assert snapshot.skills_inventory.uncategorized_count == 0
+
+
+def test_project_dashboard_filters_generic_inferred_skill_triggers(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    skill = tmp_path / ".agentpack" / "skills" / "graphql-architect" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\n"
+        "name: graphql-architect\n"
+        "description: Use when designing GraphQL schemas, implementing Apollo Federation, or building real-time subscriptions with DataLoader.\n"
+        "---\n\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    metadata = snapshot.skills_inventory.rows[0].metadata
+    trigger_line = next(item for item in metadata if item.startswith("triggers:"))
+    assert "graphql-architect" not in trigger_line
+    assert "graphql" in trigger_line
+    assert "architect" not in trigger_line
+    assert "building" not in trigger_line
+    assert "designing" not in trigger_line
+    assert "time-subscription" not in trigger_line
+    assert "apollo" in trigger_line
+    assert "dataloader" in trigger_line
+    assert "schema" in trigger_line
+    assert "schemas" not in trigger_line
+    assert trigger_line.count("schema") == 1
+
+
+def test_project_dashboard_does_not_surface_broad_modifier_triggers(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    skill = tmp_path / ".agentpack" / "skills" / "golang-patterns" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\n"
+        "name: golang-patterns\n"
+        "description: Idiomatic Go patterns, best practices, and conventions for building robust, efficient, and maintainable Go applications.\n"
+        "---\n\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_project_dashboard_snapshot(tmp_path)
+
+    metadata = snapshot.skills_inventory.rows[0].metadata
+    trigger_line = next(item for item in metadata if item.startswith("triggers:"))
+    triggers = [item.strip() for item in trigger_line.removeprefix("triggers:").split(",")]
+    assert "idiomatic-go" in trigger_line
+    assert "go-pattern" in trigger_line
+    assert "best-practice" in trigger_line
+    assert "robust" not in triggers
+    assert "building" not in triggers
+    assert "maintainable" not in triggers
+    assert "application" not in triggers
