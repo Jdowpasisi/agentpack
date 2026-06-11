@@ -15,6 +15,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     skills = _skill_rows(snapshot.skills.task_specific, "task-specific") + _skill_rows(snapshot.skills.baseline, "baseline")
     if not skills:
         skills = '<tr><td colspan="7">No skill recommendations found.</td></tr>'
+    quality_strip = _quality_strip(snapshot)
     skills_inventory = _skills_inventory_panel(snapshot)
     learning = _learning_rows(snapshot)
     benchmarks = _benchmark_rows(snapshot)
@@ -35,13 +36,13 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
   <style>
     :root {{
       color-scheme: light;
-      --bg: #eef2f6;
-      --glass: rgba(255, 255, 255, 0.74);
-      --glass-strong: rgba(255, 255, 255, 0.88);
-      --panel: rgba(255, 255, 255, 0.78);
-      --panel-soft: rgba(248, 250, 252, 0.82);
-      --border: rgba(137, 151, 172, 0.34);
-      --border-strong: rgba(111, 126, 148, 0.48);
+      --bg: #f4f7fb;
+      --surface: #ffffff;
+      --surface-muted: #f8fafc;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --border: #d8dee8;
+      --border-strong: #bdc7d5;
       --text: #131820;
       --muted: #526071;
       --subtle: #768293;
@@ -54,25 +55,25 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
       --bad-bg: rgba(255, 232, 232, 0.92);
       --accent: #2157bd;
       --accent-strong: #173f8c;
-      --accent-bg: rgba(225, 235, 255, 0.9);
-      --code: rgba(231, 237, 244, 0.92);
-      --shadow: 0 1px 2px rgba(19, 24, 32, 0.06), 0 12px 32px rgba(19, 24, 32, 0.07);
-      --shadow-soft: 0 1px 1px rgba(19, 24, 32, 0.04), 0 10px 24px rgba(19, 24, 32, 0.055);
+      --accent-bg: #e8f0ff;
+      --code: #edf2f7;
+      --shadow: 0 1px 2px rgba(19, 24, 32, 0.06), 0 10px 28px rgba(19, 24, 32, 0.06);
+      --shadow-soft: 0 1px 1px rgba(19, 24, 32, 0.04), 0 8px 20px rgba(19, 24, 32, 0.045);
     }}
     * {{ box-sizing: border-box; }}
     html {{ scroll-behavior: smooth; }}
-    body {{ margin: 0; background-color: var(--bg); background-image: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0) 220px), linear-gradient(rgba(31, 42, 68, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(31, 42, 68, 0.045) 1px, transparent 1px); background-size: auto, 28px 28px, 28px 28px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; line-height: 1.5; }}
+    body {{ margin: 0; background: linear-gradient(180deg, #ffffff 0, var(--bg) 260px); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; line-height: 1.5; }}
     a:focus-visible, button:focus-visible, [tabindex]:focus-visible {{ outline: 3px solid rgba(15, 98, 254, 0.34); outline-offset: 3px; }}
     .skip-link {{ position: absolute; left: 16px; top: -48px; z-index: 4; padding: 10px 12px; border-radius: 8px; background: var(--text); color: #fff; text-decoration: none; }}
     .skip-link:focus {{ top: 12px; }}
-    .topbar {{ position: sticky; top: 0; z-index: 2; background: rgba(255,255,255,0.76); border-bottom: 1px solid rgba(137,151,172,0.24); box-shadow: 0 1px 0 rgba(111,126,148,0.12); backdrop-filter: blur(18px) saturate(150%); }}
+    .topbar {{ position: sticky; top: 0; z-index: 2; background: rgba(255,255,255,0.92); border-bottom: 1px solid var(--border); box-shadow: 0 1px 0 rgba(111,126,148,0.08); backdrop-filter: blur(14px); }}
     .topbar-inner {{ max-width: 1240px; margin: 0 auto; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
     .brand {{ font-weight: 760; letter-spacing: 0; color: var(--accent-strong); }}
     nav {{ display: flex; flex-wrap: wrap; gap: 6px; }}
     nav a {{ min-height: 36px; display: inline-flex; align-items: center; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 560; padding: 7px 11px; border: 1px solid transparent; border-radius: 999px; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }}
-    nav a:hover, nav a:focus-visible {{ background: rgba(255,255,255,0.82); border-color: var(--border); color: var(--text); }}
+    nav a:hover, nav a:focus-visible {{ background: var(--surface-muted); border-color: var(--border); color: var(--text); }}
     main {{ max-width: 1240px; margin: 0 auto; padding: 24px; }}
-    header.hero {{ padding: 30px 0 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); gap: 24px; align-items: end; border-bottom: 1px solid rgba(137,151,172,0.24); }}
+    header.hero {{ padding: 30px 0 18px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); gap: 24px; align-items: end; }}
     h1, h2, h3 {{ line-height: 1.2; margin: 0; letter-spacing: 0; }}
     h1 {{ font-size: 34px; font-weight: 780; }}
     h2 {{ font-size: 18px; font-weight: 720; }}
@@ -85,32 +86,36 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     .eyebrow {{ color: var(--accent); font-size: 12px; font-weight: 760; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px; }}
     .subtitle {{ color: var(--muted); margin: 10px 0 0; max-width: 760px; font-size: 15px; line-height: 1.6; }}
     .meta-stack {{ display: grid; gap: 8px; }}
-    .meta {{ color: var(--muted); margin: 0; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; background: var(--glass); box-shadow: var(--shadow-soft); backdrop-filter: blur(12px) saturate(130%); }}
+    .meta {{ color: var(--muted); margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-soft); }}
     .meta strong {{ color: var(--text); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 10px; }}
-    .metric {{ background: var(--panel); border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; padding: 14px; min-height: 78px; box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    .quality-strip {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; overflow: hidden; margin: 16px 0 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--border); box-shadow: var(--shadow-soft); }}
+    .quality-item {{ min-width: 0; padding: 12px 14px; background: var(--surface); }}
+    .quality-item strong {{ display: block; color: var(--subtle); font-size: 11px; font-weight: 740; text-transform: uppercase; letter-spacing: 0.04em; }}
+    .quality-item span {{ display: block; margin-top: 5px; color: var(--text); font-size: 17px; font-weight: 720; overflow-wrap: anywhere; }}
+    .metric {{ background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; min-height: 78px; box-shadow: var(--shadow-soft); }}
     .metric strong {{ display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }}
     .metric span {{ display: block; margin-top: 6px; font-size: 22px; font-weight: 720; }}
     .metric.compact span {{ font-size: 17px; }}
-    .callout {{ margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--glass); color: var(--muted); backdrop-filter: blur(12px) saturate(125%); }}
+    .callout {{ margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--surface); color: var(--muted); }}
     table {{ width: 100%; border-collapse: collapse; }}
-    .table-wrap {{ overflow-x: auto; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    .table-wrap {{ overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-soft); }}
     th, td {{ border-bottom: 1px solid rgba(137,151,172,0.24); padding: 10px 12px; text-align: left; vertical-align: top; }}
-    th {{ background: rgba(248,250,252,0.94); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }}
+    th {{ background: var(--surface-muted); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }}
     tr:last-child td {{ border-bottom: 0; }}
     tbody tr:hover {{ background: rgba(234,240,255,0.38); }}
     code {{ background: var(--code); padding: 1px 4px; border-radius: 4px; word-break: break-word; }}
     ul {{ padding-left: 18px; margin: 0; }}
     li {{ margin: 7px 0; }}
     small {{ color: var(--muted); }}
-    .pill {{ display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; background: rgba(255,255,255,0.64); color: var(--muted); font-size: 12px; white-space: nowrap; }}
+    .pill {{ display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; background: var(--surface); color: var(--muted); font-size: 12px; white-space: nowrap; }}
     .domain-list {{ display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 0; list-style: none; }}
     .domain-list li {{ margin: 0; }}
-    .domain-item {{ display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 10px; border: 1px solid rgba(148,163,184,0.42); border-radius: 999px; background: rgba(255,255,255,0.68); color: var(--muted); }}
+    .domain-item {{ display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); }}
     .domain-item strong {{ color: var(--text); font-variant-numeric: tabular-nums; }}
     .inventory-list {{ display: grid; gap: 10px; }}
-    .inventory-card {{ border: 1px solid rgba(137,151,172,0.24); border-radius: 8px; background: rgba(255,255,255,0.82); box-shadow: var(--shadow-soft); overflow: hidden; }}
-    .inventory-card-header {{ display: grid; grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) auto; gap: 12px; align-items: start; padding: 14px 16px; border-bottom: 1px solid rgba(137,151,172,0.18); background: rgba(248,250,252,0.78); }}
+    .inventory-card {{ border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-soft); overflow: hidden; }}
+    .inventory-card-header {{ display: grid; grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1fr) auto; gap: 12px; align-items: start; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--surface-muted); }}
     .inventory-title {{ display: grid; gap: 6px; min-width: 0; }}
     .inventory-title strong {{ font-size: 15px; overflow-wrap: anywhere; }}
     .inventory-source {{ display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 13px; }}
@@ -127,7 +132,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     .trigger-chip {{ display: inline-flex; align-items: center; min-height: 26px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(33,87,189,0.22); background: var(--accent-bg); color: var(--accent-strong); font-size: 12px; font-weight: 560; }}
     .metadata-empty {{ margin: 0; color: var(--muted); }}
     .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }}
-    .info-card {{ min-width: 0; padding: 14px; border: 1px solid rgba(255,255,255,0.76); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    .info-card {{ min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow-soft); }}
     .info-card h3, .info-card strong {{ color: var(--text); }}
     .info-card p {{ margin: 6px 0 0; color: var(--muted); }}
     .info-card code {{ display: inline-block; max-width: 100%; overflow-wrap: anywhere; }}
@@ -140,7 +145,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     .miss-list {{ display: grid; gap: 10px; }}
     .miss-card {{ display: grid; gap: 6px; }}
     .loop-card {{ display: grid; gap: 12px; }}
-    .empty-state {{ margin: 0; padding: 14px; border: 1px dashed var(--border); border-radius: 8px; background: rgba(255,255,255,0.48); color: var(--muted); }}
+    .empty-state {{ margin: 0; padding: 14px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--surface-muted); color: var(--muted); }}
     .fresh, .present, .used_helpful {{ color: var(--good); }}
     .stale, .ignored, .used_noisy {{ color: var(--warn); }}
     .missing, .bad_recommendation {{ color: var(--bad); }}
@@ -152,7 +157,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     .reason-col {{ min-width: 260px; }}
     .two-col {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr); gap: 18px; align-items: start; }}
     .action-list {{ display: grid; gap: 10px; padding: 0; list-style: none; }}
-    .action-list li {{ margin: 0; padding: 12px; border: 1px solid rgba(255,255,255,0.72); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow-soft); backdrop-filter: blur(14px) saturate(135%); }}
+    .action-list li {{ margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: var(--shadow-soft); }}
     @media (prefers-reduced-motion: reduce) {{
       html {{ scroll-behavior: auto; }}
       nav a {{ transition: none; }}
@@ -164,6 +169,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
       .topbar-inner {{ padding: 10px 16px; align-items: flex-start; flex-direction: column; }}
       main {{ padding: 16px; }}
       header.hero, .two-col, .benchmark-layout {{ grid-template-columns: 1fr; }}
+      .quality-strip {{ grid-template-columns: 1fr 1fr; }}
       .inventory-card-header {{ grid-template-columns: 1fr; }}
       .learning-card {{ grid-template-columns: 1fr; }}
       h1 {{ font-size: 26px; }}
@@ -200,6 +206,7 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
       <p class="meta"><strong>Generated</strong><br>{_e(generated_at)}</p>
     </div>
   </header>
+  {quality_strip}
 
   <section id="health" class="section">
     <div class="section-header"><h2>Context Health</h2><span class="pill {status_class}">{_e(snapshot.context.status)}</span></div>
@@ -251,6 +258,28 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
 </body>
 </html>
 """
+
+
+def _quality_strip(snapshot: DashboardSnapshot) -> str:
+    benchmark_recall = snapshot.benchmarks.averages.get("selection_recall")
+    skill_recall = snapshot.benchmarks.averages.get("skill_recall_at_3")
+    learning_present = sum(1 for item in snapshot.learning if item.exists)
+    learning_total = len(snapshot.learning)
+    items = [
+        ("Context", str(snapshot.context.status or "unknown")),
+        ("Savings", f"{snapshot.context.saving_pct:.1f}%"),
+        ("Skills", str(snapshot.skills_inventory.total_skills) if snapshot.skills_inventory.available else "not indexed"),
+        ("File Recall", f"{benchmark_recall:.3f}" if benchmark_recall is not None else "no metric"),
+        (
+            "Skill Recall",
+            f"{skill_recall:.3f}" if skill_recall is not None else f"{learning_present}/{learning_total} learning" if learning_total else "no metric",
+        ),
+    ]
+    cells = "".join(
+        f'<div class="quality-item"><strong>{_e(label)}</strong><span>{_e(value)}</span></div>'
+        for label, value in items
+    )
+    return f'<section class="quality-strip" aria-label="Dashboard quality summary">{cells}</section>'
 
 
 def _selected_file_rows(snapshot: DashboardSnapshot) -> str:

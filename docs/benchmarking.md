@@ -26,6 +26,44 @@ agentpack benchmark --results-template
 agentpack benchmark capture --since HEAD~1 --task "describe the completed task"
 ```
 
+## Skill Routing And Keyword Quality
+
+Skill routing has its own benchmark fields. Use them when changing skill
+discovery, trigger generation, BM25/domain scoring, or future semantic search
+fusion.
+
+```toml
+[[cases]]
+task = "review this pull request for SQL injection, XSS, and code quality"
+expected_skills = ["code-reviewer"]
+avoid_skills = ["generic-writing"]
+
+[[cases]]
+task = "translate my retail operations experience into a software resume"
+expected_skills = ["Career Changer Translator"]
+avoid_skills = ["generic-writing"]
+```
+
+Run:
+
+```bash
+agentpack benchmark --misses
+```
+
+The summary table and `.agentpack/benchmark_results.jsonl` report:
+
+| Metric | Meaning |
+|---|---|
+| `skill_recall_at_3` | fraction of expected skills found in the top three |
+| `skill_precision_at_3` | fraction of top-three skills that are expected |
+| `skill_mrr` | reciprocal rank of the first expected skill |
+| `skill_noise_rate` | fraction of top-three skills matching `avoid_skills` |
+| `selected_skills` | actual top skill recommendations |
+
+For keyword quality, write cases around the user wording that previously failed.
+The goal is not to preserve a static trigger list; it is to prove that real task
+phrases select the right skill and avoid broad generic recommendations.
+
 `agentpack benchmark --release-gate` is the public release gate. It expands to
 `--public-repos --prove-targets --misses --public-table`, reads
 `benchmarks/public-repos.toml` by default, and can use `--public-repos-cache`

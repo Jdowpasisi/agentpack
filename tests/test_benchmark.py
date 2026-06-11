@@ -295,6 +295,44 @@ def test_skill_metrics_scores_recall_precision_mrr_and_noise() -> None:
     assert noise == pytest.approx(1 / 3)
 
 
+def test_persist_result_records_skill_keyword_quality_metrics(tmp_path: Path) -> None:
+    (tmp_path / ".agentpack").mkdir()
+    result = CaseResult(
+        case=BenchmarkCase(
+            task="review PR for SQL injection and code quality",
+            expected_skills=["code-reviewer"],
+            avoid_skills=["generic-writing"],
+        ),
+        packed_tokens=1000,
+        raw_tokens=10000,
+        after_ignore_tokens=8000,
+        saving_pct=90.0,
+        saving_pct_honest=87.5,
+        selected_paths=[],
+        selected_tokens={},
+        changed_covered=0,
+        changed_total=0,
+        total_s=0.1,
+        phase_times={},
+        selected_skills=["code-reviewer", "generic-writing"],
+        skill_recall_at_3=1.0,
+        skill_precision_at_3=0.5,
+        skill_mrr=1.0,
+        skill_noise_rate=0.5,
+        skill_token_cost=245,
+    )
+
+    _persist_result(tmp_path, result)
+
+    record = json.loads((tmp_path / ".agentpack" / "benchmark_results.jsonl").read_text(encoding="utf-8"))
+    assert record["selected_skills"] == ["code-reviewer", "generic-writing"]
+    assert record["skill_recall_at_3"] == 1.0
+    assert record["skill_precision_at_3"] == 0.5
+    assert record["skill_mrr"] == 1.0
+    assert record["skill_noise_rate"] == 0.5
+    assert record["skill_token_cost"] == 245
+
+
 def test_load_cases_defaults_mode(tmp_path: Path) -> None:
     f = tmp_path / "bench.toml"
     f.write_text('[[cases]]\ntask = "add feature"\n', encoding="utf-8")

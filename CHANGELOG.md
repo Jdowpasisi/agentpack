@@ -10,6 +10,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.20] — 2026-06-11
+
+### Added
+- Added a dedicated "How AgentPack works" guide covering scan, rank, compress, cache, retrieve, route, stable-prefix caching, skill keyword quality, and the future hybrid BM25 plus semantic-search direction.
+- Added regression coverage for persisted skill-routing benchmark metrics so weak skill keyword changes are easier to catch.
+
+### Changed
+- Polished the local dashboard with a calmer visual system and a compact quality summary strip.
+- Expanded benchmark documentation for `expected_skills`, `avoid_skills`, `skill_recall_at_3`, `skill_precision_at_3`, `skill_mrr`, and `skill_noise_rate`.
+
+---
+
 ## [0.3.19] — 2026-06-11
 
 ### Added

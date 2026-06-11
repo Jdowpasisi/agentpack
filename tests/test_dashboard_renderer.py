@@ -32,7 +32,7 @@ def test_render_dashboard_html_contains_core_sections() -> None:
                 task_specific=[SkillRow(name="auth-review", confidence=0.8, status="used_helpful")]
             ),
             learning=[LearningArtifact(label="Learning notes", path=".agentpack/learning.md", exists=True)],
-            benchmarks=BenchmarkSummary(averages={"selection_recall": 0.8}),
+            benchmarks=BenchmarkSummary(averages={"selection_recall": 0.8, "skill_recall_at_3": 0.9}),
             loop=LoopSummary(
                 exists=True,
                 status="ready_to_finish",
@@ -55,6 +55,10 @@ def test_render_dashboard_html_contains_core_sections() -> None:
     assert "agentpack finish --since main" in html
     assert "agentpack pack --task auto" in html
     assert 'class="topbar"' in html
+    assert 'class="quality-strip"' in html
+    assert "Dashboard quality summary" in html
+    assert "Skill Recall" in html
+    assert "0.900" in html
     assert 'class="section-header"' in html
     assert 'href="#inventory"' in html
     assert 'class="table-wrap"' in html

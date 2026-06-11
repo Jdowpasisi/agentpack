@@ -14,8 +14,7 @@ Claude Code, Codex, Cursor, and other coding agents can waste tool calls redisco
 
 AgentPack gives them a ranked map of likely relevant files, tests, rules, and skills for each task. It analyzes your repo locally and packages compact context for CLI and MCP workflows.
 
-How it works: AgentPack compresses repo context into ranked packs, caches scans/summaries/pack metadata for fast refreshes, and retrieves exact file or symbol blocks later when an agent needs more detail. Rendered packs also put stable instructions before volatile task, timestamp, git, and file sections so provider prompt-prefix caches can reuse the front of repeated refreshes. No cloud indexing, embeddings, or API calls are required for scan, summarize, rank, pack, stats, or benchmark.
-
+How it works: AgentPack compresses repo context into ranked packs, caches scans/summaries/pack metadata for fast refreshes, and retrieves exact file or symbol blocks later when an agent needs more detail. Rendered packs also put stable instructions before volatile task, timestamp, git, and file sections so provider prompt-prefix caches can reuse the front of repeated refreshes. No cloud indexing, embeddings, or API calls are required for scan, summarize, rank, pack, stats, or benchmark. See [How AgentPack works](docs/how-agentpack-works.md) for the full scan, rank, compress, cache, retrieve, route, and benchmark flow.
 Try the read-only task router without writing context files:
 
 ```bash
@@ -24,44 +23,18 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.16).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.20).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
-## What's New in 0.3.16
+## What's New in 0.3.20
 
-`0.3.16` bundles `watchdog` in normal installs so `agentpack watch` uses native
-filesystem events by default instead of polling after `pipx`, `pip`, or npm
-wrapper installation.
-
-## What's New in 0.3.15
-
-AgentPack Router now recommends skills with stronger local signals: richer
-frontmatter, confidence thresholds, negative triggers, diversity-aware ranking,
-and a pull-based MCP `get_skill` flow. Skill benchmark cases can declare
-`expected_skills` and `avoid_skills`, and `agentpack skills feedback` records
-local outcome signals for future routing.
-
-## What's New in 0.3.14
-
-AgentPack Learn now covers both sides of AI-assisted development: the coding
-agent gets compact future-agent lessons, and the developer gets task-specific
-learning notes, skill evidence, and practice follow-up.
-
-- `agentpack learn --provider-command` adds an opt-in local provider bridge:
-  AgentPack sends a bounded, redacted report JSON on stdin and accepts
-  LearningReport-compatible JSON fields on stdout. No hosted service is called
-  unless your command does it.
-- `agentpack learn --dashboard` writes a static
-  `.agentpack/learning-dashboard.html` for IDE/browser review.
-- `agentpack learn --team-export` writes `.agentpack/team-lessons.md`, a
-  shareable lesson file that omits personal skill history.
-- `agentpack learn --feedback`, `--skills`, and `--drills` close the loop from
-  a task summary to skill memory and next-practice prompts.
-- `agentpack dev-check` and `agentpack release-check` now print bounded failure
-  excerpts, so CI shows the failing test instead of only a red stage name.
+`0.3.20` adds a dedicated "How AgentPack works" guide for scan, rank, compress,
+cache, retrieve, route, stable-prefix caching, and skill keyword quality. It
+also polishes the local dashboard and expands skill-routing benchmark guidance
+for `expected_skills`, `avoid_skills`, recall, precision, MRR, and noise.
 
 ## Before vs After
 
@@ -129,6 +102,7 @@ Full table: [`benchmarks/results/2026-05-27-public.md`](benchmarks/results/2026-
 - [Cursor context packing](docs/cursor-context-packing.md)
 - [AI coding agent context packing](docs/ai-coding-agent-context.md)
 - [Reduce Claude Code token usage](docs/reduce-claude-code-token-usage.md)
+- [How AgentPack works](docs/how-agentpack-works.md)
 - [AgentPack vs Repomix](docs/agentpack-vs-repomix.md)
 - [AgentPack vs Augment Context Engine](docs/agentpack-vs-augment-context-engine.md)
 - [Docs index](docs/index.md)

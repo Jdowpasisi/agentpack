@@ -25,7 +25,7 @@ npx @vishal2612200/agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](https://raw.githubusercontent.com/vishal2612200/agentpack/main/docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.16).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.20).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
 >
@@ -33,18 +33,10 @@ npx @vishal2612200/agentpack route --task "fix auth token expiry"
 
 ## Latest Update
 
-`0.3.16` bundles `watchdog` in normal installs so `agentpack watch` uses native
-filesystem events by default instead of polling after `pipx`, `pip`, or npm
-wrapper installation.
-
-`0.3.15` improves the skill router with richer metadata, confidence thresholds,
-negative triggers, diversity-aware recommendations, MCP `get_skill`, and local
-`agentpack skills feedback` outcome records.
-
-`0.3.14` expands `agentpack learn` from a local post-task summary into a
-developer learning layer: provider-command enrichment, static dashboard export,
-team lesson export, feedback-aware skill memory, and practice drills. The npm
-wrapper exposes the same Python CLI, so JavaScript teams can run:
+`0.3.20` documents how AgentPack scans, ranks, compresses, caches, retrieves,
+and routes context, adds clearer skill-routing benchmark guidance, and polishes
+the local dashboard. The npm wrapper exposes the same Python CLI, so JavaScript
+teams can run:
 
 ```bash
 npx @vishal2612200/agentpack learn --dashboard --team-export
