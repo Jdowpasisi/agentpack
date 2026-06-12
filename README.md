@@ -154,7 +154,7 @@ pipx install agentpack-cli
 agentpack --version
 ```
 
-Requires Python 3.10+. The PyPI package is `agentpack-cli`; the command is `agentpack`. Use `pipx` for normal installs because many macOS/Linux Python distributions block global `pip install` with PEP 668's `externally-managed-environment` error. If you prefer `pip`, install inside a virtual environment.
+Requires Python 3.10+ and is tested on Python 3.10-3.14. The PyPI package is `agentpack-cli`; the command is `agentpack`. Use `pipx` for normal installs because many macOS/Linux Python distributions block global `pip install` with PEP 668's `externally-managed-environment` error. If you prefer `pip`, install inside a virtual environment.
 
 Install `pipx` first if needed:
 

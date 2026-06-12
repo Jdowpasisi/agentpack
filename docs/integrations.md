@@ -143,7 +143,7 @@ Configures:
 
 agentpack uses two workflows:
 
-- **`ci.yml`** — runs tests (Python 3.10–3.13) + ruff lint + 80% coverage gate on every push and PR to `main`
+- **`ci.yml`** — runs tests (Python 3.10-3.14) + ruff lint + 80% coverage gate on every push and PR to `main`
 - **`publish.yml`** — runs on every `v*` tag push; requires tag from a `release/*` branch and a CHANGELOG.md entry for the version before building and publishing to PyPI (trusted publishing)
 
 ### Add context packing to your repo

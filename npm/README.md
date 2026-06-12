@@ -108,7 +108,7 @@ agentpack --version
 Requirements:
 
 - Node.js 18+
-- Python 3.10+
+- Python 3.10+; tested on Python 3.10-3.14
 - macOS, Linux, or Windows with PowerShell plus Git for Windows
 
 ## First project
