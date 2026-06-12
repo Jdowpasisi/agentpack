@@ -4,7 +4,7 @@ import json
 import hashlib
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +27,7 @@ from agentpack.core.models import (
     ScanResult,
     SelectedFile,
 )
+from agentpack.core.modes import normalize_mode
 from agentpack.core.pack_registry import save_pack_registry
 from agentpack.core.task_freshness import read_task_md, task_metadata
 from agentpack.core.thread_context import (
@@ -396,6 +397,14 @@ class PackPlanner:
     def plan(self, request: PackRequest) -> PackPlan:
         root = request.root
         cfg = load_config(root)
+        requested_mode = request.mode or cfg.context.default_mode
+        normalized_mode = normalize_mode(requested_mode)
+        mode_warning = (
+            "Legacy mode 'minimal' was mapped to 'balanced'."
+            if requested_mode.strip().lower() != normalized_mode
+            else None
+        )
+        request = replace(request, mode=normalized_mode)
         effective_budget = _resolve_effective_budget(request, cfg)
         ignore_spec = load_spec(root / cfg.project.ignore_file)
         phase_times: dict[str, float] = {}
@@ -489,7 +498,11 @@ class PackPlanner:
             generic_ratio=rank_result.generic_ratio,
         )
         if not changes.all_changed:
-            rank_result.scored = _apply_no_live_precision_guard(rank_result.scored, rank_result.generic_ratio)
+            rank_result.scored = _apply_no_live_precision_guard(
+                rank_result.scored,
+                rank_result.generic_ratio,
+                mode=request.mode,
+            )
             rank_result.scored = _apply_scope_penalties(
                 rank_result.scored,
                 request.task,
@@ -497,12 +510,13 @@ class PackPlanner:
                 generic_ratio=rank_result.generic_ratio,
                 no_live_changes=True,
             )
-        effective_mode, mode_warning = _resolve_effective_mode(
+        effective_mode, resolved_mode_warning = _resolve_effective_mode(
             root,
             request.mode,
             rank_result.generic_ratio,
             no_live_changes=not changes.all_changed,
         )
+        mode_warning = mode_warning or resolved_mode_warning
         phase_times["rank"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -539,6 +553,8 @@ class PackPlanner:
                 rank_result.generic_ratio,
                 no_live_changes=not changes.all_changed,
                 effective_budget=effective_budget,
+                task_kind=rank_result.keyword_plan.task_kind,
+                has_literal_phrases=bool(rank_result.keyword_plan.literal_phrases),
             ),
             max_weak_signal_files=_guarded_weak_signal_cap(
                 root,
@@ -550,6 +566,7 @@ class PackPlanner:
             strict_summary_selection=_strict_summary_selection(
                 root,
                 no_live_changes=not changes.all_changed,
+                mode=effective_mode,
             ),
             omitted_relevant_files=omitted_relevant_files,
         )
@@ -580,6 +597,8 @@ class PackPlanner:
                     rank_result.generic_ratio,
                     no_live_changes=not changes.all_changed,
                     effective_budget=effective_budget,
+                    task_kind=rank_result.keyword_plan.task_kind,
+                    has_literal_phrases=bool(rank_result.keyword_plan.literal_phrases),
                 ),
                 max_weak_signal_files=_guarded_weak_signal_cap(
                     root,
@@ -591,6 +610,7 @@ class PackPlanner:
                 strict_summary_selection=_strict_summary_selection(
                     root,
                     no_live_changes=not changes.all_changed,
+                    mode=effective_mode,
                 ),
                 omitted_relevant_files=omitted_relevant_files,
             )
@@ -599,7 +619,7 @@ class PackPlanner:
 
         return PackPlan(
             task=request.task,
-            requested_mode=request.mode,
+            requested_mode=requested_mode,
             mode=effective_mode,
             budget=effective_budget,
             scan_result=scan_result,
@@ -923,6 +943,8 @@ def _selected_file_metadata(selected: list[SelectedFile]) -> list[dict[str, Any]
 def _sf_tokens(sf: SelectedFile) -> int:
     if sf.content:
         return estimate_tokens(sf.content)
+    if sf.include_mode == "summary":
+        return estimate_tokens(sf.summary) if sf.summary else 50
     parts: list[str] = []
     if sf.summary:
         parts.append(sf.summary)
@@ -1014,7 +1036,7 @@ def _rank_omitted_relevant_files(files: list[OmittedRelevantFile]) -> list[Omitt
 
 
 def _repo_map_budget_for_mode(mode: str, effective_budget: int) -> int:
-    caps = {"lite": 150, "minimal": 300, "balanced": 600, "deep": 900}
+    caps = {"lite": 150, "balanced": 600, "deep": 900}
     return min(caps.get(mode, 500), max(0, effective_budget // 20))
 
 
@@ -1249,6 +1271,7 @@ _NO_LIVE_STRONG_SIGNALS = (
     "has related tests",
     "test for",
     "config file",
+    "release/version metadata",
     "knowledge/architecture doc",
     "historically co-changed",
 )
@@ -1258,10 +1281,11 @@ _NO_LIVE_META_ONLY_SIGNALS = (
     "matched define",
 )
 
-
 def _apply_no_live_precision_guard(
     scored: list[tuple[Any, float, list[str]]],
     generic_ratio: float,
+    *,
+    mode: str = "",
 ) -> list[tuple[Any, float, list[str]]]:
     """Tighten ranking when task keywords are the only signal.
 
@@ -1339,10 +1363,8 @@ def _summary_score_floor(cfg: Any, generic_ratio: float) -> float:
 
 def _summary_cap_for_mode(cfg: Any, mode: str, generic_ratio: float = 0.0) -> int:
     if mode == "lite":
-        minimal_cap = cfg.context.max_summary_files_minimal
-        cap = min(minimal_cap, cfg.context_lite.max_selected_files) if minimal_cap > 0 else cfg.context_lite.max_selected_files
-    elif mode == "minimal":
-        cap = cfg.context.max_summary_files_minimal
+        lite_cap = cfg.context.max_summary_files_lite
+        cap = min(lite_cap, cfg.context_lite.max_selected_files) if lite_cap > 0 else cfg.context_lite.max_selected_files
     elif mode == "balanced":
         cap = cfg.context.max_summary_files_balanced
     elif mode == "deep":
@@ -1367,6 +1389,8 @@ def _guarded_summary_score_floor(
     floor = _summary_score_floor(cfg, generic_ratio)
     avg_summary_precision, rows = _recent_summary_token_precision(root)
     if rows < 3:
+        if no_live_changes and mode == "balanced":
+            return floor + 60
         return floor + (15 if no_live_changes else 0)
     if avg_summary_precision <= 0.05:
         return floor + (140 if no_live_changes else 80)
@@ -1385,25 +1409,33 @@ def _guarded_summary_cap(
     *,
     no_live_changes: bool = False,
     effective_budget: int = 0,
+    task_kind: str = "",
+    has_literal_phrases: bool = False,
 ) -> int:
     cap = _summary_cap_for_mode(cfg, mode, generic_ratio)
     if no_live_changes and effective_budget and effective_budget <= 2500 and cap > 0:
-        cap = min(cap, 4 if mode == "minimal" else 6)
+        cap = min(cap, 2 if mode == "lite" else 3 if mode == "balanced" else 6)
     avg_summary_precision, rows = _recent_summary_token_precision(root)
     if rows < 3:
         if no_live_changes and cap > 0:
+            if mode == "balanced":
+                if task_kind == "chore" and has_literal_phrases:
+                    return min(cap, 2)
+                if task_kind == "test":
+                    return min(cap, 4)
+                return min(cap, 3)
             if effective_budget and effective_budget <= 2500:
-                return min(cap, 4 if mode in ("lite", "minimal") else 6)
+                return min(cap, 2 if mode == "lite" else 6)
             if effective_budget and effective_budget <= 6000:
-                return min(cap, 12 if mode in ("lite", "minimal") else 16)
+                return min(cap, 12 if mode == "lite" else 16)
             return min(cap, 16)
         return cap
     if avg_summary_precision <= 0.05:
         if no_live_changes:
             return -1
-        strict_cap = 2 if mode == "lite" else 3 if mode == "minimal" else 5 if mode == "balanced" else 10
+        strict_cap = 2 if mode == "lite" else 5 if mode == "balanced" else 10
     elif avg_summary_precision <= 0.15:
-        strict_cap = 2 if mode == "lite" else 3 if no_live_changes else 6 if mode == "minimal" else 12 if mode == "balanced" else 20
+        strict_cap = 2 if mode == "lite" else 3 if no_live_changes else 12 if mode == "balanced" else 20
     else:
         if no_live_changes and cap > 0:
             return min(cap, 8)
@@ -1417,6 +1449,7 @@ def _strict_summary_selection(
     root: Path,
     *,
     no_live_changes: bool = False,
+    mode: str = "",
 ) -> bool:
     avg_summary_precision, rows = _recent_summary_token_precision(root)
     if rows < 3:
@@ -1461,15 +1494,15 @@ def _guarded_weak_signal_cap(
     if not no_live_changes:
         return 0
     if generic_ratio >= 0.5:
-        base = {"lite": 0, "minimal": 0, "balanced": 1, "deep": 2}.get(mode, 1)
+        base = {"lite": 0, "balanced": 1, "deep": 2}.get(mode, 1)
     elif generic_ratio >= 0.35:
-        base = {"lite": 0, "minimal": 1, "balanced": 2, "deep": 3}.get(mode, 2)
+        base = {"lite": 0, "balanced": 2, "deep": 3}.get(mode, 2)
     else:
-        base = {"lite": 1, "minimal": 2, "balanced": 4, "deep": 6}.get(mode, 3)
+        base = {"lite": 1, "balanced": 4, "deep": 6}.get(mode, 3)
     avg_precision, rows = _recent_token_precision(root)
     if rows >= 3:
         if avg_precision <= 0.1:
-            base = min(base, 0 if mode in ("lite", "minimal") else 1)
+            base = min(base, 0 if mode == "lite" else 1)
         elif avg_precision <= 0.2:
             base = min(base, 1 if mode != "deep" else 2)
     if effective_budget and effective_budget <= 2500:
@@ -1484,17 +1517,6 @@ def _resolve_effective_mode(
     *,
     no_live_changes: bool = False,
 ) -> tuple[str, str | None]:
-    if requested_mode != "balanced" or not no_live_changes:
-        return requested_mode, None
-    avg_precision, precision_rows = _recent_token_precision(root)
-    avg_summary_precision, summary_rows = _recent_summary_token_precision(root)
-    low_precision = precision_rows >= 3 and avg_precision <= 0.2
-    dead_summaries = summary_rows >= 3 and avg_summary_precision <= 0.05
-    if generic_ratio >= 0.5 or low_precision or dead_summaries:
-        return "minimal", (
-            "Balanced mode auto-tightened to minimal because no live changes were detected "
-            "and recent precision suggests broader context is mostly noise."
-        )
     return requested_mode, None
 
 

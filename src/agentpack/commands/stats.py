@@ -358,7 +358,7 @@ def _noise_diagnostics(
             if "filename keyword match" in why and "modified" not in why and "staged" not in why
         )
         if summary_count / len(visible_top) >= 0.7:
-            diagnostics.append("Latest pack is mostly summaries; use minimal mode or a narrower task for edit work.")
+            diagnostics.append("Latest pack is mostly summaries; keep balanced mode and use a narrower task for edit work.")
         if filename_matches / len(visible_top) >= 0.6:
             diagnostics.append("Top files mostly matched by filename; task terms may be broad.")
             diagnostics.append("Rewrite `.agentpack/task.md` with concrete file, route, service, or symptom words.")
@@ -381,7 +381,7 @@ def _noise_diagnostics(
             diagnostics.append("Selection file precision is very low; many selected files were not later changed.")
         if avg_token_precision is not None and avg_token_precision < 0.2:
             diagnostics.append("Token precision is low; most packed tokens became noise in recent runs.")
-            diagnostics.append("Try `agentpack pack --mode minimal --task auto` until task wording or scoring improves.")
+            diagnostics.append("Keep standard balanced mode and rewrite the task with concrete file, route, service, or symptom words.")
         if avg_summary_precision == 0:
             diagnostics.append("Summary token precision is 0%; summaries will be suppressed in no-live-change packs.")
         noisy_counts: dict[str, int] = {}

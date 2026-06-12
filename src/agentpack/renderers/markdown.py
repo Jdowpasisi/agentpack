@@ -27,6 +27,8 @@ def _symbols_block(symbols: list[Symbol], lang: str | None) -> str:
 def _selected_file_tokens(sf: SelectedFile) -> int:
     if sf.content:
         return estimate_tokens(sf.content)
+    if sf.include_mode == "summary":
+        return estimate_tokens(sf.summary) if sf.summary else 50
     parts: list[str] = []
     if sf.summary:
         parts.append(sf.summary)

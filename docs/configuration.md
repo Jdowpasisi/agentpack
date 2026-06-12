@@ -13,10 +13,10 @@ ignore_file = ".agentignore"
 
 [context]
 default_budget = 40000
-default_mode = "balanced"  # lite | minimal | balanced | deep
+default_mode = "balanced"  # lite | balanced | deep
 max_file_tokens = 4000
 min_summary_score = 60
-max_summary_files_minimal = 15
+max_summary_files_lite = 15
 max_summary_files_balanced = 40
 max_summary_files_deep = 0
 include_tests = true

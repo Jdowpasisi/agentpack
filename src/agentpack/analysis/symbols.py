@@ -93,6 +93,9 @@ _JS_FUNC = re.compile(
 _JS_ARROW = re.compile(
     r"(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>",
 )
+_JS_EXPORTED_VAR = re.compile(
+    r"\bexport\s+(?:declare\s+)?(?:const|let|var)\s+(\w+)\s*(?::[^=;]+)?=",
+)
 _JS_CLASS = re.compile(r"(?:export\s+)?class\s+(\w+)")
 
 
@@ -112,6 +115,7 @@ def extract_js_symbols(path: Path) -> list[Symbol]:
             (_JS_CLASS, "class"),
             (_JS_FUNC, "function"),
             (_JS_ARROW, "function"),
+            (_JS_EXPORTED_VAR, "variable"),
         ]:
             m = pattern.search(line)
             if m:

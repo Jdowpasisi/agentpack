@@ -42,7 +42,7 @@ def build_selection_diagnosis(root: Path) -> dict[str, Any]:
     if freshness.get("generic_task_ratio", 0) and float(freshness.get("generic_task_ratio") or 0) >= 0.5:
         diagnostics.append("Task terms are broad; rewrite with concrete subsystem, file, route, or symptom words.")
     if selected and summary_count / len(selected) >= 0.7:
-        diagnostics.append("Latest pack is mostly summaries; try `agentpack pack --mode minimal` or tighten task wording.")
+        diagnostics.append("Latest pack is mostly summaries; keep standard balanced mode and tighten task wording.")
     if freshness.get("mode_warning"):
         diagnostics.append(str(freshness["mode_warning"]))
     suggestions = [

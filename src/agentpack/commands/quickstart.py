@@ -6,6 +6,7 @@ import typer
 from rich.table import Table
 
 from agentpack.commands._shared import console, _root
+from agentpack.core.modes import MODE_HELP, invalid_mode_message, is_requested_mode, normalize_mode
 from agentpack.session.state import TASK_FILE
 
 
@@ -16,13 +17,14 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def quickstart(
         task: str = typer.Option("", "--task", help="Optional task to show or write into .agentpack/task.md."),
-        mode: str = typer.Option("balanced", "--mode", help="Suggested mode (lite|minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help=f"Suggested mode ({MODE_HELP})."),
         write: bool = typer.Option(False, "--write", help="Write --task into .agentpack/task.md."),
     ) -> None:
         """Show the fastest useful path for a new repo."""
-        if mode not in ("lite", "minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
+        if not is_requested_mode(mode):
+            console.print(f"[red]{invalid_mode_message(mode)}[/]")
             raise typer.Exit(1)
+        mode = normalize_mode(mode)
         if write and not task.strip():
             console.print("[red]--write requires --task.[/]")
             raise typer.Exit(1)

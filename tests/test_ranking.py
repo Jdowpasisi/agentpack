@@ -3,6 +3,7 @@ from agentpack.analysis.ranking import (
     ambiguous_task_terms,
     build_keyword_plan,
     boost_cross_layer_related,
+    boost_paired_tests,
     concrete_task_terms,
     extract_keywords,
     extract_keyword_weights,
@@ -10,6 +11,8 @@ from agentpack.analysis.ranking import (
     persist_keyword_plan_stats,
     score_files,
     suggest_task_rewrite,
+    task_phrases,
+    task_terms,
 )
 from agentpack.core.models import FileInfo
 
@@ -40,6 +43,189 @@ def test_extract_keywords_variants():
     kw = extract_keywords("authentication configuration")
     assert "auth" in kw
     assert "config" in kw
+
+
+def test_task_terms_parse_conventional_commit_metadata_and_keep_type_token():
+    plan = build_keyword_plan("test(core): add deeply nested transient providers")
+
+    terms = set(task_terms("test(core): add deeply nested transient providers"))
+    assert "test" in terms
+    assert "core" in terms
+    assert plan.task_kind == "test"
+    assert plan.task_scope_terms == ("core",)
+
+
+def test_conventional_commit_kind_is_dynamic_metadata_not_concrete_signal():
+    plan = build_keyword_plan("chore(parser): correct parseAst hints")
+
+    assert plan.task_kind == "chore"
+    assert "chore" in plan.generic_terms
+    assert "chore" not in plan.concrete_terms
+    assert plan.weights["chore"] <= 0.25
+    assert "parser" in plan.concrete_terms
+    assert "parseast" in plan.concrete_terms
+
+
+def test_task_phrases_include_dynamic_trigrams():
+    phrases = task_phrases("test(core): add deeply nested transient providers in scoped chains", max_len=3)
+
+    assert "deeply nested" in phrases
+    assert "deeply nested transient" in phrases
+    assert "nested transient providers" in phrases
+    assert "transient providers scoped" in phrases
+
+
+def test_keyword_plan_keeps_default_phrase_ranking_to_bigrams():
+    plan = build_keyword_plan("test(core): add deeply nested transient providers in scoped chains")
+
+    assert "deeply nested" in plan.phrase_weights
+    assert "deeply nested transient" not in plan.phrase_weights
+
+
+def test_conventional_commit_scope_boosts_matching_non_test_package_path():
+    core_file = _fi("packages/core/test/injector/injector.spec.ts", language="typescript")
+    integration_noise = _fi("integration/scopes/src/nested-transient/transient.service.ts", language="typescript")
+    scored = score_files(
+        [integration_noise, core_file],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("fix(core): skip transient providers for snapshots"),
+        summaries={
+            integration_noise.path: {
+                "role": "transient scope service",
+                "defines": ["TransientService"],
+                "ranking_keywords": ["transient", "scoped"],
+            },
+            core_file.path: {
+                "role": "injector spec",
+                "calls": ["request"],
+                "ranking_keywords": ["transient", "providers"],
+            },
+        },
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+    assert scores[core_file.path][0] > scores[integration_noise.path][0]
+    assert "conventional scope path match" in scores[core_file.path][1]
+
+
+def test_conventional_commit_workspace_scope_dampens_wrong_workspace():
+    core_file = _fi("packages/core/injector/injector.ts", language="typescript")
+    integration_noise = _fi("integration/scopes/src/nested-transient/transient.service.ts", language="typescript")
+    scored = score_files(
+        [integration_noise, core_file],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan(
+            "fix(core): skip transient providers for snapshots",
+            workspace_roots=["packages/core"],
+        ),
+        summaries={
+            integration_noise.path: {
+                "role": "transient scope service",
+                "defines": ["TransientService"],
+                "ranking_keywords": ["transient", "providers"],
+            },
+            core_file.path: {
+                "role": "injector",
+                "calls": ["providers.set"],
+                "ranking_keywords": ["providers"],
+            },
+        },
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+    assert scores[core_file.path][0] > scores[integration_noise.path][0]
+    assert "conventional scope mismatch dampening" in scores[integration_noise.path][1]
+    assert "conventional scope mismatch dampening" not in scores[core_file.path][1]
+
+
+def test_conventional_commit_scope_without_workspace_root_does_not_dampen():
+    scoped_file = _fi("packages/vite/src/types/ws.d.ts", language="typescript")
+    expected_source = _fi("packages/vite/src/node/index.ts", language="typescript")
+    scored = score_files(
+        [scoped_file, expected_source],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan(
+            "feat(types): add more precise typing for known query types",
+            workspace_roots=["packages/vite"],
+        ),
+        summaries={
+            scoped_file.path: {"defines": ["WebSocket"]},
+            expected_source.path: {"defines": ["KnownQueryTypes"], "ranking_keywords": ["query"]},
+        },
+    )
+
+    reasons = {fi.path: reasons for fi, _score, reasons in scored}
+    assert "conventional scope mismatch dampening" not in reasons[expected_source.path]
+
+
+def test_conventional_commit_scope_does_not_force_test_tasks_to_package_path():
+    core_file = _fi("packages/core/test/injector/injector.spec.ts", language="typescript")
+    integration_test = _fi("integration/scopes/e2e/scoped-instances.spec.ts", language="typescript")
+    scored = score_files(
+        [integration_test, core_file],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("test(core): add several tests for request-scoped providers"),
+        summaries={
+            integration_test.path: {"role": "scoped instances.spec", "calls": ["request"], "ranking_keywords": ["providers"]},
+            core_file.path: {"role": "injector spec", "ranking_keywords": ["providers"]},
+        },
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+    assert "conventional scope path match" not in scores[core_file.path][1]
+    assert "conventional scope mismatch dampening" not in scores[integration_test.path][1]
+
+
+def test_chore_literal_dampens_partial_filename_match_without_exact_literal(tmp_path):
+    exact = FileInfo(
+        path="packages/vite/src/node/server/openBrowser.ts",
+        abs_path=tmp_path / "packages/vite/src/node/server/openBrowser.ts",
+        size_bytes=120,
+        estimated_tokens=120,
+        language="typescript",
+        content="const message = 'Use create-react-app migration links here'\n",
+    )
+    partial = FileInfo(
+        path="packages/create-vite/src/index.ts",
+        abs_path=tmp_path / "packages/create-vite/src/index.ts",
+        size_bytes=120,
+        estimated_tokens=120,
+        language="typescript",
+        content="setupReactCompiler(); createColors(); updateLinks();\n",
+    )
+
+    scored = score_files(
+        [partial, exact],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("chore: update `create-react-app` links"),
+        summaries={
+            exact.path: {"calls": ["openBrowser"]},
+            partial.path: {
+                "defines": ["setupReactCompiler"],
+                "calls": ["createColors"],
+                "ranking_keywords": ["update"],
+            },
+        },
+    )
+
+    scores = {fi.path: (score, reasons) for fi, score, reasons in scored}
+    assert scores[exact.path][0] > scores[partial.path][0]
+    assert "chore literal partial-match dampening" in scores[partial.path][1]
 
 
 def test_extract_keyword_weights_downweight_expanded_concepts():
@@ -231,6 +417,87 @@ def test_content_keyword_match_uses_whole_tokens():
     assert scored[0][1] == 0
 
 
+def test_quoted_hyphen_literal_match_beats_generic_symbol_match():
+    expected = _fi("packages/vite/src/node/server/openBrowser.ts", language="typescript")
+    expected.content = "https://github.com/facebook/create-react-app/blob/main/LICENSE\n"
+    generic = _fi("packages/create-vite/template-react/src/App.jsx", language="typescript")
+    generic.content = "export function App() { return <main>React app</main> }\n"
+    summaries = {
+        generic.path: {
+            "symbols": [{"name": "App"}],
+            "defines": ["App"],
+            "entrypoints": ["React component: App"],
+            "role": "React UI component",
+        },
+        expected.path: {
+            "symbols": [{"name": "openBrowser"}],
+            "defines": ["openBrowser"],
+        },
+    }
+
+    scored = score_files(
+        [generic, expected],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("chore: update `create-react-app` links"),
+        summaries=summaries,
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores[expected.path] > scores[generic.path]
+    assert "quoted literal match: create react app" in reasons[expected.path]
+
+
+def test_plural_task_term_matches_singular_content_signal():
+    expected = _fi("packages/core/injector/injector.ts", language="typescript")
+    expected.content = "const isSnapshotGraphCompilation = options.snapshot\n"
+
+    scored = score_files(
+        [expected],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("fix: should skip transient providers for snapshots"),
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores[expected.path] > 0
+    assert "content keyword match (1)" in reasons[expected.path]
+
+
+def test_direct_content_evidence_beats_symbol_only_filename_noise():
+    expected = _fi("packages/core/injector/injector.ts", language="typescript")
+    expected.content = "providers transient providers snapshot transient providers snapshot"
+    noise = _fi("integration/scopes/src/nested-transient/transient.service.ts", language="typescript")
+
+    scored = score_files(
+        [noise, expected],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("fix: should skip transient providers for snapshots"),
+        summaries={
+            expected.path: {"calls": ["providers.set"]},
+            noise.path: {
+                "defines": ["TransientService"],
+                "ranking_keywords": ["transient"],
+            },
+        },
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores[expected.path] > scores[noise.path]
+    assert any(reason.startswith("direct content evidence") for reason in reasons[expected.path])
+    assert not any(reason.startswith("direct content evidence") for reason in reasons[noise.path])
+
+
 def test_concept_keyword_scores_less_than_literal_keyword():
     files = [_fi("src/task.py")]
     literal = score_files(
@@ -368,3 +635,320 @@ def test_generic_public_name_gets_small_penalty_when_otherwise_weak():
     reasons = {item[0].path: item[2] for item in scored}
     assert scores["src/auth/otp.py"] > scores["src/auth/handler.py"]
     assert any(reason == "generic public API penalty: handle" for reason in reasons["src/auth/handler.py"])
+
+
+def test_multi_token_define_beats_single_token_define():
+    exact = _fi("src/node/index.ts", language="typescript")
+    partial = _fi("src/node/plugins/worker.ts", language="typescript")
+    summaries = {
+        exact.path: {
+            "symbols": [{"name": "parseAst"}],
+            "defines": ["parseAst"],
+        },
+        partial.path: {
+            "symbols": [{"name": "extractWorkerTypeFromAst"}],
+            "defines": ["extractWorkerTypeFromAst"],
+        },
+    }
+
+    scored = score_files(
+        [partial, exact],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("correct parse ast deprecation hint"),
+        summaries=summaries,
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores["src/node/index.ts"] > scores["src/node/plugins/worker.ts"]
+    assert any(reason.startswith("multi-token defines match") for reason in reasons["src/node/index.ts"])
+
+
+def test_release_task_boosts_version_metadata_files():
+    pyproject = _fi("pyproject.toml", language=None)
+    init_file = _fi("src/pkg/__init__.py")
+    random_file = _fi("src/pkg/runtime.py")
+
+    scored = score_files(
+        [random_file, pyproject, init_file],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("start version 2.2.0"),
+        summaries={},
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores["pyproject.toml"] > scores["src/pkg/runtime.py"]
+    assert scores["src/pkg/__init__.py"] > scores["src/pkg/runtime.py"]
+    assert "release/version metadata" in reasons["pyproject.toml"]
+    assert "release/version metadata" in reasons["src/pkg/__init__.py"]
+
+
+def test_metadata_task_boosts_project_metadata_not_license_doc():
+    pyproject = _fi("pyproject.toml", language=None)
+    license_doc = _fi("docs/license.rst", language=None)
+
+    scored = score_files(
+        [license_doc, pyproject],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("fix license metadata"),
+        summaries={},
+    )
+
+    reasons = {item[0].path: item[2] for item in scored}
+    assert "release/version metadata" in reasons["pyproject.toml"]
+    assert "release/version metadata" not in reasons["docs/license.rst"]
+
+
+def test_release_task_does_not_boost_test_or_example_metadata_files():
+    root_pyproject = _fi("pyproject.toml", language=None)
+    example_pyproject = _fi("examples/demo/pyproject.toml", language=None)
+    test_init = _fi("tests/test_pkg/__init__.py")
+
+    scored = score_files(
+        [root_pyproject, example_pyproject, test_init],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("start version 2.2.0"),
+        summaries={},
+    )
+
+    reasons = {item[0].path: item[2] for item in scored}
+    assert "release/version metadata" in reasons["pyproject.toml"]
+    assert "release/version metadata" not in reasons["examples/demo/pyproject.toml"]
+    assert "release/version metadata" not in reasons["tests/test_pkg/__init__.py"]
+
+
+def test_build_task_boosts_root_build_metadata_not_source_noise():
+    pom = _fi("pom.xml", language="xml")
+    source = _fi("src/main/java/org/example/OwnerRepository.java", language="java")
+
+    scored = score_files(
+        [source, pom],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("Support building with Java 17"),
+        summaries={},
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores["pom.xml"] > scores[source.path]
+    assert "build/dependency metadata" in reasons["pom.xml"]
+    assert "build/dependency metadata" not in reasons[source.path]
+
+
+def test_build_metadata_boost_ignores_nested_metadata_files():
+    root_pom = _fi("pom.xml", language="xml")
+    nested_pom = _fi("examples/demo/pom.xml", language="xml")
+    pyproject = _fi("pyproject.toml", language=None)
+
+    scored = score_files(
+        [nested_pom, root_pom, pyproject],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("Use more specific test dependencies"),
+        summaries={},
+    )
+
+    reasons = {item[0].path: item[2] for item in scored}
+    assert "build/dependency metadata" in reasons[root_pom.path]
+    assert "build/dependency metadata" not in reasons[nested_pom.path]
+    assert "build/dependency metadata" not in reasons[pyproject.path]
+
+
+def test_release_task_prefers_primary_metadata_over_secondary_metadata():
+    init_file = _fi("src/pkg/__init__.py")
+    setup_cfg = _fi("setup.cfg", language=None)
+
+    scored = score_files(
+        [setup_cfg, init_file],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("prerelease version 2.0.0rc1"),
+        summaries={},
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    assert scores["src/pkg/__init__.py"] > scores["setup.cfg"]
+
+
+def test_release_task_dampens_non_metadata_version_only_matches():
+    version_noise = _fi("src/pkg/testing.py")
+    version_noise.content = "def helper():\n    return 'version check'\n"
+    pyproject = _fi("pyproject.toml", language=None)
+
+    scored = score_files(
+        [version_noise, pyproject],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("start version 8.5.0"),
+        summaries={},
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores["pyproject.toml"] > scores["src/pkg/testing.py"]
+    assert "release-term-only non-metadata dampening" in reasons["src/pkg/testing.py"]
+
+
+def test_typescript_config_file_gets_config_signal():
+    config = _fi("playground/tailwind/tailwind.config.ts", language="typescript")
+    spec = _fi("playground/tailwind/__test__/tailwind.spec.ts", language="typescript")
+
+    scored = score_files(
+        [spec, config],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("chore: fix tailwind playground comments"),
+        summaries={},
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores["playground/tailwind/tailwind.config.ts"] > scores["playground/tailwind/__test__/tailwind.spec.ts"]
+    assert "config file" in reasons["playground/tailwind/tailwind.config.ts"]
+
+
+def test_literal_definition_beats_literal_call_site_noise():
+    exported = _fi("packages/vite/src/node/index.ts", language="typescript")
+    call_site = _fi("packages/vite/src/node/plugins/importMetaGlob.ts", language="typescript")
+
+    scored = score_files(
+        [call_site, exported],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("chore: correct `parseAst`/`parseAstAsync` deprecation hints"),
+        summaries={
+            exported.path: {"defines": ["parseAst", "parseAstAsync"]},
+            call_site.path: {"calls": ["parseAstAsync"]},
+        },
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores[exported.path] > scores[call_site.path]
+    assert any(reason.startswith("literal definition match:") for reason in reasons[exported.path])
+
+
+def test_multi_term_path_match_boosts_specific_playground_config():
+    expected_config = _fi("playground/tailwind/tailwind.config.ts", language="typescript")
+    generic_config = _fi("playground/hmr-full-bundle-mode/vite.config.ts", language="typescript")
+    related_test = _fi("playground/tailwind/__test__/tailwind.spec.ts", language="typescript")
+
+    scored = score_files(
+        [generic_config, expected_config, related_test],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("chore: fix tailwind playground comments"),
+        summaries={
+            generic_config.path: {
+                "defines": ["delayTransformComment"],
+                "ranking_keywords": ["comment"],
+            },
+            expected_config.path: {
+                "naming_keywords": ["tailwind"],
+            },
+        },
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores[expected_config.path] > scores[generic_config.path]
+    assert scores[expected_config.path] > scores[related_test.path]
+    assert any(reason.startswith("multi-term path match") for reason in reasons[expected_config.path])
+    assert not any(reason.startswith("multi-term path match") for reason in reasons[related_test.path])
+
+
+def test_paired_test_boost_does_not_use_config_files_as_source_seed():
+    config = _fi("packages/vite/src/node/__tests__/package.json", language="json")
+    test = _fi("packages/vite/src/node/__tests__/packages/package.spec.ts", language="typescript")
+    source = _fi("packages/vite/src/node/plugins/css.ts", language="typescript")
+
+    boosted = boost_paired_tests([
+        (config, 300.0, ["config file"]),
+        (test, 100.0, ["filename keyword match"]),
+        (source, 280.0, ["filename keyword match"]),
+    ])
+
+    reasons = {fi.path: item_reasons for fi, _score, item_reasons in boosted}
+    assert not any("test for high-scoring" in reason for reason in reasons[test.path])
+
+
+def test_explicit_test_task_prefers_spec_over_source_file():
+    spec = _fi("integration/scopes/e2e/transient-scope.spec.ts", language="typescript")
+    source = _fi("integration/scopes/src/nested-transient/nested-transient.service.ts", language="typescript")
+    summaries = {
+        spec.path: {
+            "role": "transient scope.spec classes",
+            "defines": ["DeepNestedTransient"],
+            "symbols": [{"name": "DeepNestedTransient"}],
+        },
+        source.path: {
+            "role": "nested transient.service classes",
+            "defines": ["NestedTransientService"],
+            "symbols": [{"name": "NestedTransientService"}],
+        },
+    }
+
+    scored = score_files(
+        [source, spec],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("test(core): add deeply nested transient providers in scoped chains"),
+        summaries=summaries,
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores[spec.path] > scores[source.path]
+    assert "explicit test task file" in reasons[spec.path]
+    assert "explicit test task non-test dampening" in reasons[source.path]
+
+
+def test_large_file_with_task_support_is_not_marked_large_unrelated():
+    large = _fi("packages/vite/src/node/server/index.ts", tokens=5000, language="typescript")
+    large.too_large = True
+    large.content = "const fs = true\nconst restrict = true\n"
+
+    scored = score_files(
+        [large],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=extract_keyword_weights("fix correct fs restrictions"),
+        summaries={large.path: {"calls": ["ssrFixStacktrace"]}},
+    )
+
+    score, reasons = scored[0][1], scored[0][2]
+    assert score > 0
+    assert "large supported file" in reasons
+    assert "large unrelated file" not in reasons

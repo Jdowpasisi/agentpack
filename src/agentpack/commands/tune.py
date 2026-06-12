@@ -60,7 +60,7 @@ def _build_tuning_suggestions(root: Path, *, include_benchmark: bool = True) -> 
             suggestions.append(TuningSuggestion(
                 "mode",
                 f"token precision {avg_token_precision:.1%}",
-                "Use `agentpack pack --mode minimal --task auto` for edit work until benchmark precision improves.",
+                "Keep standard balanced mode; improve task wording or scoring before reducing context further.",
             ))
         if avg_context_precision is not None and avg_context_precision > avg_token_precision:
             suggestions.append(TuningSuggestion(

@@ -14,8 +14,8 @@ Compression happens in layers: file-mode selection, task-scored diff hunks, rend
 
 Prompt-cache alignment is automatic in every context mode. Renderers put stable
 agent instructions first, then append volatile task, freshness, git, selection,
-and file-content sections. This preserves existing `lite`, `minimal`,
-`balanced`, and `deep` modes while making repeated refreshes friendlier to
+and file-content sections. This preserves existing `lite`, `balanced`, and
+`deep` modes while making repeated refreshes friendlier to
 provider prefix caches.
 
 ## How it works

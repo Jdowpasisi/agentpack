@@ -43,7 +43,7 @@ def test_create_session_does_not_overwrite_task(tmp_root: Path) -> None:
     task_path.parent.mkdir(parents=True, exist_ok=True)
     task_path.write_text("# Custom task\n\nmy existing task\n", encoding="utf-8")
 
-    create_session(tmp_root, agent="generic", mode="minimal")
+    create_session(tmp_root, agent="generic", mode="balanced")
 
     assert "my existing task" in task_path.read_text()
 

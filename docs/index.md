@@ -10,6 +10,10 @@ AgentPack is a local MCP context router for Claude Code, Codex, Cursor, Windsurf
 - [Architecture](architecture.md)
 - [How AgentPack works](how-agentpack-works.md)
 - [Benchmarking](benchmarking.md)
+- [Benchmark learnings](benchmark-learnings.md)
+- [Privacy](privacy.md)
+- [Threat model](threat-model.md)
+- [Data flow](data-flow.md)
 - [Limitations](limitations.md)
 
 ## Search-intent guides

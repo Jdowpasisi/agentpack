@@ -1,6 +1,7 @@
 # Benchmarking
 
 Benchmarking focuses on expected-file recall for real tasks. Public release evidence lives in [`benchmarks/README.md`](../benchmarks/README.md).
+The current tuning decision log lives in [`benchmark-learnings.md`](benchmark-learnings.md).
 
 ## Quality Bar
 
@@ -22,8 +23,10 @@ agentpack benchmark --init
 # add historical tasks and files actually changed
 agentpack benchmark --compare --misses --public-table
 agentpack benchmark --release-gate
+agentpack benchmark --public-suite --reproduce v0.3.20
 agentpack benchmark --results-template
 agentpack benchmark capture --since HEAD~1 --task "describe the completed task"
+agentpack benchmark capture --since main --task "describe the completed task" --anonymous-report
 ```
 
 ## Skill Routing And Keyword Quality
@@ -71,11 +74,19 @@ or `--refresh-public-repos`.
 
 For external claims, use several real repositories or anonymized historical task
 sets and publish the generated table from `benchmarks/results/*-public.md`.
-This repo includes a curated public smoke suite in
-`benchmarks/public-repos.toml`; it evaluates real commits from Pallets Click,
-ItsDangerous, and MarkupSafe by checking out each commit's parent and scoring
-against files actually changed by the commit. Synthetic fixtures are useful
+This repo includes a v0.3.20 public manifest in `benchmarks/public-repos.toml`;
+it has 8 pinned Pallets smoke commits plus 100+ sampled historical commits across
+Python, TypeScript, Go, Java, and monorepo projects. For sampled repos,
+`sample_history = N` takes recent first-parent, non-merge commits, derives
+`expected_files` from each commit diff, and filters them with `include_globs`,
+`exclude_globs`, and `max_changed_files`. Synthetic fixtures are useful
 regression tests, but should not be presented as market proof.
+
+The v0.3.20 reproduction command is:
+
+```bash
+agentpack benchmark --public-suite --reproduce v0.3.20
+```
 
 `agentpack benchmark --sample-fixtures` is intentionally labeled as regression
 smoke. It proves the benchmark harness still catches known scenarios in this
@@ -88,6 +99,26 @@ to append a reusable case to `.agentpack/benchmark.toml`. It infers
 `agentpack benchmark --from-history N --write-cases` only as scaffolding;
 history-derived cases need manually filled `expected_files` before they prove
 recall.
+
+Use `--anonymous-report` when sharing private-repo evidence. It writes aggregate
+report files under `.agentpack/` without source code or private file paths.
+
+## AgentPack vs No-AgentPack A/B
+
+File-selection benchmarks answer "did the pack include the right files?" E2E
+A/B runs answer "did the agent finish better with AgentPack than without it?"
+
+```bash
+agentpack benchmark e2e-init
+agentpack benchmark e2e --cases .agentpack/e2e_cases.toml \
+  --agent-command 'bash -lc "codex exec --cd {repo} \"$(cat {prompt})\""' \
+  --strategies no-context,agentpack --trials 3 \
+  --input-cost-per-mtok 1.25 --output-cost-per-mtok 10
+agentpack benchmark e2e-report --baseline no-context --treatment agentpack --markdown
+```
+
+`e2e-report` compares task success, expected-file touch rate, tool calls, total
+tokens, estimated token cost, time-to-first-correct-file, and duration.
 
 ## Download Stats
 

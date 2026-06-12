@@ -117,13 +117,13 @@ def test_noise_diagnostics_report_summary_and_precision_noise() -> None:
         task="Implement cost-safe public SEO tools with deterministic previews and signup-gated AI analysis.",
     )
 
-    assert "Latest pack is mostly summaries; use minimal mode or a narrower task for edit work." in diagnostics
+    assert "Latest pack is mostly summaries; keep balanced mode and use a narrower task for edit work." in diagnostics
     assert "Top files mostly matched by filename; task terms may be broad." in diagnostics
     assert "Rewrite `.agentpack/task.md` with concrete file, route, service, or symptom words." in diagnostics
     assert any("Rewrite example:" in item for item in diagnostics)
     assert "Selection file precision is very low; many selected files were not later changed." in diagnostics
     assert "Token precision is low; most packed tokens became noise in recent runs." in diagnostics
-    assert "Try `agentpack pack --mode minimal --task auto` until task wording or scoring improves." in diagnostics
+    assert "Keep standard balanced mode and rewrite the task with concrete file, route, service, or symptom words." in diagnostics
     assert "Summary token precision is 0%; summaries will be suppressed in no-live-change packs." in diagnostics
     assert any("Repeated noisy paths: src/noisy.py (2x), src/other.py (1x)" == item for item in diagnostics)
     assert any("agentpack explain --file src/noisy.py --task auto" in item for item in diagnostics)

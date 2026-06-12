@@ -109,6 +109,15 @@ class TestConfig:
         loaded = load_config(tmp_path)
         assert loaded.context.default_budget == 99999
 
+    def test_load_legacy_minimal_mode_as_balanced(self, tmp_path: Path) -> None:
+        config_dir = tmp_path / ".agentpack"
+        config_dir.mkdir()
+        (config_dir / "config.toml").write_text('[context]\ndefault_mode = "minimal"\n', encoding="utf-8")
+
+        loaded = load_config(tmp_path)
+
+        assert loaded.context.default_mode == "balanced"
+
     def test_scoring_weights_defaults(self) -> None:
         w = ScoringWeights()
         assert w.modified == 100
@@ -435,6 +444,20 @@ class TestBuildAllSummaries:
         fi = _make_file_info("utils.py", src)
         result = build_all_summaries([fi], tmp_path)
         assert result["utils.py"].path == "utils.py"
+
+    def test_many_cold_summaries_use_threads_by_default(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.delenv("AGENTPACK_SUMMARY_PROCESS_POOL", raising=False)
+        files: list[FileInfo] = []
+        for index in range(50):
+            src = tmp_path / f"file_{index}.py"
+            src.write_text(f"def helper_{index}(): pass\n")
+            files.append(_make_file_info(f"file_{index}.py", src, file_hash=f"hash_{index}"))
+
+        with patch("agentpack.summaries.base.concurrent.futures.ProcessPoolExecutor") as process_pool:
+            result = build_all_summaries(files, tmp_path)
+
+        process_pool.assert_not_called()
+        assert len(result) == 50
 
 
 class TestGetOrBuildSummary:

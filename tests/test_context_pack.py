@@ -1,10 +1,11 @@
 from pathlib import Path
 import subprocess
 import json
-from agentpack.application.pack_service import _settle_rendered_token_estimate, _summary_cap_for_mode, _summary_score_floor
+from agentpack.application.pack_service import _settle_rendered_token_estimate, _sf_tokens, _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import enrich_call_site_scores, save_pack_metadata, select_files, _selection_priority
 from agentpack.core.models import ContextPack, FileInfo, OmittedRelevantFile, Receipt, SelectedFile
+from agentpack.core.token_estimator import estimate_tokens
 from agentpack.renderers.markdown import render_claude, render_generic
 
 
@@ -31,7 +32,7 @@ def test_selects_changed_file_as_full(tmp_path):
         language="python",
     )
     scored = [(fi, 100.0, ["modified"])]
-    selected, receipts = select_files(
+    selected, _receipts = select_files(
         files=[fi],
         scored=scored,
         changed_paths={"session.py"},
@@ -255,7 +256,7 @@ def test_call_site_omissions_are_high_risk_budget_exclusions():
         changed_paths={service.path},
         summaries=summaries,
         mode="balanced",
-        budget=300,
+        budget=100,
         max_file_tokens=4000,
         min_summary_score=100,
     )
@@ -276,7 +277,7 @@ def test_call_site_omissions_are_high_risk_budget_exclusions():
         changed_paths={service.path},
         summaries=summaries,
         mode="balanced",
-        budget=300,
+        budget=100,
         max_file_tokens=4000,
         min_summary_score=100,
         omitted_relevant_files=omitted,
@@ -308,7 +309,7 @@ def test_reserve_bucket_order_seeds_tests_docs_and_deps():
         ],
         changed_paths={"src/noise.py"},
         summaries={},
-        mode="balanced",
+        mode="deep",
         budget=10000,
         max_file_tokens=4000,
     )
@@ -319,6 +320,28 @@ def test_reserve_bucket_order_seeds_tests_docs_and_deps():
         "docs/auth.md",
         "src/auth_service.py",
     ]
+
+
+def test_reserve_bucket_order_does_not_seed_without_changed_files():
+    test = _fi("tests/test_auth.py", tokens=100)
+    dep = _fi("src/auth_service.py", tokens=100)
+    other = _fi("src/other.py", tokens=100)
+
+    selected, _ = select_files(
+        files=[test, dep, other],
+        scored=[
+            (test, 120.0, ["test for high-scoring src/auth.py"]),
+            (dep, 100.0, ["direct dependency of changed file"]),
+            (other, 500.0, ["filename keyword match"]),
+        ],
+        changed_paths=set(),
+        summaries={},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+    )
+
+    assert selected[0].path == "src/other.py"
 
 
 def test_summary_score_floor_excludes_weak_unchanged_files():
@@ -366,7 +389,126 @@ def test_summary_cap_limits_unchanged_summaries():
         max_summary_files=2,
     )
     assert [sf.path for sf in selected] == ["file0.py", "file1.py"]
-    assert any(r.reason == "summary cap reached" for r in receipts)
+    assert any(r.reason == "compressed context cap reached" for r in receipts)
+
+
+def test_summary_mode_does_not_carry_symbol_signatures():
+    fi = _fi("summary.py")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["content keyword match (1)"])],
+        changed_paths=set(),
+        summaries={
+            fi.path: {
+                "summary": "Short file summary.",
+                "symbols": [
+                    {
+                        "name": "noisy_helper",
+                        "kind": "function",
+                        "start_line": 1,
+                        "end_line": 1,
+                        "signature": "def noisy_helper(argument_one, argument_two): ...",
+                    }
+                ],
+            }
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+    )
+
+    assert selected[0].include_mode == "summary"
+    assert selected[0].symbols == []
+    assert _sf_tokens(selected[0]) == estimate_tokens("Short file summary.")
+
+
+def test_summary_cap_counts_skeletons_too():
+    files = [
+        FileInfo(
+            path=f"file{i}.py",
+            abs_path=Path(f"/tmp/file{i}.py"),
+            language="python",
+            size_bytes=100,
+            estimated_tokens=100,
+            hash=f"h{i}",
+            content="\n".join(f"def f{j}(): pass" for j in range(60)),
+        )
+        for i in range(4)
+    ]
+    summaries = {
+        fi.path: {
+            "role": "python module",
+            "symbols": [
+                {
+                    "name": f"f{j}",
+                    "kind": "function",
+                    "start_line": j + 1,
+                    "end_line": j + 1,
+                    "signature": f"def f{j}(): pass",
+                }
+                for j in range(30)
+            ],
+        }
+        for fi in files
+    }
+    scored = [(fi, 200.0 - i, ["filename keyword match", "symbol keyword match"]) for i, fi in enumerate(files)]
+
+    selected, receipts = select_files(
+        files=files,
+        scored=scored,
+        changed_paths=set(),
+        summaries=summaries,
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=20,
+        max_summary_files=2,
+    )
+
+    assert len(selected) == 2
+    assert all(sf.include_mode == "skeleton" for sf in selected)
+    assert any(r.reason == "compressed context cap reached" for r in receipts)
+
+
+def test_balanced_excludes_unchanged_docs_when_docs_disabled():
+    docs = _fi("CHANGELOG.md")
+    source = _fi("src/app.py")
+
+    selected, receipts = select_files(
+        files=[docs, source],
+        scored=[
+            (docs, 300.0, ["filename keyword match"]),
+            (source, 100.0, ["filename keyword match"]),
+        ],
+        changed_paths=set(),
+        summaries={},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=200,
+    )
+
+    assert [sf.path for sf in selected] == ["src/app.py"]
+    assert any(r.path == "CHANGELOG.md" and r.reason == "docs disabled by mode" for r in receipts)
+
+
+def test_balanced_treats_markdown_test_docs_as_docs_when_docs_disabled():
+    docs = _fi("docs/testing.md")
+    source = _fi("src/testing.py")
+
+    selected, receipts = select_files(
+        files=[docs, source],
+        scored=[
+            (docs, 300.0, ["test for high-scoring src/testing.py", "content keyword match (2)"]),
+            (source, 100.0, ["filename keyword match"]),
+        ],
+        changed_paths=set(),
+        summaries={},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=200,
+    )
+
+    assert [sf.path for sf in selected] == ["src/testing.py"]
+    assert any(r.path == "docs/testing.md" and r.reason == "docs disabled by mode" for r in receipts)
 
 
 def test_weak_signal_candidates_are_capped_and_compressed_to_summary():
@@ -418,6 +560,20 @@ def test_selection_priority_lifts_paired_tests() -> None:
     assert test_priority > src_priority
 
 
+def test_selection_priority_lifts_explicit_test_task_files() -> None:
+    src = _fi("src/types.py", tokens=1000)
+    test = _fi("tests/test_types.py", tokens=1000)
+
+    src_priority = _selection_priority((src, 250.0, ["filename keyword match"]), set(), 4000)
+    test_priority = _selection_priority(
+        (test, 230.0, ["test for high-scoring src/types.py", "explicit test task file"]),
+        set(),
+        4000,
+    )
+
+    assert test_priority > src_priority
+
+
 def test_negative_summary_cap_disables_summaries():
     fi = _fi("file.py")
     selected, receipts = select_files(
@@ -447,7 +603,7 @@ def test_strict_summary_selection_requires_support_signal():
         strict_summary_selection=True,
     )
     assert selected == []
-    assert any(r.reason == "summary needs stronger support signal" for r in receipts)
+    assert any(r.reason == "compressed context needs stronger support signal" for r in receipts)
 
 
 def test_strict_summary_selection_keeps_supported_summary():
@@ -464,6 +620,672 @@ def test_strict_summary_selection_keeps_supported_summary():
     )
     assert len(selected) == 1
     assert selected[0].include_mode == "summary"
+
+
+def test_strict_summary_selection_keeps_root_go_scope_source_only():
+    go_file = _fi("logger.go")
+    java_file = _fi("src/main/java/example/OwnerRepository.java")
+
+    reasons = [
+        "filename keyword match",
+        "conventional scope path match",
+        "matched role keyword: logger",
+        "matched ranking keyword: logger",
+    ]
+    selected, receipts = select_files(
+        files=[go_file, java_file],
+        scored=[
+            (go_file, 100.0, reasons),
+            (java_file, 99.0, reasons),
+        ],
+        changed_paths=set(),
+        summaries={
+            go_file.path: {"summary": "Logger source.", "symbols": []},
+            java_file.path: {"summary": "Repository source.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["logger.go"]
+    assert any(
+        receipt.path == java_file.path and receipt.reason == "compressed context needs stronger support signal"
+        for receipt in receipts
+    )
+
+
+def test_same_package_test_can_overflow_summary_cap_once():
+    source = _fi("packages/core/injector/injector.ts")
+    paired_test = _fi("packages/core/test/injector/injector.spec.ts")
+    extra_test = _fi("packages/core/test/scanner.spec.ts")
+
+    selected, receipts = select_files(
+        files=[source, paired_test, extra_test],
+        scored=[
+            (source, 500.0, ["matched call: this.loadProvider", "direct content evidence +270"]),
+            (
+                paired_test,
+                450.0,
+                [
+                    "matched call: providers.set",
+                    "content keyword match (4)",
+                    "direct content evidence +220",
+                    f"test for high-scoring {source.path}",
+                ],
+            ),
+            (
+                extra_test,
+                440.0,
+                [
+                    "matched call: scanner.insertProvider",
+                    "content keyword match (4)",
+                    "direct content evidence +220",
+                    "test for high-scoring packages/core/scanner.ts",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            source.path: {"summary": "Injector source.", "symbols": []},
+            paired_test.path: {"summary": "Injector tests.", "symbols": []},
+            extra_test.path: {"summary": "Scanner tests.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [source.path, paired_test.path]
+    assert "same-package test overflow" in selected[1].reasons
+    assert any(receipt.path == extra_test.path and receipt.reason == "compressed context cap reached" for receipt in receipts)
+
+
+def test_same_package_test_overflow_requires_strong_task_evidence():
+    source = _fi("packages/vite/src/node/plugins/worker.ts")
+    weak_test = _fi("packages/vite/src/node/__tests__/plugins/worker.spec.ts")
+
+    selected, receipts = select_files(
+        files=[source, weak_test],
+        scored=[
+            (source, 500.0, ["matched call: normalizePath", "content keyword match (4)", "direct content evidence +220"]),
+            (
+                weak_test,
+                450.0,
+                [
+                    "matched call: code.match",
+                    "content keyword match (3)",
+                    "direct content evidence +170",
+                    f"test for high-scoring {source.path}",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            source.path: {"summary": "Worker plugin.", "symbols": []},
+            weak_test.path: {"summary": "Worker tests.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [source.path]
+    assert any(receipt.path == weak_test.path and receipt.reason == "compressed context cap reached" for receipt in receipts)
+
+
+def test_same_playground_test_can_overflow_summary_cap_once():
+    selected_context = _fi("playground/css/vite.config.ts")
+    paired_test = _fi("playground/css/__tests__/tests.ts")
+    other_playground_test = _fi("playground/html/__tests__/html.spec.ts")
+
+    selected, receipts = select_files(
+        files=[selected_context, paired_test, other_playground_test],
+        scored=[
+            (selected_context, 500.0, ["filename keyword match", "conventional scope path match"]),
+            (
+                paired_test,
+                450.0,
+                [
+                    "filename keyword match",
+                    "conventional scope path match",
+                    "matched call: rawImportCss.textContent",
+                    "content keyword match (4)",
+                ],
+            ),
+            (
+                other_playground_test,
+                440.0,
+                [
+                    "filename keyword match",
+                    "conventional scope path match",
+                    "matched call: rawImportHtml.textContent",
+                    "content keyword match (4)",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            selected_context.path: {"summary": "CSS playground config.", "symbols": []},
+            paired_test.path: {"summary": "CSS playground tests.", "symbols": []},
+            other_playground_test.path: {"summary": "HTML playground tests.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [selected_context.path, paired_test.path]
+    assert "same-playground test overflow" in selected[1].reasons
+    assert any(
+        receipt.path == other_playground_test.path and receipt.reason == "compressed context cap reached"
+        for receipt in receipts
+    )
+
+
+def test_strict_summary_selection_keeps_direct_summary_evidence():
+    fi = _fi("src/lib/auth.ts")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(
+            fi,
+            240.0,
+            [
+                "filename keyword match",
+                "symbol keyword match",
+                "matched domain: auth",
+                "matched define: verifySession",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Auth session helpers.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["src/lib/auth.ts"]
+
+
+def test_strict_summary_selection_allows_direct_evidence_below_guarded_floor():
+    fi = _fi("src/config.py")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 105.0, ["filename keyword match", "matched naming keyword: config", "config file"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Runtime config.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        min_summary_score=120,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["src/config.py"]
+
+
+def test_secret_candidate_bypasses_guarded_summary_floor_for_redaction():
+    fi = FileInfo(
+        path="src/leak.py",
+        abs_path=Path("/nonexistent/src/leak.py"),
+        size_bytes=24,
+        estimated_tokens=10,
+        hash="h1",
+        language="python",
+        content='sk-ant-api03-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\n',
+    )
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["secret redaction candidate"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Potential secret.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        min_summary_score=120,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["src/leak.py"]
+    assert selected[0].include_mode == "full"
+    assert selected[0].redaction_warnings
+
+
+def test_strict_summary_selection_keeps_release_metadata():
+    fi = _fi("src/pkg/__init__.py")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 150.0, ["content keyword match (1)", "release/version metadata"])],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Package version metadata.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+    assert [sf.path for sf in selected] == ["src/pkg/__init__.py"]
+    assert selected[0].include_mode == "summary"
+
+
+def test_primary_release_metadata_selection_beats_noisy_source():
+    pyproject = _fi("pyproject.toml", tokens=80)
+    noisy_source = _fi("src/pkg/testing.py", tokens=200)
+
+    selected, _ = select_files(
+        files=[noisy_source, pyproject],
+        scored=[
+            (
+                noisy_source,
+                320.0,
+                ["symbol keyword match", "matched ranking keyword: start", "has related tests"],
+            ),
+            (
+                pyproject,
+                250.0,
+                ["content keyword match (2)", "config file", "release/version metadata"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            noisy_source.path: {"summary": "Test helper.", "symbols": []},
+            pyproject.path: {"summary": "Project version metadata.", "symbols": []},
+        },
+        mode="balanced",
+        budget=500,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert selected[0].path == "pyproject.toml"
+
+
+def test_secondary_release_metadata_skipped_after_primary_metadata():
+    primary = _fi("src/pkg/__init__.py")
+    secondary = _fi("setup.cfg")
+
+    selected, receipts = select_files(
+        files=[primary, secondary],
+        scored=[
+            (primary, 220.0, ["release/version metadata"]),
+            (secondary, 180.0, ["release/version metadata", "config file"]),
+        ],
+        changed_paths=set(),
+        summaries={
+            primary.path: {"summary": "Package version.", "symbols": []},
+            secondary.path: {"summary": "Setup metadata.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["src/pkg/__init__.py"]
+    assert any(
+        r.path == "setup.cfg" and r.reason == "secondary release metadata skipped after primary"
+        for r in receipts
+    )
+
+
+def test_secondary_release_metadata_kept_without_primary_metadata():
+    secondary = _fi("setup.cfg")
+
+    selected, _ = select_files(
+        files=[secondary],
+        scored=[(secondary, 180.0, ["release/version metadata", "config file"])],
+        changed_paths=set(),
+        summaries={secondary.path: {"summary": "Setup metadata.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["setup.cfg"]
+
+
+def test_strict_balanced_caps_duplicate_config_summaries():
+    primary = _fi("vite.config.ts")
+    secondary = _fi("tailwind.config.ts")
+
+    selected, receipts = select_files(
+        files=[primary, secondary],
+        scored=[
+            (primary, 220.0, ["config file", "content keyword match (2)", "keyword phrase match: tailwind config"]),
+            (secondary, 210.0, ["config file", "content keyword match (2)", "keyword phrase match: tailwind config"]),
+        ],
+        changed_paths=set(),
+        summaries={
+            primary.path: {"summary": "Vite config.", "symbols": []},
+            secondary.path: {"summary": "Tailwind config.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        strict_summary_selection=True,
+    )
+
+    assert len(selected) == 1
+    assert any(r.path == "tailwind.config.ts" and r.reason == "config compressed context cap reached" for r in receipts)
+
+
+def test_direct_source_candidate_beats_smaller_playground_match():
+    source = _fi("packages/vite/src/node/plugins/css.ts", tokens=900)
+    playground = _fi("playground/css/lightningcss-plugins.js", tokens=50)
+
+    selected, _ = select_files(
+        files=[source, playground],
+        scored=[
+            (
+                source,
+                240.0,
+                ["filename keyword match", "symbol keyword match", "matched define: cssConfigDefaults"],
+            ),
+            (
+                playground,
+                240.0,
+                ["filename keyword match", "symbol keyword match", "matched define: lightningcssPlugin"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            source.path: {"summary": "CSS plugin source.", "symbols": []},
+            playground.path: {"summary": "Playground plugin.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["packages/vite/src/node/plugins/css.ts"]
+
+
+def test_root_go_source_candidate_beats_related_test_noise():
+    source = _fi("context.go", tokens=800)
+    test = _fi("context_test.go", tokens=600)
+
+    source_priority = _selection_priority(
+        (
+            source,
+            390.0,
+            [
+                "filename keyword match",
+                "matched domain: context packing",
+                "content keyword match (3)",
+            ],
+        ),
+        set(),
+        4000,
+    )
+    test_priority = _selection_priority(
+        (
+            test,
+            475.0,
+            [
+                "filename keyword match",
+                "matched domain: context packing",
+                "content keyword match (3)",
+                "test for high-scoring context.go",
+            ],
+        ),
+        set(),
+        4000,
+    )
+
+    assert source_priority > test_priority
+
+
+def test_package_root_source_candidate_beats_tiny_integration_source_noise():
+    expected = _fi("packages/core/middleware/middleware-module.ts", tokens=3000)
+    noise = _fi("integration/injector/src/inject/core.service.ts", tokens=40)
+
+    selected, _receipts = select_files(
+        files=[noise, expected],
+        scored=[
+            (
+                noise,
+                470.0,
+                ["filename keyword match", "symbol keyword match", "matched define: CoreService"],
+            ),
+            (
+                expected,
+                590.0,
+                ["filename keyword match", "symbol keyword match", "matched define: MiddlewareModule"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            noise.path: {"summary": "Core service.", "symbols": []},
+            expected.path: {"summary": "Middleware module.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [expected.path]
+
+
+def test_template_path_does_not_get_direct_source_priority():
+    source = _fi("packages/vite/src/node/server/openBrowser.ts", tokens=900)
+    template = _fi("packages/create-vite/template-react/src/App.jsx", tokens=80)
+
+    selected, receipts = select_files(
+        files=[source, template],
+        scored=[
+            (
+                template,
+                240.0,
+                ["filename keyword match", "symbol keyword match", "matched define: App"],
+            ),
+            (
+                source,
+                220.0,
+                ["symbol keyword match", "matched define: openBrowser", "matched call: openBrowser"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            source.path: {"summary": "Open browser links.", "symbols": []},
+            template.path: {"summary": "React app template.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["packages/vite/src/node/server/openBrowser.ts"]
+
+
+def test_java_package_named_samples_is_not_example_path():
+    source = _fi("src/main/java/org/springframework/samples/petclinic/model/Person.java")
+    test = _fi("src/test/java/org/springframework/samples/petclinic/model/ValidatorTests.java")
+
+    selected, receipts = select_files(
+        files=[source, test],
+        scored=[
+            (
+                source,
+                270.0,
+                ["filename keyword match", "matched role keyword: Person", "matched define: Person", "content keyword match (2)"],
+            ),
+            (
+                test,
+                140.0,
+                ["filename keyword match", "content keyword match (5)", "direct dependency of changed file"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            source.path: {"summary": "Person entity.", "symbols": []},
+            test.path: {"summary": "Validator tests.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [source.path, test.path]
+    assert not any(r.path == test.path and r.reason == "examples compressed context cap reached" for r in receipts)
+
+
+def test_direct_source_candidate_does_not_consume_expansion_family_cap():
+    expansion = _fi("packages/vite/src/node/plugins/resolve.ts")
+    source = _fi("packages/vite/src/node/plugins/css.ts")
+
+    selected, receipts = select_files(
+        files=[expansion, source],
+        scored=[
+            (
+                expansion,
+                260.0,
+                ["content keyword match (3)", "large supported file"],
+            ),
+            (
+                source,
+                250.0,
+                ["symbol keyword match", "matched define: cssConfigDefaults", "large supported file"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            expansion.path: {"summary": "Resolve plugin.", "symbols": []},
+            source.path: {"summary": "CSS plugin.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert "packages/vite/src/node/plugins/css.ts" in {sf.path for sf in selected}
+    assert not any(r.path == source.path and r.reason == "expansion compressed context cap reached" for r in receipts)
+
+
+def test_specific_config_path_match_can_select_two_configs_under_strict_cap():
+    first = _fi("playground/tailwind-v3/tailwind.config.ts", tokens=120)
+    second = _fi("playground/tailwind/tailwind.config.ts", tokens=120)
+    generic = _fi("playground/hmr-full-bundle-mode/vite.config.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[first, second, generic],
+        scored=[
+            (first, 350.0, ["filename keyword match", "multi-term path match +175", "matched naming keyword: tailwind", "config file"]),
+            (second, 340.0, ["filename keyword match", "multi-term path match +175", "matched naming keyword: tailwind", "config file"]),
+            (generic, 330.0, ["filename keyword match", "matched naming keyword: playground", "config file"]),
+        ],
+        changed_paths=set(),
+        summaries={
+            first.path: {"summary": "Tailwind v3 config.", "symbols": []},
+            second.path: {"summary": "Tailwind config.", "symbols": []},
+            generic.path: {"summary": "Generic playground config.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [first.path, second.path]
+    assert any(r.path == generic.path and r.reason == "config compressed context cap reached" for r in receipts)
+
+
+def test_strict_summary_selection_allows_build_metadata_reason():
+    pom = _fi("pom.xml", tokens=1000)
+
+    selected, _receipts = select_files(
+        files=[pom],
+        scored=[(pom, 260.0, ["content keyword match (1)", "config file", "build/dependency metadata"])],
+        changed_paths=set(),
+        summaries={pom.path: {"summary": "Maven build metadata.", "symbols": []}},
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [pom.path]
+
+
+def test_strict_balanced_excludes_lockfiles_without_release_evidence():
+    lockfile = _fi("package-lock.json")
+
+    selected, receipts = select_files(
+        files=[lockfile],
+        scored=[(lockfile, 220.0, ["config file", "content keyword match (3)", "keyword phrase match: react app"])],
+        changed_paths=set(),
+        summaries={lockfile.path: {"summary": "Dependency lockfile.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        strict_summary_selection=True,
+    )
+
+    assert selected == []
+    assert any(r.path == "package-lock.json" and r.reason == "lock-generated compressed context cap reached" for r in receipts)
+
+
+def test_strict_summary_selection_keeps_corroborated_phrase_match():
+    fi = _fi("src/owner_controller.py")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(
+            fi,
+            250.0,
+            [
+                "filename keyword match",
+                "content keyword match (1)",
+                "keyword phrase match: allowed fields",
+                "implementation role match",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Owner form allowed fields.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        min_summary_score=100,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["src/owner_controller.py"]
+
+
+def test_strict_summary_selection_keeps_high_content_phrase_match():
+    fi = _fi("src/open_browser.py")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(
+            fi,
+            250.0,
+            [
+                "filename keyword match",
+                "content keyword match (3)",
+                "keyword phrase match: react app",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "React app link handling.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        min_summary_score=100,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["src/open_browser.py"]
 
 
 def test_excluded_ignored_files():

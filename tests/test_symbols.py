@@ -90,6 +90,20 @@ def test_js_non_arrow_assignment_not_extracted(tmp_path):
     assert "result" not in names
 
 
+def test_js_exported_typed_const_detected_as_variable(tmp_path):
+    f = tmp_path / "mod.ts"
+    f.write_text(
+        "import { parseAst as _parseAst } from 'rolldown/parseAst'\n"
+        "export const parseAst: typeof _parseAst = _parseAst\n"
+    )
+
+    syms = extract_js_symbols(f)
+    match = next(s for s in syms if s.name == "parseAst")
+
+    assert match.kind == "variable"
+    assert "parseAst" in (match.signature or "")
+
+
 def test_js_async_arrow_function(tmp_path):
     f = tmp_path / "mod.ts"
     f.write_text("export const fetchUser = async (id: string) => {\n  return db.find(id);\n};\n")

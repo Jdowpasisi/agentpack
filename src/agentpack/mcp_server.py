@@ -319,7 +319,7 @@ def _get_related_files_impl(root: Path, path: str, depth: int = 1) -> str:
         root=root,
         agent=detect_agent(root),
         task=task,
-        mode="minimal",
+        mode="balanced",
         budget=0,
         since=None,
         refresh=False,
@@ -549,7 +549,7 @@ def serve() -> None:
         Args:
             task: Optional task text. If provided, AgentPack writes it to .agentpack/task.md.
                   If omitted, AgentPack reads task.md or infers from git.
-            mode: minimal | balanced (default) | deep
+            mode: lite | balanced (default) | deep.
             budget: Token budget, 0 = config default (usually 40000).
             max_tokens: Maximum tokens to return (default 20000). Increase for deep context.
 

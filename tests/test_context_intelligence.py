@@ -254,6 +254,26 @@ def test_summary_precision_guard_tightens_noisy_summaries(tmp_path):
     assert no_live_cap == -1
 
 
+def test_balanced_cold_no_live_summary_guard_starts_tighter(tmp_path):
+    floor = _guarded_summary_score_floor(
+        tmp_path,
+        DEFAULT_CONFIG,
+        "balanced",
+        0.0,
+        no_live_changes=True,
+    )
+    cap = _guarded_summary_cap(
+        tmp_path,
+        DEFAULT_CONFIG,
+        "balanced",
+        0.0,
+        no_live_changes=True,
+    )
+
+    assert floor == DEFAULT_CONFIG.context.min_summary_score + 60
+    assert cap == 3
+
+
 def test_weak_signal_cap_tightens_for_broad_no_live_low_precision_runs(tmp_path):
     metrics_dir = tmp_path / ".agentpack"
     metrics_dir.mkdir()
@@ -273,7 +293,7 @@ def test_weak_signal_cap_tightens_for_broad_no_live_low_precision_runs(tmp_path)
     assert cap == 1
 
 
-def test_effective_mode_auto_tightens_balanced_to_minimal_for_no_live_noise(tmp_path):
+def test_effective_mode_keeps_balanced_for_no_live_noise(tmp_path):
     metrics_dir = tmp_path / ".agentpack"
     metrics_dir.mkdir()
     (metrics_dir / "metrics.jsonl").write_text(
@@ -292,8 +312,8 @@ def test_effective_mode_auto_tightens_balanced_to_minimal_for_no_live_noise(tmp_
         no_live_changes=True,
     )
 
-    assert mode == "minimal"
-    assert warning is not None
+    assert mode == "balanced"
+    assert warning is None
 
 
 def test_scope_penalties_suppress_backend_leak_for_frontend_only_task(tmp_path):
@@ -324,6 +344,48 @@ def test_strict_summary_selection_enabled_for_dead_summary_precision(tmp_path):
     )
 
     assert _strict_summary_selection(tmp_path) is True
+
+
+def test_guarded_summary_cap_tightens_low_budget_no_live_balanced(tmp_path):
+    cap = _guarded_summary_cap(
+        tmp_path,
+        DEFAULT_CONFIG,
+        "balanced",
+        generic_ratio=0.0,
+        no_live_changes=True,
+        effective_budget=2000,
+    )
+
+    assert cap <= 3
+
+
+def test_guarded_summary_cap_tightens_no_live_chore_literal_balanced(tmp_path):
+    cap = _guarded_summary_cap(
+        tmp_path,
+        DEFAULT_CONFIG,
+        "balanced",
+        generic_ratio=0.0,
+        no_live_changes=True,
+        effective_budget=4000,
+        task_kind="chore",
+        has_literal_phrases=True,
+    )
+
+    assert cap == 2
+
+
+def test_guarded_summary_cap_allows_one_extra_no_live_test_slot(tmp_path):
+    cap = _guarded_summary_cap(
+        tmp_path,
+        DEFAULT_CONFIG,
+        "balanced",
+        generic_ratio=0.0,
+        no_live_changes=True,
+        effective_budget=4000,
+        task_kind="test",
+    )
+
+    assert cap == 4
 
 
 def test_no_live_precision_guard_dampens_filename_only_matches(tmp_path):
@@ -363,6 +425,26 @@ def test_no_live_precision_guard_hits_broad_task_meta_matches_harder(tmp_path):
     assert scores["src/__init__.py"][0] < 30
     assert "broad-task weak-signal dampening" in scores["src/__init__.py"][1]
     assert scores["src/auth/session.py"][0] == 110.0
+
+
+def test_no_live_precision_guard_keeps_release_metadata_strong(tmp_path):
+    version_file = _fi(tmp_path, "src/pkg/__init__.py")
+
+    adjusted = _apply_no_live_precision_guard(
+        [
+            (
+                version_file,
+                130.0,
+                ["filename keyword match", "release/version metadata"],
+            ),
+        ],
+        generic_ratio=0.6,
+        mode="balanced",
+    )
+
+    score, reasons = adjusted[0][1], adjusted[0][2]
+    assert score == 130.0
+    assert "broad-task weak-signal dampening" not in reasons
 
 
 def test_offline_summary_includes_richer_fields(tmp_path):

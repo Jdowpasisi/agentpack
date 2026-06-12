@@ -82,8 +82,12 @@ def build_all_summaries(
     if not cache_misses:
         return result
 
-    # Pass 2: build summaries for cache misses
-    if len(cache_misses) >= 50:
+    # Pass 2: build summaries for cache misses. Threaded execution is the
+    # default because public benchmark runs often execute from temporary script
+    # or CLI entrypoints where spawn-based process pools can stall before any
+    # worker starts. The offline summarizer is lightweight enough that reliability
+    # matters more than process-level parallelism here.
+    if len(cache_misses) >= 50 and os.environ.get("AGENTPACK_SUMMARY_PROCESS_POOL") == "1":
         ctx = multiprocessing.get_context("spawn")
         executor_cls = concurrent.futures.ProcessPoolExecutor
         executor_kwargs: dict = {

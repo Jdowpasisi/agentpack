@@ -8,6 +8,7 @@ from typing import Optional
 import typer
 
 from agentpack.core.config import DEFAULT_CONFIG, CONFIG_TEMPLATE
+from agentpack.core.modes import ACTIVE_MODES, MODE_HELP, invalid_mode_message, is_requested_mode, normalize_mode
 from agentpack.core.ignore import (
     AgentIgnoreSyncStatus,
     agentignore_sync_status,
@@ -19,7 +20,7 @@ from agentpack.session.state import load_session, create_session, SESSION_FILE, 
 
 _GITIGNORE_START = "# agentpack:start"
 _GITIGNORE_END = "# agentpack:end"
-_INIT_MODES = ("lite", "minimal", "balanced", "deep")
+_INIT_MODES = ACTIVE_MODES
 _INIT_AGENTS = ("auto", "claude", "cursor", "windsurf", "codex", "antigravity", "generic")
 _AGENT_GITIGNORE_ENTRIES = {
     "cursor": (".vscode/tasks.json",),
@@ -224,8 +225,8 @@ def _validate_init_options(agent: str, mode: str | None, budget: int) -> None:
     if agent not in _INIT_AGENTS:
         console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(_INIT_AGENTS)}[/]")
         raise typer.Exit(1)
-    if mode is not None and mode not in _INIT_MODES:
-        console.print(f"[yellow]Unknown mode: {mode}. Supported: {', '.join(_INIT_MODES)}[/]")
+    if mode is not None and not is_requested_mode(mode):
+        console.print(f"[yellow]{invalid_mode_message(mode)}[/]")
         raise typer.Exit(1)
     if budget < 0:
         console.print("[yellow]Budget must be 0 or greater.[/]")
@@ -294,7 +295,7 @@ def _print_dry_run(root: Path, agent: str, share_cache: bool, mode: str | None, 
         items.append(InitResult(rel, _planned_action(root / rel)))
     _print_init_summary("Dry Run", items)
     console.print(f"  Agent: {agent}")
-    console.print(f"  Mode: {mode or DEFAULT_CONFIG.context.default_mode}")
+    console.print(f"  Mode: {normalize_mode(mode) if mode else DEFAULT_CONFIG.context.default_mode}")
     console.print(f"  Budget: {budget or DEFAULT_CONFIG.context.default_budget:,}")
     console.print(f"  Share cache: {'yes' if share_cache else 'no'}")
     if ignore_status.imported_rules:
@@ -344,7 +345,7 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def init(
         force: bool = typer.Option(False, "--force", help="Overwrite existing files."),
-        mode: Optional[str] = typer.Option(None, "--mode", help="Default pack mode (lite|minimal|balanced|deep)."),
+        mode: Optional[str] = typer.Option(None, "--mode", help=f"Default pack mode ({MODE_HELP})."),
         budget: int = typer.Option(0, "--budget", help="Default token budget (0 = keep default 40000)."),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip interactive prompts, use defaults."),
         silent: bool = typer.Option(False, "--silent", help="Suppress all output (for use in hooks/scripts)."),
@@ -402,23 +403,20 @@ def register(app: typer.Typer) -> None:
             if not yes and mode is None and sys.stdin.isatty():
                 console.print("\n[bold]Choose default pack mode:[/]")
                 console.print("  [cyan]1[/] lite     — cheap ranked map, omitted warnings, tight budget")
-                console.print("  [cyan]2[/] minimal  — changed files + configs only (fastest, fewest tokens)")
-                console.print("  [cyan]3[/] balanced — + deps, tests, summaries [bold](recommended)[/]")
-                console.print("  [cyan]4[/] deep     — + docs, more full files (most context)")
-                choice = typer.prompt("Mode", default="3")
+                console.print("  [cyan]2[/] balanced — deps, tests, summaries [bold](recommended)[/]")
+                console.print("  [cyan]3[/] deep     — docs, more full files (most context)")
+                choice = typer.prompt("Mode", default="2")
                 mode_map = {
                     "1": "lite",
-                    "2": "minimal",
-                    "3": "balanced",
-                    "4": "deep",
+                    "2": "balanced",
+                    "3": "deep",
                     "lite": "lite",
-                    "minimal": "minimal",
                     "balanced": "balanced",
                     "deep": "deep",
                 }
-                cfg.context.default_mode = mode_map.get(choice.strip(), "balanced")
-            elif mode in _INIT_MODES:
-                cfg.context.default_mode = mode
+                cfg.context.default_mode = normalize_mode(mode_map.get(choice.strip(), "balanced"))
+            elif mode and is_requested_mode(mode):
+                cfg.context.default_mode = normalize_mode(mode)
 
             if budget > 0:
                 cfg.context.default_budget = budget

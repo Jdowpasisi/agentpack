@@ -1,6 +1,8 @@
 # AgentPack Benchmark Evidence
 
 AgentPack treats context quality as an eval problem, not a compression claim.
+For the latest public-suite tuning lessons, see
+[`docs/benchmark-learnings.md`](../docs/benchmark-learnings.md).
 
 Run the public source-checkout smoke suite:
 
@@ -22,18 +24,21 @@ The suite uses small fixture repos committed under `tests/fixtures/`:
 This is a repeatable smoke suite for ranking regressions. It is intentionally
 not marketed as a public leaderboard because the repos are synthetic and small.
 
-Run the committed public real-repo smoke suite:
+Run the committed public real-repo suite:
 
 ```bash
 agentpack benchmark --public-repos --prove-targets --misses --public-table
+agentpack benchmark --public-suite --reproduce v0.3.20
 ```
 
-That suite is defined in `benchmarks/public-repos.toml`. It uses real Pallets
-Click, ItsDangerous, and MarkupSafe commits: AgentPack checks out each commit's
-parent, uses the commit subject as the task, and scores against files actually
-changed by that commit. The current proof artifact is
-`benchmarks/results/2026-05-27-public.md`, generated from the locally built
-wheel before release.
+That suite is defined in `benchmarks/public-repos.toml`. For v0.3.20 it includes
+8 pinned Pallets smoke commits plus 100+ sampled historical commits across
+Python, TypeScript, Go, Java, and monorepo projects. AgentPack checks out each
+commit's parent, uses the commit subject as the task, and scores against files
+actually changed by that commit. The current published v0.3.20 proof artifact
+is `benchmarks/results/2026-06-11-public.md`, generated from the locally built
+wheel before release. Older `0.3.12` tables remain historical artifacts only.
+Methodology and baseline plans live under `benchmarks/results/v0.3.20/`.
 
 For additional repo-specific proof, create `.agentpack/benchmark.toml` with real
 historical tasks and files that were actually changed:
@@ -41,17 +46,28 @@ historical tasks and files that were actually changed:
 ```bash
 agentpack benchmark --init
 agentpack benchmark --compare --misses --public-table
+agentpack benchmark capture --since main --task "describe task" --anonymous-report
 ```
+
+The anonymous report writes `.agentpack/benchmark-report.md` and
+`.agentpack/benchmark-report.json` with aggregate metrics only, so private-repo
+users can share community benchmark evidence without source code.
 
 Quality gates for a serious local eval:
 
 | Metric | Target |
 |---|---|
-| Recall | 60%+ across task types |
+| Recall | 65%+ across the expanded public suite for the next benchmark release |
 | Token precision | 50%+ |
 | Pack size | within the configured budget |
 | Miss diagnostics | every miss has status, rank, score, and reasons |
-| Mode comparison | `minimal`, `balanced`, and `deep` all reported |
+| Mode comparison | `lite`, `balanced`, and `deep` all reported |
+
+The current expanded-suite baseline is **57.0% recall / 50.6% token precision**
+across 109 scored public cases. For the next benchmark release, do not improve
+headline recall by spending the precision margin. Keep the 50% token-precision
+bar, publish per-language slices, and call out whether gains came from Python,
+TypeScript/Vite, Go/Gin, Java/Spring, or TypeScript monorepos.
 
 Runtime-loop features also have deterministic regression checks:
 
@@ -64,6 +80,22 @@ compressed noisy output must preserve failing lines while reducing estimated
 tokens, and learning reports must expose selected-file hits and misses from
 changed-file evidence. Command-level regression tests also cover registry
 retrieval, learning feedback, perf history, and wrapper launch metadata.
+
+## AgentPack vs No-AgentPack A/B
+
+Use guarded E2E cases when measuring agent outcomes, not only file selection:
+
+```bash
+agentpack benchmark e2e-init
+agentpack benchmark e2e --cases .agentpack/e2e_cases.toml \
+  --agent-command 'bash -lc "codex exec --cd {repo} \"$(cat {prompt})\""' \
+  --strategies no-context,agentpack --trials 3 \
+  --input-cost-per-mtok 1.25 --output-cost-per-mtok 10
+agentpack benchmark e2e-report --baseline no-context --treatment agentpack --markdown
+```
+
+The A/B report compares task success, expected-file touch rate, tool calls,
+tokens, estimated token cost, time-to-first-correct-file, and duration.
 
 The synthetic `--sample-fixtures` suite is a regression smoke test over small
 committed fixtures. It is intentionally separate from the public proof gate and
@@ -105,6 +137,24 @@ agentpack explain --task "your task" --file path/to/missed_file.py
 agentpack explain --task "your task" --omitted
 agentpack explain --task "your task" --budget-plan
 ```
+
+For public-suite tuning, avoid repeated full-suite runs while testing a narrow
+hypothesis. Run the affected repo or task-type slice and persist JSONL for
+case-level comparison:
+
+```bash
+agentpack benchmark \
+  --public-repos \
+  --public-repo-filter gin,spring-petclinic \
+  --public-repos-cache /tmp/agentpack-public-cache-full \
+  --benchmark-jsonl /tmp/agentpack-go-java.jsonl \
+  --misses
+```
+
+Run the full public suite only after the slice result has a credible chance of
+moving the release gate. For the next release, the full-suite decision target is
+65%+ recall, 50%+ token precision, and no major slice regression larger than 2
+recall points.
 
 ## Deterministic Failure Evals
 

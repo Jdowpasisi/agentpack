@@ -125,7 +125,7 @@ The dashboard must show:
 - packed tokens
 - raw tokens
 - saving percentage
-- mode: `lite`, `minimal`, `balanced`, or `deep`
+- mode: `lite`, `balanced`, or `deep`
 - selected file count
 - ignored/binary file count when available
 - full scan reason or incremental scan status when available

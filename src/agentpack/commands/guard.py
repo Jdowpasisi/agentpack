@@ -6,6 +6,7 @@ from agentpack.commands._shared import console, _root, run_refresh
 from agentpack.core.config import load_config
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.ignore import load_spec
+from agentpack.core.modes import MODE_HELP, invalid_mode_message, is_requested_mode
 from agentpack.core.scanner import scan
 from agentpack.core.snapshot import build_snapshot
 from agentpack.core.task_freshness import task_freshness
@@ -37,7 +38,7 @@ def register(app: typer.Typer) -> None:
             "--refresh-context",
             help="Refresh the context pack when it is missing or stale.",
         ),
-        mode: str = typer.Option("balanced", "--mode", help="Refresh mode (lite|minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help=f"Refresh mode ({MODE_HELP})."),
         budget: int = typer.Option(0, "--budget", help="Refresh token budget (0 = config default)."),
         thread: str = typer.Option("", "--thread", help="Use thread-scoped context state."),
     ) -> None:
@@ -45,8 +46,8 @@ def register(app: typer.Typer) -> None:
         if agent not in SUPPORTED_AGENTS:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
-        if mode not in ("lite", "minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
+        if not is_requested_mode(mode):
+            console.print(f"[red]{invalid_mode_message(mode)}[/]")
             raise typer.Exit(1)
 
         root = _root()

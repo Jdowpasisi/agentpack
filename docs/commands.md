@@ -585,7 +585,7 @@ Options:
 |------|---------|-------------|
 | `--agent` | `auto` | Target agent (`auto` \| `claude` \| `cursor` \| `windsurf` \| `codex` \| `antigravity` \| `generic`). `auto` detects the active IDE from env and project files. |
 | `--task` | `auto` | Backward-compatible task source. Only `auto` is supported; write task text to `.agentpack/task.md`. |
-| `--mode` | `balanced` | Budget mode: `lite`, `minimal`, `balanced`, `deep` |
+| `--mode` | `balanced` | Budget mode: `lite`, `balanced`, `deep` |
 | `--budget` | 0 (uses config default 40000) | Token budget |
 | `--workspace` | — | Restrict packing to a monorepo workspace and write `.agentpack/workspaces/<workspace>/context.md` |
 | `--since` | — | Only include files changed since this git ref |
@@ -597,9 +597,11 @@ Options:
 
 | Mode | What's included |
 |------|----------------|
-| `minimal` | Changed files + direct configs, with a small summary cap |
+| `lite` | Cheap ranked map before deeper file reads |
 | `balanced` | Changed files + deps + reverse deps + tests + capped summaries |
 | `deep` | Everything in balanced + docs + more full-content files, uncapped summaries |
+
+`balanced` is the standard mode for normal agent work and benchmark claims.
 
 `pack` also prints diagnostics when the pack looks noisy: very short task text, no changed files, mostly filename matches, mostly summaries, many symbol matches, weak summaries excluded by the score floor, or summaries excluded by the mode cap.
 
@@ -902,25 +904,34 @@ Measure token efficiency, file selection quality, and speed across tasks.
 
 ```bash
 agentpack benchmark --task "fix auth token expiry"         # single task
-agentpack benchmark --task "fix auth bug" --compare        # compare minimal/balanced/deep
+agentpack benchmark --task "fix auth bug" --compare        # compare lite/balanced/deep
 agentpack benchmark --init                                 # scaffold .agentpack/benchmark.toml
 agentpack benchmark --results-template                     # scaffold publishable results note
 agentpack benchmark                                        # run all cases in benchmark.toml
 agentpack benchmark --sample-fixtures                      # source checkout demo evals
 agentpack benchmark --release-gate                         # public release benchmark gate
+agentpack benchmark --public-suite --reproduce v0.3.20      # reproducible public suite
 agentpack benchmark --public-repos                         # real public commit evals
 agentpack benchmark --misses                               # explain expected-file misses
 agentpack benchmark --prove-targets                        # fail if recall/token precision targets miss
 agentpack benchmark --public-table                         # write benchmarks/results/*-public.md
 agentpack benchmark --from-history 5 --write-cases          # scaffold cases from recent packs
 agentpack benchmark capture --since HEAD~1 --task "fix auth bug"
+agentpack benchmark capture --since main --task "fix auth bug" --anonymous-report
+agentpack benchmark e2e --cases .agentpack/e2e_cases.toml --agent-command 'bash -lc "codex exec --cd {repo} \"$(cat {prompt})\""'
+agentpack benchmark e2e-report --baseline no-context --treatment agentpack --markdown
 ```
 
 `--release-gate` expands to the intended public release proof path:
 `--public-repos --prove-targets --misses --public-table`, using
 `benchmarks/public-repos.toml` by default. It accepts `--public-repos-cache`
 and `--refresh-public-repos`. `--sample-fixtures` is a source-checkout
-regression smoke path, not the release gate.
+regression smoke path, not the release gate. `--public-suite --reproduce
+v0.3.20` is the documented one-command reproduction path for the expanded public
+suite. Public repo manifests can mix
+pinned `[[repos.cases]]` entries with `sample_history = N`; sampled cases use
+real commit subjects and changed files from recent first-parent, non-merge
+commits, filtered by `include_globs`, `exclude_globs`, and `max_changed_files`.
 
 Output per case:
 
@@ -942,13 +953,13 @@ fix auth token expiry  mode=balanced
   top files: src/auth/token.py, src/auth/session.py, ...
 ```
 
-**Compare mode** shows all three modes side-by-side:
+**Compare mode** shows modes side-by-side:
 
 ```
 Mode comparison: fix auth token expiry
 
    mode        tokens   saving   files   time
-   minimal     29,882    84.1%     253   0.34s
+   lite         8,000    95.7%      50   0.18s
    balanced    29,882    84.1%     253   0.24s
    deep         7,563    96.0%      43   0.24s
 ```
@@ -985,6 +996,11 @@ agentpack benchmark --public-repos --prove-targets --misses --public-table
 
 Use `--public-table` after adding real historical tasks to write a publishable Markdown table with per-repo/task recall, token precision, rank@K, pack size, and miss count. This is the recommended artifact for README claims, release notes, and external benchmarks.
 
+For agent outcome A/Bs, `benchmark e2e` runs guarded cases across strategies
+such as `no-context` and `agentpack`. `benchmark e2e-report` compares task
+success, expected-file touch rate, tool calls saved, tokens saved, token cost
+saved, time-to-first-correct-file, and duration.
+
 Add `task_type` to group results by workflow area. Benchmark summaries report average precision, recall, F1, and token noise by type, so a repo can show "backend-api is good, frontend-web is noisy" instead of hiding that under one aggregate.
 
 `benchmark capture` reduces benchmark-case bookkeeping after real work:
@@ -996,7 +1012,10 @@ agentpack benchmark capture --since HEAD~1 --task "smoke capture" --allow-empty
 
 It infers `expected_files` from `git diff --name-only <ref> HEAD` and appends a
 case to `.agentpack/benchmark.toml`. It refuses empty diffs unless
-`--allow-empty` is present. `--from-history --write-cases` can scaffold cases
+`--allow-empty` is present. Add `--anonymous-report` to write
+`.agentpack/benchmark-report.md` and `.agentpack/benchmark-report.json` with
+aggregate language mix, case count, recall/token precision when measured, miss
+count, and `no_source_code_uploaded = true`. `--from-history --write-cases` can scaffold cases
 from recent AgentPack metrics, but those cases are recall evidence only after
 you fill `expected_files`.
 
@@ -1280,7 +1299,7 @@ the installed `agentpack` command through the benchmark release gate.
 
 ```bash
 agentpack verify-wheel
-agentpack verify-wheel --wheel dist/agentpack_cli-0.3.12-py3-none-any.whl
+agentpack verify-wheel --wheel dist/agentpack_cli-0.3.21-py3-none-any.whl
 agentpack verify-wheel --skip-build --json
 ```
 

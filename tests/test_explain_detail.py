@@ -104,7 +104,7 @@ def test_noise_report_names_generic_terms() -> None:
             SimpleNamespace(include_mode="summary", reasons=["filename keyword match"]),
         ],
         receipts=[
-            SimpleNamespace(action="excluded", reason="summary cap reached"),
+            SimpleNamespace(action="excluded", reason="compressed context cap reached"),
             SimpleNamespace(action="excluded", reason="summary score below floor"),
         ],
     )
@@ -116,7 +116,7 @@ def test_noise_report_names_generic_terms() -> None:
     assert "stats" in report
     assert "ambiguous terms:" in report
     assert "excluded by summary cap: 1" in report
-    assert "Try `--mode minimal`" in report
+    assert "Keep standard balanced mode" in report
     assert "Rewrite example:" in report
 
 

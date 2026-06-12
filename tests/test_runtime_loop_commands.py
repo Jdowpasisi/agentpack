@@ -98,7 +98,7 @@ def test_retrieve_command_reads_pack_registry(tmp_path: Path, monkeypatch):
     pack = ContextPack(
         task="test",
         agent="generic",
-        mode="minimal",
+        mode="balanced",
         budget=1000,
         token_estimate=10,
         raw_repo_tokens=100,

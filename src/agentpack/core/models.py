@@ -1,7 +1,9 @@
 from pathlib import Path
-from typing import Literal
 from typing import Any
+from typing import Literal
 from pydantic import BaseModel, Field
+
+from agentpack.core.modes import PackMode
 
 SUMMARY_SCHEMA_VERSION = 2
 
@@ -105,7 +107,7 @@ class OmittedRelevantFile(BaseModel):
 class ContextPack(BaseModel):
     task: str
     agent: str
-    mode: Literal["lite", "minimal", "balanced", "deep"]
+    mode: PackMode
     task_class: str = "general"
     budget: int
     token_estimate: int

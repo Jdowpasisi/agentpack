@@ -7,6 +7,7 @@ import typer
 from agentpack.commands._shared import console, _root, run_refresh
 from agentpack.commands.install import _install_slash_command
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.core.modes import MODE_HELP, invalid_mode_message, is_requested_mode
 from agentpack.integrations.agents import (
     SUPPORTED_AGENTS,
     check_agent_integration,
@@ -42,15 +43,15 @@ def register(app: typer.Typer) -> None:
             help="Refresh context packs after repair.",
         ),
         dry_run: bool = typer.Option(False, "--dry-run", help="Show actions without writing files."),
-        mode: str = typer.Option("balanced", "--mode", help="Refresh mode (lite|minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help=f"Refresh mode ({MODE_HELP})."),
         budget: int = typer.Option(0, "--budget", help="Refresh token budget (0 = config default)."),
     ) -> None:
         """Migrate existing repos to current AgentPack guard/freshness integrations."""
         if agent not in SUPPORTED_AGENTS:
             console.print(f"[yellow]Unknown agent: {agent}. Supported: {', '.join(SUPPORTED_AGENTS)}[/]")
             raise typer.Exit(1)
-        if mode not in ("lite", "minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
+        if not is_requested_mode(mode):
+            console.print(f"[red]{invalid_mode_message(mode)}[/]")
             raise typer.Exit(1)
         if max_depth < 0:
             console.print("[red]--max-depth must be >= 0[/]")

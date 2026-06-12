@@ -231,10 +231,13 @@ class KeywordPlan:
     learned_positive_terms: tuple[str, ...] = ()
     learned_ambiguous_phrases: tuple[str, ...] = ()
     learned_positive_phrases: tuple[str, ...] = ()
+    literal_phrases: tuple[str, ...] = ()
     phrase_rarity: dict[str, float] = field(default_factory=dict)
     term_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
     phrase_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
     workspace_roots: tuple[str, ...] = ()
+    task_kind: str = ""
+    task_scope_terms: tuple[str, ...] = ()
 
 _IMPLEMENTATION_ROLE_TOKENS = {
     "api", "apis", "route", "routes", "router", "endpoint", "endpoints",
@@ -259,6 +262,7 @@ _PATH_NOISE_TOKENS = {
     "frontend", "server", "client", "web", "mobile", "index", "main",
     "test", "tests", "spec", "specs",
 } | _IMPLEMENTATION_ROLE_TOKENS | _ENTRYPOINT_ROLE_TOKENS
+_MAX_PHRASE_NGRAM = 2
 
 _FILENAME_CORROBORATION_PREFIXES = (
     "modified",
@@ -284,22 +288,86 @@ def _add_keyword_weight(weights: dict[str, float], keyword: str, weight: float) 
     weights[keyword] = max(weights.get(keyword, 0.0), weight)
 
 
+def _singular_variant(word: str) -> str | None:
+    if len(word) < 5 or word in _GENERIC_TASK_TERMS:
+        return None
+    if word.endswith("ies") and len(word) > 5:
+        return word[:-3] + "y"
+    if word.endswith(("sses", "xes", "ches", "shes")) and len(word) > 5:
+        return word[:-2]
+    if word.endswith("s") and not word.endswith(("ss", "us", "is")):
+        return word[:-1]
+    return None
+
+
+def _conventional_commit_parts(task: str) -> tuple[str, str, str] | None:
+    match = re.match(r"^\s*([a-z][a-z0-9-]*)(?:\(([^)]{1,80})\))?!?:\s*(.+)$", task, flags=re.IGNORECASE)
+    if not match:
+        return None
+    kind, scope, subject = match.groups()
+    return kind.lower(), scope or "", subject
+
+
+def _task_match_text(task: str) -> str:
+    conventional = _conventional_commit_parts(task)
+    if not conventional:
+        return task
+    kind, scope, subject = conventional
+    scope_text = " ".join(_ordered_tokens(scope))
+    return f"{kind} {scope_text} {subject}".strip()
+
+
 def task_terms(task: str) -> list[str]:
     return [
-        word for word in re.split(r"[^a-zA-Z0-9]+", task.lower())
+        word for word in re.split(r"[^a-zA-Z0-9]+", _task_match_text(task).lower())
         if len(word) >= 3 and word not in _STOPWORDS
     ]
 
 
-def task_phrases(task: str, max_len: int = 2) -> list[str]:
+def task_phrases(task: str, max_len: int = _MAX_PHRASE_NGRAM) -> list[str]:
     terms = task_terms(task)
+    return _ngram_phrases(terms, max_len=max_len)
+
+
+def _task_literal_phrases(task: str) -> tuple[str, ...]:
+    candidates: list[str] = []
+    candidates.extend(match.group(1) for match in re.finditer(r"`([^`]{3,120})`", task))
+    candidates.extend(match.group(1) for match in re.finditer(r'"([^"]{3,120})"', task))
+    candidates.extend(match.group(1) for match in re.finditer(r"'([^']{3,120})'", task))
+    candidates.extend(
+        match.group(0)
+        for match in re.finditer(r"\b[A-Za-z0-9]+(?:[-_/][A-Za-z0-9]+){1,}\b", task)
+    )
+
     phrases: list[str] = []
+    seen: set[str] = set()
+    for raw in candidates:
+        tokens = [tok for tok in _ordered_tokens(raw) if len(tok) >= 2 and tok not in _STOPWORDS]
+        if not (2 <= len(tokens) <= 8):
+            continue
+        if all(tok in _GENERIC_TASK_TERMS for tok in tokens):
+            continue
+        phrase = " ".join(tokens)
+        if phrase in seen:
+            continue
+        seen.add(phrase)
+        phrases.append(phrase)
+    return tuple(phrases)
+
+
+def _ngram_phrases(terms: list[str], *, max_len: int = _MAX_PHRASE_NGRAM) -> list[str]:
+    phrases: list[str] = []
+    seen: set[str] = set()
     for size in range(2, max_len + 1):
         for index in range(len(terms) - size + 1):
             phrase_terms = terms[index:index + size]
             if all(term in _GENERIC_TASK_TERMS for term in phrase_terms):
                 continue
-            phrases.append(" ".join(phrase_terms))
+            phrase = " ".join(phrase_terms)
+            if phrase in seen:
+                continue
+            seen.add(phrase)
+            phrases.append(phrase)
     return phrases
 
 
@@ -357,6 +425,9 @@ def _base_keyword_weights(task: str) -> dict[str, float]:
             else:
                 variant_weight = min(0.75, literal_weight)
             _add_keyword_weight(keyword_weights, variant, variant_weight)
+        singular = _singular_variant(word)
+        if singular and singular not in _STOPWORDS:
+            _add_keyword_weight(keyword_weights, singular, min(0.85, literal_weight))
 
     # Expand via concept map one level only. Expanded concepts are weaker than
     # literal task words so broad terms like "task" do not dominate ranking.
@@ -463,9 +534,7 @@ def _document_phrases(path: str, summary_data: dict[str, Any] | None) -> set[str
     phrases: set[str] = set()
     for value in parts:
         ordered = _ordered_tokens(value)
-        for size in (2,):
-            for index in range(len(ordered) - size + 1):
-                phrases.add(" ".join(ordered[index:index + size]))
+        phrases.update(_ngram_phrases(ordered, max_len=_MAX_PHRASE_NGRAM))
     return {phrase for phrase in phrases if phrase}
 
 
@@ -545,9 +614,15 @@ def build_keyword_plan(
     root: Path | None = None,
     workspace_roots: list[str] | None = None,
 ) -> KeywordPlan:
+    conventional = _conventional_commit_parts(task)
+    task_kind = conventional[0] if conventional else ""
+    task_scope_terms = tuple(_ordered_tokens(conventional[1])) if conventional and conventional[1] else ()
     weights = _base_keyword_weights(task)
-    phrases = task_phrases(task)
-    generic = tuple(sorted({word for word in task_terms(task) if word in _GENERIC_TASK_TERMS}))
+    literal_phrases = _task_literal_phrases(task)
+    phrases = list(dict.fromkeys([*task_phrases(task), *literal_phrases]))
+    dynamic_generic = {task_kind} if task_kind else set()
+    generic_terms = {word for word in task_terms(task) if word in _GENERIC_TASK_TERMS} | dynamic_generic
+    generic = tuple(sorted(generic_terms))
     static_ambiguous = set(ambiguous_task_terms(task))
     signal_stats = _task_signal_stats(root)
     term_good = signal_stats["terms"]["good"]
@@ -568,6 +643,8 @@ def build_keyword_plan(
         rarity[term] = round(rarity_value, 3)
         rarity_factor = 0.55 + (0.7 * rarity_value)
         candidate = weight * rarity_factor
+        if term in dynamic_generic:
+            candidate = min(candidate, 0.25)
         if term in static_ambiguous:
             candidate = min(candidate, 0.45)
         if term in learned_ambiguous and term not in static_ambiguous:
@@ -578,7 +655,8 @@ def build_keyword_plan(
     phrase_rarity: dict[str, float] = {}
     phrase_weights: dict[str, float] = {}
     for phrase in phrases:
-        part_weights = [adjusted.get(term, weights.get(term, 1.0)) for term in phrase.split()]
+        phrase_terms = phrase.split()
+        part_weights = [adjusted.get(term, weights.get(term, 1.0)) for term in phrase_terms]
         base = sum(part_weights) / len(part_weights)
         rarity_value = _rarity_score(phrase, total_docs, phrase_counts) if total_docs else 1.0
         phrase_rarity[phrase] = round(rarity_value, 3)
@@ -587,9 +665,12 @@ def build_keyword_plan(
             candidate = min(candidate, 0.45)
         elif phrase in learned_positive_phrases:
             candidate = min(1.4, candidate + 0.25)
-        elif all(part not in static_ambiguous and part not in learned_ambiguous for part in phrase.split()):
+        elif all(part not in static_ambiguous and part not in learned_ambiguous for part in phrase_terms):
             candidate = min(1.25, candidate + 0.12)
         phrase_weights[phrase] = round(candidate, 3)
+    for phrase in literal_phrases:
+        phrase_weights[phrase] = max(phrase_weights.get(phrase, 0.0), 1.6)
+        phrase_rarity.setdefault(phrase, 1.0)
     workspace_weights: dict[str, dict[str, float]] = {}
     workspace_phrase_weights: dict[str, dict[str, float]] = {}
     for workspace, total in workspace_totals.items():
@@ -651,12 +732,15 @@ def build_keyword_plan(
         learned_positive_terms=tuple(sorted(learned_positive_terms)),
         learned_ambiguous_phrases=tuple(sorted(learned_ambiguous_phrases)),
         learned_positive_phrases=tuple(sorted(learned_positive_phrases)),
+        literal_phrases=literal_phrases,
         concrete_terms=concrete,
         rarity=rarity,
         phrase_rarity=phrase_rarity,
         term_stats=term_stats,
         phrase_stats=phrase_stats,
         workspace_roots=tuple(workspace_roots or ()),
+        task_kind=task_kind,
+        task_scope_terms=task_scope_terms,
     )
 
 
@@ -672,6 +756,7 @@ def persist_keyword_plan_stats(root: Path, task: str, plan: KeywordPlan) -> Path
         "learned_positive_terms": list(plan.learned_positive_terms),
         "learned_ambiguous_phrases": list(plan.learned_ambiguous_phrases),
         "learned_positive_phrases": list(plan.learned_positive_phrases),
+        "literal_phrases": list(plan.literal_phrases),
         "concrete_terms": list(plan.concrete_terms),
         "workspace_roots": list(plan.workspace_roots),
         "terms": plan.term_stats,
@@ -860,6 +945,24 @@ def _matched_keyword_phrases(
     return {phrase for phrase in plan.phrase_weights if phrase in normalized}
 
 
+def _matched_literal_phrases(text: str, plan: KeywordPlan | None) -> set[str]:
+    if plan is None or not plan.literal_phrases:
+        return set()
+    normalized = " ".join(_ordered_tokens(text))
+    return {phrase for phrase in plan.literal_phrases if phrase in normalized}
+
+
+def _literal_define_matches(value: str, plan: KeywordPlan | None) -> set[str]:
+    if plan is None or not plan.literal_phrases:
+        return set()
+    normalized = " ".join(_ordered_tokens(value))
+    return {
+        phrase
+        for phrase in plan.literal_phrases
+        if phrase in normalized or normalized in phrase
+    }
+
+
 def _match_weight(
     text: str,
     keywords: set[str] | dict[str, float] | KeywordPlan,
@@ -973,6 +1076,82 @@ def _summary_boost_weight(field: str, value: str, amount: float) -> float:
     return amount
 
 
+def _multi_token_summary_bonus(field: str, value: str, keywords: set[str] | dict[str, float] | KeywordPlan) -> float:
+    if field not in {"defines", "public_api"}:
+        return 0.0
+    matched = _matched_keyword_tokens(value, keywords)
+    if not matched:
+        return 0.0
+    plan = _keyword_plan(keywords)
+    concrete = set(plan.concrete_terms) if plan is not None else set(_keyword_token_weights(keywords)) - _GENERIC_TASK_TERMS
+    specific_matches = {term for term in matched if term in concrete and term not in _GENERIC_TASK_TERMS}
+    if len(specific_matches) < 2:
+        return 0.0
+    return min(120.0, 55.0 * (len(specific_matches) - 1))
+
+
+def _direct_content_evidence_bonus(reasons: list[str], content_hits: int) -> float:
+    if content_hits < 2:
+        return 0.0
+    if "filename keyword match" in reasons or "symbol keyword match" in reasons:
+        return 0.0
+    has_direct_evidence = any(
+        reason.startswith((
+            "matched call:",
+            "matched define:",
+            "literal definition match:",
+            "multi-token defines match",
+            "matched entrypoint:",
+            "keyword phrase match:",
+        ))
+        for reason in reasons
+    )
+    if not has_direct_evidence:
+        return 0.0
+    bonus = 120.0 + (50.0 * min(3, content_hits - 2))
+    return min(270.0, bonus)
+
+
+def _path_concrete_term_bonus(path: str, plan: KeywordPlan | None) -> float:
+    if plan is None:
+        return 0.0
+    if _is_test_file(path) and plan.task_kind != "test":
+        return 0.0
+    path_terms = _path_tokens(path)
+    concrete_matches = {
+        term
+        for term in plan.concrete_terms
+        if term not in _GENERIC_TASK_TERMS and term in path_terms
+    }
+    if len(concrete_matches) < 2:
+        return 0.0
+    bonus = 70.0 + (35.0 * min(2, len(concrete_matches) - 2))
+    if _is_config_file(path):
+        bonus += 105.0
+    return min(210.0 if _is_config_file(path) else 150.0, bonus)
+
+
+def _scope_is_workspace_root(plan: KeywordPlan | None) -> bool:
+    if plan is None or not plan.task_scope_terms or not plan.workspace_roots:
+        return False
+    scope_terms = set(plan.task_scope_terms)
+    for root in plan.workspace_roots:
+        root_parts = [part for part in Path(root).parts if part not in {".", ""}]
+        if not root_parts:
+            continue
+        root_name_terms = set(_ordered_tokens(root_parts[-1]))
+        if scope_terms <= root_name_terms:
+            return True
+    return False
+
+
+def _should_dampen_scope_mismatch(path: str, plan: KeywordPlan | None) -> bool:
+    if plan is None or plan.task_kind == "test" or not _scope_is_workspace_root(plan):
+        return False
+    path_terms = _path_tokens(path)
+    return not set(plan.task_scope_terms) <= path_terms
+
+
 def _has_role(path: str, roles: set[str]) -> bool:
     return bool(_path_tokens(path) & roles)
 
@@ -1005,6 +1184,9 @@ def score_files(
     keyword_plan = _keyword_plan(keywords)
     ambiguous_terms = set(keyword_plan.ambiguous_terms) if keyword_plan else set()
     concrete_terms = set(keyword_plan.concrete_terms) if keyword_plan else set()
+    release_task = _is_release_task_keywords(keywords)
+    explicit_test_task = _is_explicit_test_task_keywords(keywords)
+    build_metadata_task = _is_build_metadata_task_keywords(keywords)
 
     churn_threshold: int | None = None
     if churn_counts:
@@ -1041,6 +1223,16 @@ def score_files(
             )
             score += min(28.0, 18.0 * _phrase_weight_for_context(best_phrase, keyword_plan, path=fi.path))
             reasons.append(f"keyword phrase match: {best_phrase}")
+        if keyword_plan is not None and keyword_plan.task_scope_terms and keyword_plan.task_kind != "test":
+            scope_terms = set(keyword_plan.task_scope_terms)
+            path_terms = _path_tokens(fi.path)
+            if scope_terms <= path_terms:
+                score += 160.0
+                reasons.append("conventional scope path match")
+        path_term_bonus = _path_concrete_term_bonus(fi.path, keyword_plan)
+        if path_term_bonus:
+            score += path_term_bonus
+            reasons.append(f"multi-term path match +{path_term_bonus:.0f}")
 
         node = dep_graph.get(fi.path)
         sym_names: list[str] = []
@@ -1076,6 +1268,15 @@ def score_files(
                     continue
                 value, match_weight = match
                 score += _summary_boost_weight(field, value, amount) * match_weight
+                multi_token_bonus = _multi_token_summary_bonus(field, value, keywords)
+                if multi_token_bonus:
+                    score += multi_token_bonus
+                    reasons.append(f"multi-token {field} match +{multi_token_bonus:.0f}: {_short_reason_value(value)}")
+                literal_define_matches = _literal_define_matches(value, keyword_plan) if field in {"defines", "public_api"} else set()
+                if literal_define_matches:
+                    best_literal_define = max(literal_define_matches, key=len)
+                    score += 150.0
+                    reasons.append(f"literal definition match: {best_literal_define}")
                 reasons.append(f"{label}: {_short_reason_value(value)}")
 
             naming_keywords = _summary_values(summary_data, "naming_keywords")
@@ -1096,26 +1297,42 @@ def score_files(
                 reasons.append(f"generic public API penalty: {generic_public_names[0]}")
 
         content_hits = 0
+        searchable_text = ""
         if fi.content is not None:
-            hits, hit_weight = _content_matches_keywords(fi.content, keywords)
+            searchable_text = fi.content
+            hits, hit_weight = _content_matches_keywords(searchable_text, keywords)
             content_hits = hits
-            matched_terms |= _matched_keyword_tokens(fi.content, keywords)
-            matched_phrases |= _matched_keyword_phrases(fi.content, keywords)
+            matched_terms |= _matched_keyword_tokens(searchable_text, keywords)
+            matched_phrases |= _matched_keyword_phrases(searchable_text, keywords)
             if hits > 0:
                 score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                 reasons.append(f"content keyword match ({hits})")
         elif fi.abs_path.exists():
             try:
-                text = fi.abs_path.read_text(errors="replace")
-                hits, hit_weight = _content_matches_keywords(text, keywords)
+                searchable_text = fi.abs_path.read_text(errors="replace")
+                hits, hit_weight = _content_matches_keywords(searchable_text, keywords)
                 content_hits = hits
-                matched_terms |= _matched_keyword_tokens(text, keywords)
-                matched_phrases |= _matched_keyword_phrases(text, keywords)
+                matched_terms |= _matched_keyword_tokens(searchable_text, keywords)
+                matched_phrases |= _matched_keyword_phrases(searchable_text, keywords)
                 if hits > 0:
                     score += min(w.content_keyword_max, hit_weight * w.content_keyword_per_hit)
                     reasons.append(f"content keyword match ({hits})")
             except OSError:
                 pass
+
+        literal_matches = _matched_literal_phrases(f"{fi.path}\n{searchable_text}", keyword_plan)
+        if literal_matches:
+            best_literal = max(literal_matches, key=len)
+            score += 360.0
+            reasons.append(f"quoted literal match: {best_literal}")
+        elif (
+            keyword_plan is not None
+            and keyword_plan.task_kind == "chore"
+            and keyword_plan.literal_phrases
+            and (filename_weight > 0 or symbol_weight > 0)
+        ):
+            score *= 0.55
+            reasons.append("chore literal partial-match dampening")
 
         if keyword_plan is not None and matched_phrases:
             best_content_phrase = max(
@@ -1125,6 +1342,11 @@ def score_files(
             score += min(20.0, 14.0 * _phrase_weight_for_context(best_content_phrase, keyword_plan, path=fi.path))
             if not any(reason.startswith("keyword phrase match:") for reason in reasons):
                 reasons.append(f"keyword phrase match: {best_content_phrase}")
+
+        direct_content_bonus = _direct_content_evidence_bonus(reasons, content_hits)
+        if direct_content_bonus:
+            score += direct_content_bonus
+            reasons.append(f"direct content evidence +{direct_content_bonus:.0f}")
 
         if ambiguous_terms:
             ambiguous_hits = matched_terms & ambiguous_terms
@@ -1146,6 +1368,17 @@ def score_files(
         if matched_task_signal and _has_role(fi.path, _IMPLEMENTATION_ROLE_TOKENS):
             score += w.implementation_role
             reasons.append("implementation role match")
+
+        if explicit_test_task:
+            if _is_test_file(fi.path):
+                test_bonus = 95.0
+                if "e2e" in {part.lower() for part in Path(fi.path).parts}:
+                    test_bonus += 35.0
+                score += test_bonus
+                reasons.append("explicit test task file")
+            elif not _is_config_file(fi.path):
+                score = max(0.0, score * 0.72)
+                reasons.append("explicit test task non-test dampening")
 
         for dep_path in node.imports:
             if dep_path in changed_paths or _path_matches_keywords(dep_path, keywords) > 0:
@@ -1176,6 +1409,15 @@ def score_files(
             score += w.config_file
             reasons.append("config file")
 
+        if build_metadata_task and _is_build_metadata_file(fi.path):
+            score += 190.0 + _build_metadata_priority_bonus(fi.path)
+            reasons.append("build/dependency metadata")
+
+        is_release_metadata = release_task and _is_release_metadata_file(fi.path)
+        if is_release_metadata:
+            score += 110.0 + _release_metadata_priority_bonus(fi.path)
+            reasons.append("release/version metadata")
+
         if _has_secret_content(fi):
             score += w.modified
             reasons.append("secret redaction candidate")
@@ -1199,11 +1441,22 @@ def score_files(
             score += w.co_changed * min(1.0, 0.5 + (count / 4))
             reasons.append(f"historically co-changed ({count} commits)")
 
+        if release_task and not is_release_metadata and _has_only_release_term_signal(matched_terms, reasons):
+            score = max(0.0, score * 0.35)
+            reasons.append("release-term-only non-metadata dampening")
+
+        if _should_dampen_scope_mismatch(fi.path, keyword_plan):
+            score = max(0.0, score * 0.62)
+            reasons.append("conventional scope mismatch dampening")
+
         if filename_weight > 0 and not _has_filename_corroboration(reasons):
             score = max(1.0, score + w.weak_filename_match_penalty)
             reasons.append(f"weak filename-only match {w.weak_filename_match_penalty:.0f}")
 
-        if fi.too_large and score < 50:
+        if fi.too_large and (content_hits >= 2 or _has_large_file_support(reasons)):
+            score += 120.0
+            reasons.append("large supported file")
+        elif fi.too_large and score < 50:
             score += w.large_unrelated_penalty
             reasons.append("large unrelated file")
 
@@ -1274,7 +1527,7 @@ def boost_paired_tests(
 
     source_scores = {
         fi.path: score for fi, score, _ in scored
-        if not _is_test_file(fi.path) and score >= threshold
+        if not _is_test_file(fi.path) and not _is_config_file(fi.path) and score >= threshold
     }
 
     result = []
@@ -1505,11 +1758,41 @@ def _test_matches_source(test_path: str, src_path: str) -> bool:
     return src_stem in test_stem or test_stem.replace("test_", "") == src_stem
 
 
+def _is_explicit_test_task_keywords(keywords: set[str] | dict[str, float] | KeywordPlan) -> bool:
+    plan = _keyword_plan(keywords)
+    if plan is not None and plan.task_kind == "test":
+        return True
+    tokens = set(_keyword_token_weights(keywords))
+    return bool(tokens & {"test", "tests", "spec", "specs"})
+
+
 def _is_config_file(path: str) -> bool:
     p = Path(path)
+    name = p.name.lower()
     return (
         p.suffix.lower() in CONFIG_EXTENSIONS
         or p.stem.lower() in CONFIG_NAMES
+        or _looks_like_config_filename(name)
+    )
+
+
+def _looks_like_config_filename(name: str) -> bool:
+    tokens = [token for token in re.split(r"[^a-z0-9]+", name.lower()) if token]
+    return "config" in tokens or "conf" in tokens
+
+
+def _has_large_file_support(reasons: list[str]) -> bool:
+    return any(
+        reason.startswith((
+            "matched call:",
+            "matched define:",
+            "multi-token",
+            "keyword phrase match:",
+            "direct dependency",
+            "reverse dependency",
+            "historically co-changed",
+        ))
+        for reason in reasons
     )
 
 
@@ -1547,3 +1830,111 @@ def _is_knowledge_file(path: str) -> bool:
     if any(part.lower() in _KNOWLEDGE_DIRS for part in p.parts):
         return p.suffix.lower() == ".md"
     return False
+
+
+def _is_release_task_keywords(keywords: set[str] | dict[str, float] | KeywordPlan) -> bool:
+    release_terms = {
+        "release", "version", "prerelease", "bump", "publish", "tag", "pypi", "npm",
+        "metadata", "license",
+    }
+    return bool(set(_keyword_token_weights(keywords)) & release_terms)
+
+
+_RELEASE_TASK_TERMS = {
+    "release", "version", "prerelease", "bump", "publish", "tag", "pypi", "npm",
+    "metadata", "license",
+}
+
+
+_BUILD_METADATA_TASK_TERMS = {
+    "build",
+    "building",
+    "boot",
+    "dependency",
+    "dependencies",
+    "gradle",
+    "java",
+    "maven",
+    "runtime",
+    "starter",
+}
+
+
+def _is_build_metadata_task_keywords(keywords: set[str] | dict[str, float] | KeywordPlan) -> bool:
+    return bool(set(_keyword_token_weights(keywords)) & _BUILD_METADATA_TASK_TERMS)
+
+
+def _is_build_metadata_file(path: str) -> bool:
+    p = Path(path)
+    if len(p.parts) != 1:
+        return False
+    return p.name.lower() in {
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts",
+        "gradle.properties",
+    }
+
+
+def _build_metadata_priority_bonus(path: str) -> float:
+    name = Path(path).name.lower()
+    if name in {"pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}:
+        return 90.0
+    return 35.0
+
+
+def _is_release_metadata_file(path: str) -> bool:
+    p = Path(path)
+    parts = {part.lower() for part in p.parts}
+    if parts & {"doc", "docs", "example", "examples", "fixture", "fixtures", "test", "tests", "__tests__"}:
+        return False
+    name = p.name.lower()
+    if name in {
+        "pyproject.toml",
+        "setup.cfg",
+        "setup.py",
+        "package.json",
+        "package-lock.json",
+        "cargo.toml",
+        "pom.xml",
+        "build.gradle",
+        "gradle.properties",
+    }:
+        return True
+    if name in {"__init__.py", "__about__.py", "_version.py", "version.py"}:
+        return True
+    return "version" in name and p.suffix.lower() in {".py", ".ts", ".js", ".java", ".toml", ".json", ".xml"}
+
+
+def _release_metadata_priority_bonus(path: str) -> float:
+    p = Path(path)
+    name = p.name.lower()
+    if name in {"pyproject.toml", "package.json", "cargo.toml", "pom.xml"}:
+        return 70.0
+    if name in {"__init__.py", "__about__.py", "_version.py", "version.py"}:
+        return 70.0
+    return 0.0
+
+
+def _has_only_release_term_signal(matched_terms: set[str], reasons: list[str]) -> bool:
+    if not matched_terms or not matched_terms <= _RELEASE_TASK_TERMS:
+        return False
+    return not any(
+        reason.startswith((
+            "direct dependency",
+            "reverse dependency",
+            "recall neighbor",
+            "historically co-changed",
+            "has related tests",
+            "test for",
+            "workspace match",
+            "keyword phrase match",
+            "matched entrypoint",
+            "matched external system",
+            "matched define",
+            "multi-token",
+        ))
+        for reason in reasons
+    )

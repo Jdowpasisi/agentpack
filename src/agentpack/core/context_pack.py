@@ -17,19 +17,13 @@ from agentpack.core.models import (
 from agentpack.core.redactor import redact_secrets
 from agentpack.core.task_freshness import task_hash
 from agentpack.core.token_estimator import estimate_tokens
+from agentpack.core.modes import PackMode
 
 
-Mode = Literal["lite", "minimal", "balanced", "deep"]
+Mode = PackMode
 
 _MODE_WEIGHTS: dict[str, dict[str, bool]] = {
     "lite": {
-        "include_unchanged_deps": False,
-        "include_rev_deps": False,
-        "include_tests": False,
-        "include_docs": False,
-        "extra_full": False,
-    },
-    "minimal": {
         "include_unchanged_deps": False,
         "include_rev_deps": False,
         "include_tests": False,
@@ -304,28 +298,129 @@ def _skeleton_content(fi: FileInfo, summary_data: dict[str, Any] | None) -> tupl
 def _summary_tokens(summary_data: dict[str, Any] | None, fallback: int) -> int:
     if not summary_data:
         return fallback
-    parts = [str(summary_data.get("summary", ""))]
-    for raw in summary_data.get("symbols") or []:
-        try:
-            sym = Symbol(**raw) if isinstance(raw, dict) else raw
-        except Exception:
-            continue
-        if sym.signature:
-            parts.append(sym.signature)
-    return estimate_tokens("\n".join(part for part in parts if part))
+    summary = str(summary_data.get("summary") or "").strip()
+    return estimate_tokens(summary) if summary else fallback
+
+
+def _is_test_path(path: str) -> bool:
+    path_lc = path.lower()
+    name = Path(path_lc).name
+    parts = {part.lower() for part in Path(path_lc).parts}
+    return (
+        path_lc.startswith(("tests/", "test/"))
+        or "test" in parts
+        or "/tests/" in path_lc
+        or "__tests__/" in path_lc
+        or "__test__/" in path_lc
+        or name.startswith("test_")
+        or name.endswith(("_test.go", "_test.py", ".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"))
+    )
+
+
+def _is_docs_path(path: str) -> bool:
+    path_lc = path.lower()
+    return path_lc.startswith(("docs/", "doc/")) or path_lc.endswith((".md", ".mdx", ".rst"))
+
+
+def _is_example_or_playground_path(path: str) -> bool:
+    path_parts = [part.lower() for part in Path(path).parts]
+    parts = set(path_parts)
+    sample_dir = bool(path_parts and path_parts[0] in {"sample", "samples"})
+    return bool(
+        parts
+        & {
+            "example",
+            "examples",
+            "fixture",
+            "fixtures",
+            "playground",
+            "playgrounds",
+            "template",
+            "templates",
+        }
+    ) or sample_dir or any(part.startswith(("template-", "sample-")) for part in path_parts)
+
+
+def _has_direct_source_evidence(reasons: list[str]) -> bool:
+    return any(
+        reason == "symbol keyword match"
+        or reason.startswith((
+            "matched domain:",
+            "matched define:",
+            "multi-token defines match",
+            "matched call:",
+            "matched entrypoint:",
+            "keyword phrase match:",
+        ))
+        for reason in reasons
+    )
+
+
+def _content_keyword_hits(reasons: list[str]) -> int:
+    hits = 0
+    for reason in reasons:
+        match = re.match(r"content keyword match \((\d+)\)", reason)
+        if match:
+            hits = max(hits, int(match.group(1)))
+    return hits
+
+
+def _is_source_path(path: str) -> bool:
+    if _is_test_path(path) or _is_docs_path(path) or _is_example_or_playground_path(path):
+        return False
+    if _is_lock_or_generated_path(path):
+        return False
+    suffix = Path(path).suffix.lower()
+    if suffix not in {".go", ".rs", ".java", ".kt", ".py", ".ts", ".tsx", ".js", ".jsx"}:
+        return False
+    parts = {part.lower() for part in Path(path).parts}
+    return (
+        len(Path(path).parts) == 1
+        or "src" in parts
+        or "source" in parts
+        or path.lower().startswith(("src/", "lib/", "pkg/", "cmd/", "packages/"))
+    )
+
+
+def _is_direct_source_candidate(path: str, reasons: list[str]) -> bool:
+    if not _is_source_path(path):
+        return False
+    if "config file" in reasons:
+        return False
+    if not _has_direct_source_evidence(reasons):
+        return False
+    return True
+
+
+def _is_root_go_source_candidate(path: str, reasons: list[str]) -> bool:
+    return (
+        len(Path(path).parts) == 1
+        and Path(path).suffix.lower() == ".go"
+        and _is_direct_source_candidate(path, reasons)
+    )
 
 
 def _selection_priority(
     item: tuple[FileInfo, float, list[str]],
     changed_paths: set[str],
     max_file_tokens: int,
+    summaries: dict[str, Any] | None = None,
 ) -> tuple[int, int, float, float]:
     """Hybrid rank: changed/task-relevant first, then score with a token-value nudge."""
     fi, score, reasons = item
     changed_priority = 1 if fi.path in changed_paths else 0
     signal_priority = 1 if _has_task_signal(reasons) else 0
     role_bonus = 0.0
-    if any(
+    explicit_test_task = any(reason == "explicit test task file" for reason in reasons)
+    if _is_primary_release_metadata(fi.path, reasons):
+        role_bonus += 180.0
+    elif explicit_test_task:
+        role_bonus += 45.0
+    elif _is_root_go_source_candidate(fi.path, reasons):
+        role_bonus += 230.0
+    elif _is_direct_source_candidate(fi.path, reasons):
+        role_bonus += 125.0
+    elif any(
         ("test for high-scoring" in reason and "docs/" not in reason and "examples/" not in reason)
         or "related test" in reason
         for reason in reasons
@@ -488,14 +583,14 @@ def _selection_bucket(fi: FileInfo, reasons: list[str], changed_paths: set[str])
     path = fi.path
     if path in changed_paths:
         return "changed"
-    if path.startswith(("tests/", "test/")) or "/tests/" in path or any(
-        "test for" in reason or "related test" in reason for reason in reasons
-    ):
-        return "tests"
-    if path.startswith(("docs/", "doc/")) or path.endswith((".md", ".mdx", ".rst")) or any(
+    if _is_docs_path(path) or any(
         "knowledge/architecture doc" in reason for reason in reasons
     ):
         return "docs"
+    if _is_test_path(path) or any(
+        "test for" in reason or "related test" in reason for reason in reasons
+    ):
+        return "tests"
     if any(
         reason.startswith(("direct dependency", "reverse dependency", "cross-layer related"))
         or reason == "has related tests"
@@ -511,7 +606,7 @@ def _reserve_bucket_order(
     budget: int,
 ) -> list[tuple[FileInfo, float, list[str]]]:
     """Seed top changed/test/doc/dependency files before normal rank order."""
-    if budget < 1000 or len(ordered) < 4:
+    if not changed_paths or budget < 1000 or len(ordered) < 4:
         return ordered
 
     selected_indexes: set[int] = set()
@@ -541,11 +636,24 @@ _WEAK_SIGNAL_REASONS = {
 _STRICT_SUMMARY_SUPPORT_PREFIXES = (
     "direct dependency of changed file",
     "reverse dependency",
-    "recall neighbor",
     "historically co-changed",
     "has related tests",
     "test for",
+    "release/version metadata",
+    "build/dependency metadata",
+    "secret redaction candidate",
+    "matched domain:",
+    "matched external system:",
+    "matched env read:",
+    "matched side effect:",
+    "matched call:",
+)
+
+_EXPANSION_ONLY_SUPPORT_PREFIXES = (
+    "recall neighbor",
     "workspace match",
+    "large supported file",
+    "second-pass recall neighbor",
 )
 
 
@@ -553,8 +661,218 @@ def _is_weak_signal_candidate(reasons: list[str]) -> bool:
     return any(reason in _WEAK_SIGNAL_REASONS for reason in reasons)
 
 
-def _has_strict_summary_support(reasons: list[str]) -> bool:
-    return any(reason.startswith(_STRICT_SUMMARY_SUPPORT_PREFIXES) for reason in reasons)
+def _has_strict_summary_support(reasons: list[str], path: str = "") -> bool:
+    if any(reason.startswith(_STRICT_SUMMARY_SUPPORT_PREFIXES) for reason in reasons):
+        return True
+    has_phrase = any(reason.startswith("keyword phrase match:") for reason in reasons)
+    has_config = "config file" in reasons
+    has_impl_or_define = any(
+        reason == "implementation role match"
+        or reason.startswith(("matched define:", "multi-token defines match", "matched entrypoint:"))
+        for reason in reasons
+    )
+    content_hits = _content_keyword_hits(reasons)
+    path_obj = Path(path) if path else None
+    has_root_go_source_path = (
+        path_obj is not None
+        and len(path_obj.parts) == 1
+        and path_obj.suffix.lower() == ".go"
+        and _is_source_path(path)
+        and "config file" not in reasons
+    )
+    if has_root_go_source_path:
+        has_scope_source_evidence = (
+            "conventional scope path match" in reasons
+            and any(
+                reason == "filename keyword match" or reason.startswith("matched role keyword:")
+                for reason in reasons
+            )
+        )
+        has_content_source_evidence = content_hits >= 2 and (
+            "implementation role match" in reasons
+            or any(
+                reason.startswith((
+                    "direct content evidence",
+                    "matched call:",
+                    "keyword phrase match:",
+                    "quoted literal match:",
+                ))
+                for reason in reasons
+            )
+        )
+        if has_scope_source_evidence or has_content_source_evidence:
+            return True
+    if has_config and content_hits >= 2:
+        return True
+    if has_config and has_phrase and content_hits >= 1:
+        return True
+    has_direct_summary_field = any(
+        reason.startswith((
+            "matched define:",
+            "multi-token defines match",
+            "matched naming keyword:",
+            "matched entrypoint:",
+        ))
+        for reason in reasons
+    )
+    has_symbol = "symbol keyword match" in reasons
+    if has_direct_summary_field and (has_symbol or has_config or content_hits >= 1):
+        return True
+    has_expansion = any(reason.startswith(_EXPANSION_ONLY_SUPPORT_PREFIXES) for reason in reasons)
+    if has_expansion:
+        if has_phrase and has_impl_or_define and content_hits >= 1:
+            return True
+        return content_hits >= 2 and has_impl_or_define
+    if has_phrase and has_impl_or_define and content_hits >= 1:
+        return True
+    return has_phrase and content_hits >= 3
+
+
+def _can_bypass_guarded_summary_floor(reasons: list[str], score: float, min_summary_score: float) -> bool:
+    if score < max(60.0, min_summary_score - 60.0):
+        return False
+    if any(reason.startswith(("secret redaction candidate", "matched domain:")) for reason in reasons):
+        return True
+    has_symbol = "symbol keyword match" in reasons
+    has_config = "config file" in reasons
+    has_direct_summary_field = any(
+        reason.startswith((
+            "matched define:",
+            "multi-token defines match",
+            "matched call:",
+            "matched naming keyword:",
+            "matched entrypoint:",
+            "matched env read:",
+            "matched side effect:",
+            "matched external system:",
+        ))
+        for reason in reasons
+    )
+    content_hits = 0
+    for reason in reasons:
+        match = re.match(r"content keyword match \((\d+)\)", reason)
+        if match:
+            content_hits = max(content_hits, int(match.group(1)))
+    return has_direct_summary_field and (has_symbol or has_config or content_hits >= 1)
+
+
+def _has_release_metadata_reason(reasons: list[str]) -> bool:
+    return any(reason.startswith("release/version metadata") for reason in reasons)
+
+
+def _is_primary_release_metadata(path: str, reasons: list[str]) -> bool:
+    if not _has_release_metadata_reason(reasons):
+        return False
+    name = Path(path).name.lower()
+    return name in {"pyproject.toml", "package.json", "cargo.toml", "pom.xml", "__init__.py", "__about__.py", "_version.py", "version.py"}
+
+
+def _is_secondary_release_metadata(path: str, reasons: list[str]) -> bool:
+    return _has_release_metadata_reason(reasons) and not _is_primary_release_metadata(path, reasons)
+
+
+def _is_lock_or_generated_path(path: str) -> bool:
+    name = Path(path).name.lower()
+    parts = {part.lower() for part in Path(path).parts}
+    if parts & {"dist", "build", "coverage", "vendor", "generated", "__generated__", "snapshots", "__snapshots__"}:
+        return True
+    return name in {
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "cargo.lock",
+        "poetry.lock",
+        "gemfile.lock",
+    } or name.endswith((".snap", ".snapshot"))
+
+
+def _compressed_context_family(path: str, reasons: list[str]) -> tuple[str, int] | None:
+    reason_text = " ".join(reasons).lower()
+    explicit_test_task = "explicit test task file" in reasons
+    if _is_lock_or_generated_path(path):
+        if _has_release_metadata_reason(reasons):
+            return "lock-release", 1
+        return "lock-generated", 0
+    if _has_release_metadata_reason(reasons):
+        return "release-metadata", 2
+    if _is_test_path(path):
+        return "tests", 4 if explicit_test_task else 2
+    if "config file" in reasons:
+        has_specific_path_match = any(reason.startswith("multi-term path match") for reason in reasons)
+        return "config", 2 if has_specific_path_match else 1
+    if _is_docs_path(path):
+        return "docs", 1
+    if _is_example_or_playground_path(path):
+        return "examples", 1
+    if _is_direct_source_candidate(path, reasons):
+        return None
+    if (
+        "recall neighbor" in reason_text
+        or "workspace match" in reason_text
+        or "large supported file" in reason_text
+        or "second-pass recall neighbor" in reason_text
+    ):
+        return "expansion", 1
+    return None
+
+
+def _package_root(path: str) -> str | None:
+    parts = [part for part in Path(path).parts if part]
+    if len(parts) >= 2 and parts[0] == "packages":
+        return "/".join(parts[:2])
+    return None
+
+
+def _playground_root(path: str) -> str | None:
+    parts = [part for part in Path(path).parts if part]
+    if len(parts) >= 2 and parts[0] == "playground":
+        return "/".join(parts[:2])
+    return None
+
+
+def _can_overflow_same_package_test(path: str, reasons: list[str], selected: list[SelectedFile]) -> bool:
+    package = _package_root(path)
+    if package is None or not _is_test_path(path):
+        return False
+    if "explicit test task file" in reasons:
+        return False
+    has_direct_test_evidence = any(reason.startswith("direct content evidence") for reason in reasons)
+    has_paired_source_reason = any(reason.startswith("test for high-scoring ") for reason in reasons)
+    has_strong_task_evidence = _content_keyword_hits(reasons) >= 4 or any(
+        reason.startswith("keyword phrase match:")
+        for reason in reasons
+    )
+    if not (has_direct_test_evidence and has_paired_source_reason and has_strong_task_evidence):
+        return False
+    selected_package_sources = {
+        sf.path
+        for sf in selected
+        if _package_root(sf.path) == package and not _is_test_path(sf.path)
+    }
+    if not selected_package_sources:
+        return False
+    for reason in reasons:
+        if not reason.startswith("test for high-scoring "):
+            continue
+        source_path = reason.removeprefix("test for high-scoring ").strip()
+        if source_path in selected_package_sources:
+            return True
+    return False
+
+
+def _can_overflow_same_playground_test(path: str, reasons: list[str], selected: list[SelectedFile]) -> bool:
+    playground = _playground_root(path)
+    if playground is None or not _is_test_path(path):
+        return False
+    has_scope_evidence = "conventional scope path match" in reasons
+    has_phrase_evidence = any(reason.startswith("keyword phrase match:") for reason in reasons)
+    has_content_evidence = _content_keyword_hits(reasons) >= 3 or any(
+        reason.startswith(("matched call:", "direct content evidence"))
+        for reason in reasons
+    )
+    if not (has_scope_evidence and (has_phrase_evidence or has_content_evidence)):
+        return False
+    return any(_playground_root(sf.path) == playground for sf in selected)
 
 
 def select_files(
@@ -582,8 +900,16 @@ def select_files(
     unrelated_changed_cap = 3 if len(changed_paths) > 5 else 0
     unrelated_changed_used = 0
     weak_signal_used = 0
+    paired_test_overflow_used = 0
+    playground_test_overflow_used = 0
+    primary_release_metadata_selected = False
+    compressed_family_counts: dict[str, int] = {}
 
-    ranked = sorted(scored, key=lambda item: _selection_priority(item, changed_paths, max_file_tokens), reverse=True)
+    ranked = sorted(
+        scored,
+        key=lambda item: _selection_priority(item, changed_paths, max_file_tokens, summaries=summaries),
+        reverse=True,
+    )
     ordered = _reserve_bucket_order(ranked, changed_paths, budget)
     for fi, score, reasons in ordered:
         if fi.ignored or fi.binary:
@@ -598,6 +924,9 @@ def select_files(
         summary_data = summaries.get(fi.path)
         has_task_signal = _has_task_signal(reasons)
         weak_signal_only = not is_changed and _is_weak_signal_candidate(reasons)
+        if not is_changed and not opts["include_docs"] and _selection_bucket(fi, reasons, changed_paths) == "docs":
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="docs disabled by mode"))
+            continue
         if is_changed and not has_task_signal and unrelated_changed_cap:
             if unrelated_changed_used >= unrelated_changed_cap:
                 receipts.append(Receipt(path=fi.path, action="excluded", reason="unrelated changed-file safety cap"))
@@ -606,10 +935,24 @@ def select_files(
         if weak_signal_only and max_weak_signal_files >= 0 and weak_signal_used >= max_weak_signal_files:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="weak-signal cap reached"))
             continue
+        if primary_release_metadata_selected and not is_changed and _is_secondary_release_metadata(fi.path, reasons):
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="secondary release metadata skipped after primary"))
+            continue
         will_be_summary = not is_changed and not (
             opts["extra_full"] and fi.estimated_tokens <= max_file_tokens
         )
-        if will_be_summary and score < min_summary_score:
+        has_redaction_reason = any(reason.startswith("secret redaction candidate") for reason in reasons)
+        if (
+            will_be_summary
+            and score < min_summary_score
+            and not (
+                strict_summary_selection
+                and (
+                    has_redaction_reason
+                    or (not selected and _can_bypass_guarded_summary_floor(reasons, score, min_summary_score))
+                )
+            )
+        ):
             receipts.append(Receipt(path=fi.path, action="excluded", reason="summary score below floor"))
             continue
 
@@ -684,7 +1027,7 @@ def select_files(
             mode_str = "summary"
             tok = min(fi.estimated_tokens, 200)
             reasons = reasons + ["weak-signal file compressed to summary"]
-        elif summary_data and skeleton and score >= 160 and mode != "minimal":
+        elif summary_data and skeleton and score >= 160:
             mode_str = "skeleton"
             content = skeleton
             tok = skeleton_tokens
@@ -714,13 +1057,40 @@ def select_files(
             receipts.append(Receipt(path=fi.path, action="excluded", reason="summaries disabled by precision guard"))
             continue
 
-        if strict_summary_selection and mode_str == "summary" and not is_changed and not _has_strict_summary_support(reasons):
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="summary needs stronger support signal"))
+        compressed_context = mode_str in ("summary", "skeleton")
+        if strict_summary_selection and compressed_context and not is_changed and not _has_strict_summary_support(reasons, fi.path):
+            receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context needs stronger support signal"))
             continue
 
-        if mode_str == "summary" and max_summary_files > 0 and summaries_used >= max_summary_files:
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="summary cap reached"))
-            continue
+        if strict_summary_selection and compressed_context and not is_changed and mode == "balanced":
+            family_cap = _compressed_context_family(fi.path, reasons)
+            if family_cap is not None:
+                family, cap = family_cap
+                if compressed_family_counts.get(family, 0) >= cap:
+                    receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
+                    continue
+
+        paired_test_overflow = False
+        playground_test_overflow = False
+        if compressed_context and max_summary_files > 0 and summaries_used >= max_summary_files:
+            paired_test_overflow = (
+                paired_test_overflow_used < 1
+                and mode == "balanced"
+                and not changed_paths
+                and _can_overflow_same_package_test(fi.path, reasons, selected)
+            )
+            playground_test_overflow = (
+                playground_test_overflow_used < 1
+                and mode == "balanced"
+                and not changed_paths
+                and _can_overflow_same_playground_test(fi.path, reasons, selected)
+            )
+            if not paired_test_overflow and not playground_test_overflow:
+                receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context cap reached"))
+                continue
+            reasons = reasons + [
+                "same-package test overflow" if paired_test_overflow else "same-playground test overflow"
+            ]
 
         if tokens_used + tok > budget:
             if omitted_relevant_files is not None:
@@ -739,14 +1109,25 @@ def select_files(
             continue
 
         tokens_used += tok
-        if mode_str == "summary":
+        if compressed_context:
             summaries_used += 1
+        if paired_test_overflow:
+            paired_test_overflow_used += 1
+        if playground_test_overflow:
+            playground_test_overflow_used += 1
         if weak_signal_only:
             weak_signal_used += 1
+        if _is_primary_release_metadata(fi.path, reasons):
+            primary_release_metadata_selected = True
+        if strict_summary_selection and compressed_context and not is_changed and mode == "balanced":
+            family_cap = _compressed_context_family(fi.path, reasons)
+            if family_cap is not None:
+                family, _cap = family_cap
+                compressed_family_counts[family] = compressed_family_counts.get(family, 0) + 1
 
         # Build symbol list
         syms: list[Symbol] = []
-        if summary_data and mode_str in ("symbols", "summary", "skeleton"):
+        if summary_data and mode_str in ("symbols", "skeleton"):
             raw_syms = summary_data.get("symbols", [])
             for s in raw_syms:
                 try:

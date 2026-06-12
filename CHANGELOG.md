@@ -10,6 +10,23 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.21] — 2026-06-12
+
+### Added
+- Added expanded public-suite benchmark diagnostics for expected files, selected paths, selected token counts, failure types, reason-family precision, family waste, and JSONL persistence.
+- Added public benchmark filtering by repository and task type so tuning can validate targeted slices before running the full suite.
+- Added AgentPack-vs-no-AgentPack E2E reporting fields for task success, tool calls, token cost, and time-to-first-correct-file.
+- Added privacy, threat-model, data-flow, and benchmark-learning docs for release trust.
+
+### Changed
+- Removed the public `minimal` mode surface; legacy `minimal` requests now map to `balanced`.
+- Improved balanced-mode selection with narrower low-budget summary caps, root Go source support, same-package paired-test overflow, and same-playground test overflow.
+- Corrected sampled public-suite methodology by filtering expected files against the parent checkout so files added by the target commit are not counted as selectable misses.
+- Simplified the README around the core workflow: route, pack, agent acts, benchmark captures miss.
+- Documented the next benchmark release target: move the expanded 109-case public suite from the current 57.0% recall / 50.6% token precision baseline to 65%+ recall while holding token precision at 50%+ and publishing per-language slice results.
+
+---
+
 ## [0.3.20] — 2026-06-11
 
 ### Added

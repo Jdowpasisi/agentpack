@@ -25,7 +25,7 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 def _setup_repo(tmp_path: Path, fixture_name: str) -> Path:
-    """Copy fixture into tmp_path and initialise minimal .agentpack/ config."""
+    """Copy fixture into tmp_path and initialise a small .agentpack/ config."""
     src = FIXTURES / fixture_name
     dest = tmp_path / fixture_name
     shutil.copytree(src, dest)
@@ -373,7 +373,7 @@ class TestBudgetEnforcement:
             root=root,
             agent="claude",
             task="anything",
-            mode="minimal",
+            mode="balanced",
             budget=500,
             since=None,
             refresh=False,
@@ -518,7 +518,7 @@ class TestExplainCommand:
         cfg = load_config(root)
 
         # Pack with tight budget so some files are left out
-        tight_req = _make_request(root, task="fix auth bug", budget=100, mode="minimal")
+        tight_req = _make_request(root, task="fix auth bug", budget=100, mode="balanced")
         plan = PackPlanner().plan(tight_req)
 
         selected_paths = {sf.path for sf in plan.selected}
@@ -528,7 +528,7 @@ class TestExplainCommand:
             scored=plan.scored,
             changed_paths=plan.all_changed,
             summaries=plan.summaries,
-            mode="minimal",
+            mode="balanced",
             budget=deep_budget,
             max_file_tokens=cfg.context.max_file_tokens,
             keywords=plan.keywords,
@@ -548,7 +548,7 @@ class TestExplainCommand:
 
         root = _setup_repo(tmp_path, "py_fastapi_app")
         # Use a tight budget to force some files to be excluded
-        plan = PackPlanner().plan(_make_request(root, task="fix auth bug", budget=500, mode="minimal"))
+        plan = PackPlanner().plan(_make_request(root, task="fix auth bug", budget=500, mode="balanced"))
         excluded = [r for r in plan.receipts if r.action == "excluded"]
         assert len(excluded) > 0, \
             f"Expected at least one excluded receipt with budget=500; got receipts: {plan.receipts}"

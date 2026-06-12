@@ -15,6 +15,8 @@ from agentpack.commands.benchmark import (
     BenchmarkCase,
     CaseResult,
     E2ECase,
+    PublicRepoCase,
+    PublicRepoSpec,
     _precision_recall,
     _skill_metrics,
     _sample_fixture_cases,
@@ -31,17 +33,35 @@ from agentpack.commands.benchmark import (
     _write_public_benchmark_table,
     _quality_status,
     _load_public_repo_specs,
+    _filter_public_repo_specs,
+    _ensure_public_repo_clone,
     _run_public_repo_suite,
     _public_changed_files,
+    _public_commit_changed_files,
+    _sample_public_history_cases,
+    _write_anonymous_benchmark_report,
     _is_test_path,
     _expected_files_touched,
     _unexpected_files_touched,
     _timeout_result,
     _e2e_prompt,
+    _e2e_ab_metrics,
+    _e2e_ab_markdown,
     _ensure_git_commit,
     _e2e_cases_template,
     _estimate_token_cost,
     _process_output_tokens,
+    _estimate_agent_tool_calls,
+    _time_to_first_expected_file,
+    _candidate_recall_at,
+    _candidate_precision_at,
+    _miss_failure_type,
+    _path_family,
+    _reason_family_precision,
+    _selected_family_tokens,
+    _low_budget_extra_file_waste,
+    _low_budget_waste_summary,
+    _write_results_jsonl,
 )
 
 
@@ -57,6 +77,18 @@ def _make_result(
     raw_tokens: int = 10000,
     after_ignore_tokens: int = 8000,
     rank_at_k: int | None = None,
+    candidate_recall_at_20: float | None = None,
+    candidate_recall_at_50: float | None = None,
+    candidate_recall_at_100: float | None = None,
+    candidate_precision_at_3: float | None = None,
+    candidate_precision_at_5: float | None = None,
+    low_budget_extra_file_waste: int | None = None,
+    precision_delta_if_drop_last_summary: float | None = None,
+    expected_token_coverage: float | None = None,
+    selected_family_tokens: dict[str, int] | None = None,
+    selected_family_waste_tokens: dict[str, int] | None = None,
+    reason_family_precision: dict[str, dict[str, float]] | None = None,
+    failure_type_counts: dict[str, int] | None = None,
     noise_pct: float | None = None,
     random_f1: float | None = None,
     missed_expected: list[dict] | None = None,
@@ -75,6 +107,18 @@ def _make_result(
         total_s=0.1,
         phase_times={},
         rank_at_k=rank_at_k,
+        candidate_recall_at_20=candidate_recall_at_20,
+        candidate_recall_at_50=candidate_recall_at_50,
+        candidate_recall_at_100=candidate_recall_at_100,
+        candidate_precision_at_3=candidate_precision_at_3,
+        candidate_precision_at_5=candidate_precision_at_5,
+        low_budget_extra_file_waste=low_budget_extra_file_waste,
+        precision_delta_if_drop_last_summary=precision_delta_if_drop_last_summary,
+        expected_token_coverage=expected_token_coverage,
+        selected_family_tokens=selected_family_tokens or {},
+        selected_family_waste_tokens=selected_family_waste_tokens or {},
+        reason_family_precision=reason_family_precision or {},
+        failure_type_counts=failure_type_counts or {},
         noise_pct=noise_pct,
         random_precision=None,
         random_recall=None,
@@ -141,6 +185,147 @@ def test_precision_recall_empty_selected() -> None:
     assert f1 == 0.0
 
 
+def test_candidate_recall_at_k_counts_expected_files_in_ranked_candidates() -> None:
+    scored_paths = ["noise.py", "a.py", "more_noise.py", "b.py"]
+
+    assert _candidate_recall_at(scored_paths, {"a.py", "b.py", "c.py"}, 2) == pytest.approx(1 / 3)
+    assert _candidate_recall_at(scored_paths, {"a.py", "b.py", "c.py"}, 4) == pytest.approx(2 / 3)
+    assert _candidate_recall_at(scored_paths, set(), 4) == 0.0
+
+
+def test_candidate_precision_at_k_counts_noise_in_ranked_candidates() -> None:
+    scored_paths = ["noise.py", "a.py", "more_noise.py", "b.py"]
+
+    assert _candidate_precision_at(scored_paths, {"a.py", "b.py"}, 3) == pytest.approx(1 / 3)
+    assert _candidate_precision_at(scored_paths, {"a.py", "b.py"}, 4) == pytest.approx(0.5)
+    assert _candidate_precision_at([], {"a.py"}, 4) == 0.0
+
+
+def test_path_family_and_selected_family_tokens_group_noise_sources() -> None:
+    tokens = {
+        "src/parser.ts": 100,
+        "playground/css/index.ts": 200,
+        "docs/parser.md": 300,
+        "tests/parser.spec.ts": 400,
+        "package.json": 50,
+    }
+
+    assert _path_family("src/parser.ts") == "source"
+    assert _path_family("playground/css/index.ts") == "examples"
+    assert _path_family("docs/parser.md") == "docs"
+    assert _selected_family_tokens(list(tokens), tokens) == {
+        "config": 50,
+        "docs": 300,
+        "examples": 200,
+        "source": 100,
+        "test": 400,
+    }
+
+
+def test_reason_family_precision_counts_expected_signal_quality() -> None:
+    selected = [
+        SimpleNamespace(path="src/expected.py", reasons=["filename keyword match", "content keyword match (2)"]),
+        SimpleNamespace(path="docs/noise.md", reasons=["filename keyword match", "matched role keyword: docs"]),
+    ]
+
+    stats = _reason_family_precision(selected, {"src/expected.py"})
+
+    assert stats["filename"]["selected"] == 2
+    assert stats["filename"]["expected"] == 1
+    assert stats["filename"]["precision"] == pytest.approx(0.5)
+    assert stats["content"]["precision"] == pytest.approx(1.0)
+    assert stats["summary"]["precision"] == pytest.approx(0.0)
+
+
+def test_miss_failure_type_classifies_benchmark_funnel_stage() -> None:
+    fi = SimpleNamespace()
+
+    assert _miss_failure_type(fi=None, scored_info=None, status="", selected_count=3) == "EXPECTED_NOT_FOUND"
+    assert _miss_failure_type(fi=fi, scored_info=None, status="", selected_count=3) == "EXPECTED_NOT_SCORED"
+    assert _miss_failure_type(
+        fi=fi,
+        scored_info={"rank": 120, "score": 10},
+        status="ranked but not selected",
+        selected_count=3,
+    ) == "EXPECTED_RANKED_LOW"
+    assert _miss_failure_type(
+        fi=fi,
+        scored_info={"rank": 5, "score": 100},
+        status="compressed context cap reached",
+        selected_count=3,
+    ) == "EXPECTED_SKIPPED"
+    assert _miss_failure_type(
+        fi=fi,
+        scored_info={"rank": 4, "score": 100},
+        status="ranked but not selected",
+        selected_count=3,
+    ) == "NOISE_SELECTED_ABOVE_EXPECTED"
+
+
+def test_low_budget_extra_file_waste_reports_drop_last_summary_delta() -> None:
+    selected = [
+        SimpleNamespace(path="expected.py", include_mode="summary"),
+        SimpleNamespace(path="noise.py", include_mode="summary"),
+    ]
+
+    waste, delta = _low_budget_extra_file_waste(
+        selected=selected,
+        selected_tokens={"expected.py": 100, "noise.py": 100},
+        expected_files={"expected.py"},
+        packed_tokens=200,
+        expected_tokens=100,
+        budget=2000,
+        changed_files_source="no live changes detected",
+    )
+
+    assert waste == 100
+    assert delta == pytest.approx(0.5)
+
+
+def test_low_budget_extra_file_waste_ignores_expected_last_summary() -> None:
+    selected = [
+        SimpleNamespace(path="noise.py", include_mode="summary"),
+        SimpleNamespace(path="expected.py", include_mode="summary"),
+    ]
+
+    waste, delta = _low_budget_extra_file_waste(
+        selected=selected,
+        selected_tokens={"expected.py": 100, "noise.py": 100},
+        expected_files={"expected.py"},
+        packed_tokens=200,
+        expected_tokens=100,
+        budget=2000,
+        changed_files_source="no live changes detected",
+    )
+
+    assert waste == 0
+    assert delta == pytest.approx(-0.5)
+
+
+def test_low_budget_waste_summary_averages_observed_cases() -> None:
+    rows = [
+        _make_result(
+            ["expected.py", "noise.py"],
+            ["expected.py"],
+            low_budget_extra_file_waste=100,
+            precision_delta_if_drop_last_summary=0.5,
+        ),
+        _make_result(
+            ["noise.py", "expected.py"],
+            ["expected.py"],
+            low_budget_extra_file_waste=0,
+            precision_delta_if_drop_last_summary=-0.5,
+        ),
+        _make_result(["other.py"], ["expected.py"]),
+    ]
+
+    avg_waste, avg_delta, cases = _low_budget_waste_summary(rows)
+
+    assert cases == 2
+    assert avg_waste == pytest.approx(50)
+    assert avg_delta == pytest.approx(0.0)
+
+
 # ---------------------------------------------------------------------------
 # saving_pct fields
 # ---------------------------------------------------------------------------
@@ -187,6 +372,8 @@ def test_public_benchmark_markdown_renders_table() -> None:
         ["src/auth.py"],
         noise_pct=40.0,
         rank_at_k=1,
+        low_budget_extra_file_waste=120,
+        precision_delta_if_drop_last_summary=0.08,
     )
     result.case.task = "real-api: fix auth token expiry"
     result.case.task_type = "backend-api"
@@ -197,7 +384,9 @@ def test_public_benchmark_markdown_renders_table() -> None:
     assert "real-api" in content
     assert "fix auth token expiry" in content
     assert "avg recall" in content
-    assert "| Repo / suite | Task | Type | Mode | Budget | Packed tokens |" in content
+    assert "avg last-summary waste" in content
+    assert "+8.0%" in content
+    assert "| Repo / suite | Task | Type | Mode | Budget | Packed tokens | Recall | Cand R@50 | Cand P@3 |" in content
     assert "60.0%" in content
 
 
@@ -228,6 +417,88 @@ def test_benchmark_release_gate_maps_to_public_repo_gate(tmp_path: Path, monkeyp
     assert not write_table.called
 
 
+def test_benchmark_public_suite_reproduce_maps_to_public_repo_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "benchmarks").mkdir()
+    (tmp_path / "benchmarks" / "public-repos.toml").write_text(
+        "[[repos]]\nname='empty'\nurl='x'\nsample_history=1\n",
+        encoding="utf-8",
+    )
+    mocked = _make_result(["a.py"], ["a.py"], noise_pct=0.0)
+    mocked.case.task = "repo: fix thing"
+    with patch(
+        "agentpack.commands.benchmark._load_public_repo_specs",
+        return_value=[SimpleNamespace(name="repo", cases=[], sample_history=1)],
+    ), patch("agentpack.commands.benchmark._run_public_repo_suite", return_value=[mocked]) as run_suite, patch(
+        "agentpack.commands.benchmark._write_public_benchmark_table"
+    ) as write_table:
+        result = CliRunner().invoke(app, ["benchmark", "--public-suite", "--reproduce", "v0.3.20"])
+
+    assert result.exit_code == 0, result.output
+    assert "Public suite" in result.output
+    assert run_suite.called
+    assert write_table.called
+
+
+def test_filter_public_repo_specs_by_repo_and_task_type() -> None:
+    specs = [
+        PublicRepoSpec(
+            name="gin",
+            url="https://example.test/gin.git",
+            sample_history=20,
+            task_type="go-service",
+            cases=[
+                PublicRepoCase(
+                    commit="abc",
+                    task="fix go",
+                    expected_files=["a.go"],
+                    task_type="go-service",
+                )
+            ],
+        ),
+        PublicRepoSpec(
+            name="vite",
+            url="https://example.test/vite.git",
+            sample_history=20,
+            task_type="typescript",
+            cases=[
+                PublicRepoCase(
+                    commit="def",
+                    task="fix ts",
+                    expected_files=["a.ts"],
+                    task_type="typescript",
+                )
+            ],
+        ),
+    ]
+
+    filtered = _filter_public_repo_specs(
+        specs,
+        repo_filter="gin,vite",
+        task_type_filter="go-service",
+    )
+
+    assert [spec.name for spec in filtered] == ["gin"]
+    assert filtered[0].sample_history == 20
+    assert [case.task for case in filtered[0].cases] == ["fix go"]
+
+
+def test_write_results_jsonl_uses_benchmark_record_shape(tmp_path: Path) -> None:
+    result = _make_result(["a.py"], ["a.py"], noise_pct=0.0)
+    result.case.task_type = "python"
+    out = _write_results_jsonl(tmp_path / "bench" / "results.jsonl", [result])
+
+    rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+
+    assert rows[0]["task"] == result.case.task
+    assert rows[0]["task_type"] == "python"
+    assert rows[0]["expected_files"] == ["a.py"]
+    assert rows[0]["selected_paths"] == ["a.py"]
+    assert rows[0]["recall"] == 1.0
+    assert rows[0]["token_precision"] == 1.0
+    assert rows[0]["misses"] == []
+
+
 # ---------------------------------------------------------------------------
 # _load_cases
 # ---------------------------------------------------------------------------
@@ -241,7 +512,7 @@ def test_load_cases_parses_toml(tmp_path: Path) -> None:
     cases = _load_cases(f)
     assert len(cases) == 1
     assert cases[0].task == "fix bug"
-    assert cases[0].mode == "minimal"
+    assert cases[0].mode == "balanced"
     assert cases[0].expected_files == ["a.py"]
     assert cases[0].task_type == "general"
 
@@ -353,6 +624,13 @@ def test_load_public_repo_specs_parses_manifest(tmp_path: Path) -> None:
         'name = "click"\n'
         'url = "https://github.com/pallets/click.git"\n'
         'ref = "main"\n\n'
+        'sample_history = 12\n'
+        'task_type = "python-cli"\n'
+        'mode = "balanced"\n'
+        'budget = 2000\n'
+        'include_globs = ["src/**/*.py", "tests/**/*.py"]\n'
+        'exclude_globs = ["docs/**"]\n'
+        'max_changed_files = 6\n\n'
         '[[repos.cases]]\n'
         'commit = "abc123"\n'
         'task = "fix hidden prompt input"\n'
@@ -366,8 +644,118 @@ def test_load_public_repo_specs_parses_manifest(tmp_path: Path) -> None:
     assert len(specs) == 1
     assert specs[0].name == "click"
     assert specs[0].url.endswith("/click.git")
+    assert specs[0].sample_history == 12
+    assert specs[0].include_globs == ["src/**/*.py", "tests/**/*.py"]
+    assert specs[0].exclude_globs == ["docs/**"]
+    assert specs[0].max_changed_files == 6
     assert specs[0].cases[0].commit == "abc123"
     assert specs[0].cases[0].expected_files == ["src/click/termui.py", "tests/test_termui.py"]
+
+
+def test_load_public_repo_specs_defaults_to_balanced_mode(tmp_path: Path) -> None:
+    f = tmp_path / "public.toml"
+    f.write_text(
+        '[[repos]]\n'
+        'name = "repo"\n'
+        'url = "https://example.test/repo.git"\n\n'
+        '[[repos.cases]]\n'
+        'commit = "abc123"\n'
+        'task = "fix bug"\n'
+        'expected_files = ["src/app.ts"]\n',
+        encoding="utf-8",
+    )
+
+    specs = _load_public_repo_specs(f)
+
+    assert specs[0].mode == "balanced"
+    assert specs[0].cases[0].mode == "balanced"
+
+
+def test_sample_public_history_cases_uses_commit_subject_and_changed_files(tmp_path: Path) -> None:
+    from agentpack.commands import benchmark as benchmark_mod
+
+    spec = benchmark_mod.PublicRepoSpec(
+        name="repo",
+        url="https://example.test/repo.git",
+        ref="main",
+        sample_history=2,
+        task_type="typescript",
+        mode="balanced",
+        budget=3000,
+        include_globs=["src/**/*.ts", "tests/*.ts", "tests/**/*.ts"],
+    )
+
+    def fake_git_lines(_cwd: Path, args: list[str]) -> list[str]:
+        if args[0] == "log":
+            return [
+                "c1\x00Fix auth client",
+                "c2\x00Update docs only",
+                "c3\x00Fix parser",
+            ]
+        if args[-1] == "c1":
+            return ["src/auth/client.ts", "tests/auth.test.ts"]
+        if args[-1] == "c2":
+            return ["docs/readme.md"]
+        if args[-1] == "c3":
+            return ["src/parser/index.ts"]
+        return []
+
+    with patch("agentpack.commands.benchmark._git_lines", side_effect=fake_git_lines), \
+         patch("agentpack.commands.benchmark._git_stdout", return_value="parent"), \
+         patch("agentpack.commands.benchmark._public_path_exists_at_commit", return_value=True):
+        cases = _sample_public_history_cases(tmp_path, spec)
+
+    assert [case.commit for case in cases] == ["c1", "c3"]
+    assert cases[0].task == "Fix auth client"
+    assert cases[0].expected_files == ["src/auth/client.ts", "tests/auth.test.ts"]
+    assert cases[0].task_type == "typescript"
+    assert cases[0].mode == "balanced"
+    assert cases[0].budget == 3000
+
+
+def test_public_commit_changed_files_filters_noise_added_files_and_large_commits(tmp_path: Path) -> None:
+    def exists_in_parent(_repo: Path, _commit: str, path: str) -> bool:
+        return path != "src/new.py"
+
+    with patch("agentpack.commands.benchmark._git_stdout", return_value="parent"), \
+         patch("agentpack.commands.benchmark._public_path_exists_at_commit", side_effect=exists_in_parent), \
+         patch("agentpack.commands.benchmark._git_lines", return_value=[
+             "src/app.py",
+             "src/new.py",
+             "docs/readme.md",
+             "package-lock.json",
+         ]):
+        files = _public_commit_changed_files(
+            tmp_path,
+            "abc123",
+            include_globs=["src/**/*.py", "src/*.py"],
+            exclude_globs=["docs/**"],
+            max_changed_files=2,
+        )
+
+    assert files == ["src/app.py"]
+
+
+def test_ensure_public_repo_clone_uses_full_shallow_clone(tmp_path: Path) -> None:
+    spec = PublicRepoSpec(name="repo", url="https://example.test/repo.git", ref="main")
+
+    with patch("agentpack.commands.benchmark._run_git") as run_git:
+        repo = _ensure_public_repo_clone(spec, tmp_path / "cache", depth=25)
+
+    assert repo == tmp_path / "cache" / "repo"
+    clone_args = run_git.call_args_list[0].args[1]
+    assert clone_args == [
+        "clone",
+        "--quiet",
+        "--depth",
+        "25",
+        "https://example.test/repo.git",
+        str(repo),
+    ]
+    assert "--filter=blob:none" not in clone_args
+    assert any(call.args[1] == ["checkout", "--quiet", "main"] for call in run_git.call_args_list)
+    assert any(call.args[1] == ["reset", "--hard", "--quiet", "main"] for call in run_git.call_args_list)
+    assert any(call.args[1] == ["clean", "-ffd", "--quiet"] for call in run_git.call_args_list)
 
 
 def test_run_public_repo_suite_uses_parent_checkout(tmp_path: Path) -> None:
@@ -398,7 +786,7 @@ def test_run_public_repo_suite_uses_parent_checkout(tmp_path: Path) -> None:
 
     assert len(results) == 1
     case_arg = run_case.call_args.args[1]
-    assert case_arg.task == "click: fix prompt"
+    assert case_arg.task == "fix prompt"
     assert case_arg.task_type == "python-cli"
     assert case_arg.budget == 1200
     assert [call.args for call in ensure_commit.call_args_list] == [
@@ -407,7 +795,45 @@ def test_run_public_repo_suite_uses_parent_checkout(tmp_path: Path) -> None:
     ]
     git_stdout.assert_called_once_with(tmp_path / "cache", ["rev-parse", "abc123^"])
     copytree.assert_called_once()
-    assert any(call.args[1] == ["checkout", "--quiet", "parent123"] for call in run_git.call_args_list)
+    assert any(call.args[1] == ["checkout", "--force", "--quiet", "parent123"] for call in run_git.call_args_list)
+    assert any(call.args[1] == ["reset", "--hard", "--quiet", "parent123"] for call in run_git.call_args_list)
+    assert any(call.args[1] == ["clean", "-ffd", "--quiet"] for call in run_git.call_args_list)
+
+
+def test_run_public_repo_suite_checkout_error_names_case(tmp_path: Path) -> None:
+    from agentpack.commands import benchmark as benchmark_mod
+
+    spec = benchmark_mod.PublicRepoSpec(
+        name="vite",
+        url="https://example.test/vite.git",
+        cases=[
+            benchmark_mod.PublicRepoCase(
+                commit="abc123",
+                task="fix vite",
+                expected_files=["packages/vite/src/node/server/index.ts"],
+            ),
+        ],
+    )
+    checkout_error = subprocess.CalledProcessError(
+        1,
+        ["git", "checkout", "--force", "--quiet", "parent123"],
+        stderr="pathspec parent123 did not match any file(s) known to git",
+    )
+
+    with patch("agentpack.commands.benchmark._ensure_public_repo_clone", return_value=tmp_path / "cache"), \
+         patch("agentpack.commands.benchmark._ensure_git_commit"), \
+         patch("agentpack.commands.benchmark._git_stdout", return_value="parent123"), \
+         patch("agentpack.commands.benchmark._run_git", side_effect=checkout_error), \
+         patch("agentpack.commands.benchmark.shutil.copytree"):
+        with pytest.raises(RuntimeError) as excinfo:
+            _run_public_repo_suite(tmp_path, [spec], cache_dir=tmp_path / "cache")
+
+    message = str(excinfo.value)
+    assert "repo=vite" in message
+    assert "commit=abc123" in message
+    assert "parent=parent123" in message
+    assert "git checkout --force --quiet parent123" in message
+    assert "pathspec parent123" in message
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +842,25 @@ def test_run_public_repo_suite_uses_parent_checkout(tmp_path: Path) -> None:
 
 def test_persist_result_writes_jsonl(tmp_path: Path) -> None:
     (tmp_path / ".agentpack").mkdir()
-    r = _make_result(["a.py", "b.py"], ["a.py"], rank_at_k=3, noise_pct=30.0, random_f1=0.2)
+    r = _make_result(
+        ["a.py", "b.py"],
+        ["a.py"],
+        rank_at_k=3,
+        candidate_recall_at_20=0.2,
+        candidate_recall_at_50=0.5,
+        candidate_recall_at_100=1.0,
+        candidate_precision_at_3=0.333,
+        candidate_precision_at_5=0.4,
+        low_budget_extra_file_waste=100,
+        precision_delta_if_drop_last_summary=0.125,
+        expected_token_coverage=0.5,
+        selected_family_tokens={"source": 100, "docs": 50},
+        selected_family_waste_tokens={"docs": 50},
+        reason_family_precision={"filename": {"selected": 2.0, "expected": 1.0, "precision": 0.5}},
+        failure_type_counts={"EXPECTED_SKIPPED": 1},
+        noise_pct=30.0,
+        random_f1=0.2,
+    )
     _persist_result(tmp_path, r)
 
     out = tmp_path / ".agentpack" / "benchmark_results.jsonl"
@@ -427,6 +871,18 @@ def test_persist_result_writes_jsonl(tmp_path: Path) -> None:
     assert record["after_ignore_tokens"] == 8000
     assert "saving_pct_honest" in record
     assert record["rank_at_k"] == 3
+    assert record["candidate_recall_at_20"] == pytest.approx(0.2)
+    assert record["candidate_recall_at_50"] == pytest.approx(0.5)
+    assert record["candidate_recall_at_100"] == pytest.approx(1.0)
+    assert record["candidate_precision_at_3"] == pytest.approx(0.333)
+    assert record["candidate_precision_at_5"] == pytest.approx(0.4)
+    assert record["low_budget_extra_file_waste"] == 100
+    assert record["precision_delta_if_drop_last_summary"] == pytest.approx(0.125)
+    assert record["expected_token_coverage"] == pytest.approx(0.5)
+    assert record["selected_family_tokens"] == {"source": 100, "docs": 50}
+    assert record["selected_family_waste_tokens"] == {"docs": 50}
+    assert record["reason_family_precision"]["filename"]["precision"] == pytest.approx(0.5)
+    assert record["failure_type_counts"] == {"EXPECTED_SKIPPED": 1}
     assert record["noise_pct"] == pytest.approx(30.0)
     assert record["token_precision"] == pytest.approx(0.7)
     assert record["random_f1"] == pytest.approx(0.2)
@@ -461,6 +917,30 @@ def test_persist_result_appends(tmp_path: Path) -> None:
     assert len(lines) == 2
 
 
+def test_write_anonymous_benchmark_report_contains_no_source_paths(tmp_path: Path) -> None:
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('ok')\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "benchmark.toml").write_text(
+        '[[cases]]\ntask = "fix bug"\nexpected_files = ["src/app.py"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / ".agentpack" / "benchmark_results.jsonl").write_text(
+        json.dumps({"recall": 1.0, "token_precision": 0.5, "misses": []}) + "\n",
+        encoding="utf-8",
+    )
+
+    report_md, report_json = _write_anonymous_benchmark_report(tmp_path)
+
+    markdown = report_md.read_text(encoding="utf-8")
+    data = json.loads(report_json.read_text(encoding="utf-8"))
+    assert "No source code uploaded: true" in markdown
+    assert "src/app.py" not in markdown
+    assert data["cases"] == 1
+    assert data["recall"] == 1.0
+    assert data["source_paths_included"] is False
+
+
 def test_persist_result_no_gt_fields_are_none(tmp_path: Path) -> None:
     (tmp_path / ".agentpack").mkdir()
     r = _make_result(["a.py"], [])
@@ -482,7 +962,7 @@ def test_load_history_cases_returns_unique_tasks(tmp_path: Path) -> None:
         {"task": "fix auth", "mode": "balanced"},
         {"task": "fix auth", "mode": "balanced"},  # duplicate
         {"task": "add rate limit", "mode": "deep"},
-        {"task": "refactor db", "mode": "minimal"},
+        {"task": "refactor db", "mode": "balanced"},
     ]
     metrics.write_text("\n".join(json.dumps(r) for r in records))
     cases = _load_history_cases(tmp_path, 10)
@@ -548,6 +1028,7 @@ def _make_mock_plan(files: int = 10, tokens: int = 5000):
     sf.content = "x" * 100
     sf.summary = ""
     sf.symbols = []
+    sf.reasons = ["filename keyword match"]
 
     scored_fi = MagicMock()
     scored_fi.path = "src/foo.py"
@@ -593,6 +1074,9 @@ def test_run_case_with_expected_files_sets_quality_fields(tmp_path: Path) -> Non
 
     assert result.rank_at_k == 1
     assert result.noise_pct is not None
+    assert result.expected_token_coverage is not None
+    assert result.selected_family_tokens
+    assert result.reason_family_precision
     assert result.random_f1 is not None
 
 
@@ -618,7 +1102,8 @@ def test_run_case_records_miss_diagnostics(tmp_path: Path) -> None:
     assert result.missed_expected == [{
         "path": "src/missing.py",
         "status": "budget exhausted",
-        "rank": 2,
+        "failure_type": "EXPECTED_SKIPPED",
+        "rank": 1,
         "score": 42.0,
         "reasons": ["filename keyword match"],
         "basis": mock_plan.changed_files_source,
@@ -810,7 +1295,9 @@ def test_e2e_changed_file_classification_helpers() -> None:
 
     assert changed == ["frontend/button.test.tsx", "src/app.py", "tests/test_app.py"]
     assert _is_test_path("tests/test_app.py")
+    assert _is_test_path("src/test/java/org/example/AppTests.java")
     assert _is_test_path("frontend/button.test.tsx")
+    assert _is_test_path("context_test.go")
     assert not _is_test_path("src/app.py")
     assert _expected_files_touched(changed, ["src/app.py"]) == ["src/app.py"]
     assert _unexpected_files_touched(changed, ["src/app.py"]) == ["frontend/button.test.tsx", "tests/test_app.py"]
@@ -828,11 +1315,28 @@ def test_timeout_result_records_failed_process() -> None:
 
 
 def test_e2e_cost_helpers_estimate_prompt_and_output_cost() -> None:
-    result = subprocess.CompletedProcess(args=["agent"], returncode=0, stdout="hello world", stderr="done")
+    result = subprocess.CompletedProcess(
+        args=["agent"],
+        returncode=0,
+        stdout="exec_command rg auth\nhello world",
+        stderr="apply_patch done",
+    )
 
     assert _process_output_tokens(result) >= 1
+    assert _estimate_agent_tool_calls(result) >= 2
     assert _estimate_token_cost(1_000_000, 2.5) == 2.5
     assert _estimate_token_cost(1000, 0.0) == 0.0
+
+
+def test_time_to_first_expected_file_uses_mtime_delta(tmp_path: Path) -> None:
+    target = tmp_path / "src" / "app.py"
+    target.parent.mkdir()
+    target.write_text("print('ok')\n", encoding="utf-8")
+    start = target.stat().st_mtime - 2.0
+
+    delta = _time_to_first_expected_file(tmp_path, ["src/app.py"], start)
+
+    assert delta == pytest.approx(2.0, abs=0.1)
 
 
 def test_run_e2e_case_fails_when_protected_file_changes(tmp_path: Path) -> None:
@@ -872,6 +1376,8 @@ def test_run_e2e_case_fails_when_protected_file_changes(tmp_path: Path) -> None:
     assert result.missing_expected_edits == ["src/app.py"]
     assert result.agent_output_tokens >= 1
     assert result.estimated_total_cost_usd > 0
+    assert result.agent_tool_calls >= 0
+    assert result.time_to_first_expected_file_s is None
 
 
 def test_e2e_hybrid_prompt_combines_grep_and_lite(tmp_path: Path) -> None:
@@ -883,6 +1389,45 @@ def test_e2e_hybrid_prompt_combines_grep_and_lite(tmp_path: Path) -> None:
 
     assert "grep-hit" in prompt
     assert "lite-map" in prompt
+
+
+def test_e2e_ab_metrics_reports_saved_tool_tokens_cost_time_and_success(tmp_path: Path) -> None:
+    records = [
+        {
+            "strategy": "no-context",
+            "passed": False,
+            "input_tokens": 1000,
+            "agent_output_tokens": 500,
+            "estimated_total_cost_usd": 0.03,
+            "duration_s": 60,
+            "agent_tool_calls": 12,
+            "time_to_first_expected_file_s": 40,
+            "expected_files_touched": [],
+            "missing_expected_edits": ["src/app.py"],
+        },
+        {
+            "strategy": "agentpack",
+            "passed": True,
+            "input_tokens": 1200,
+            "agent_output_tokens": 100,
+            "estimated_total_cost_usd": 0.02,
+            "duration_s": 45,
+            "agent_tool_calls": 6,
+            "time_to_first_expected_file_s": 10,
+            "expected_files_touched": ["src/app.py"],
+            "missing_expected_edits": [],
+        },
+    ]
+
+    metrics = _e2e_ab_metrics(records, baseline="no-context", treatment="agentpack")
+    markdown = _e2e_ab_markdown(records, baseline="no-context", treatment="agentpack", source=tmp_path / "results.jsonl")
+
+    assert metrics["deltas"]["success_rate_pp"] == pytest.approx(100.0)
+    assert metrics["deltas"]["tool_calls_saved"] == pytest.approx(6.0)
+    assert metrics["deltas"]["token_cost_saved_usd"] == pytest.approx(0.01)
+    assert metrics["deltas"]["time_to_first_correct_file_saved_s"] == pytest.approx(30.0)
+    assert "tool calls" in markdown
+    assert "time to first correct file" in markdown
 
 
 def test_e2e_agentpack_lite_prompt_uses_compact_map(tmp_path: Path) -> None:

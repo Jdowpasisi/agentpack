@@ -17,6 +17,7 @@ from agentpack.analysis.ranking import suggest_task_rewrite
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
 from agentpack.commands._shared import console, _root, _file_hash, _now_iso
 from agentpack.core.changed_paths import record_changed_paths
+from agentpack.core.modes import MODE_HELP, invalid_mode_message, is_requested_mode
 from agentpack.integrations.agents import check_agent_integration, install_agent_integration
 from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
 
@@ -30,7 +31,7 @@ def register(app: typer.Typer) -> None:
             "--task",
             help="Task source. Only 'auto' is supported; write the task to .agentpack/task.md.",
         ),
-        mode: str = typer.Option("balanced", "--mode", help="Budget mode (lite|minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help=f"Budget mode ({MODE_HELP})."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         workspace: str = typer.Option("", "--workspace", help="Restrict pack to a monorepo workspace, e.g. apps/web."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
@@ -40,8 +41,8 @@ def register(app: typer.Typer) -> None:
         thread: str = typer.Option("", "--thread", help="Use thread-scoped task/context state."),
     ) -> None:
         """Generate a context pack for an AI coding agent."""
-        if mode not in ("lite", "minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
+        if not is_requested_mode(mode):
+            console.print(f"[red]{invalid_mode_message(mode)}[/]")
             raise typer.Exit(1)
 
         resolved_agent = _resolve_agent(agent)
@@ -262,7 +263,7 @@ def _pack_diagnostics(result: PackResult) -> list[str]:
     filename_matches = sum(1 for sf in selected if "filename keyword match" in sf.reasons)
     symbol_matches = sum(1 for sf in selected if "symbol keyword match" in sf.reasons)
     score_floor_excluded = sum(1 for r in receipts if r.reason == "summary score below floor")
-    summary_cap_excluded = sum(1 for r in receipts if r.reason == "summary cap reached")
+    summary_cap_excluded = sum(1 for r in receipts if r.reason in {"summary cap reached", "compressed context cap reached"})
     changed_set = set(result.changed_files)
     top_changed = sum(1 for sf in selected[:10] if sf.path in changed_set)
     strong_live_signal = bool(changed_set) and top_changed >= min(len(changed_set), 5)
@@ -285,7 +286,7 @@ def _pack_diagnostics(result: PackResult) -> list[str]:
     if selected and not strong_live_signal and filename_matches / len(selected) >= 0.6:
         diagnostics.append("Most selected files matched by filename; task terms may be broad.")
     if selected and not strong_live_signal and summary_count / len(selected) >= 0.7:
-        diagnostics.append("Pack is mostly summaries; use minimal mode or a more specific task for edit work.")
+        diagnostics.append("Pack is mostly summaries; keep balanced mode and use a more specific task for edit work.")
     if symbol_matches > 25:
         diagnostics.append(f"Many symbol matches selected ({symbol_matches}); inspect repeated task terms with explain.")
     if score_floor_excluded:

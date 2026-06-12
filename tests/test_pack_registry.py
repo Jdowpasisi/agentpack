@@ -13,7 +13,7 @@ def test_pack_registry_retrieves_selected_stored_content(tmp_path: Path):
     pack = ContextPack(
         task="test",
         agent="generic",
-        mode="minimal",
+        mode="balanced",
         budget=1000,
         token_estimate=10,
         raw_repo_tokens=100,
@@ -41,7 +41,7 @@ def test_pack_registry_refuses_stale_full_retrieval(tmp_path: Path):
     pack = ContextPack(
         task="test",
         agent="generic",
-        mode="minimal",
+        mode="balanced",
         budget=1000,
         token_estimate=10,
         raw_repo_tokens=100,
@@ -70,7 +70,7 @@ def test_pack_registry_full_retrieval_accepts_matching_scanner_hash(tmp_path: Pa
     pack = ContextPack(
         task="test",
         agent="generic",
-        mode="minimal",
+        mode="balanced",
         budget=1000,
         token_estimate=10,
         raw_repo_tokens=100,
@@ -98,7 +98,7 @@ def test_pack_registry_retrieves_symbol_block_by_id(tmp_path: Path):
     pack = ContextPack(
         task="test",
         agent="generic",
-        mode="minimal",
+        mode="balanced",
         budget=1000,
         token_estimate=10,
         raw_repo_tokens=100,

@@ -1,0 +1,7 @@
+{
+  "agentpack_version": "0.3.20",
+  "status": "configured_not_published",
+  "reproduce_command": "agentpack benchmark --public-suite --reproduce v0.3.20",
+  "configured_cases": 128,
+  "notes": "Publish measured metrics after rerunning the expanded public suite from a clean checkout."
+}

@@ -9,6 +9,7 @@ from rich.table import Table
 from agentpack.application.pack_service import PackPlanner, PackRequest
 from agentpack.core.context_pack import select_files
 from agentpack.commands._shared import console, _root
+from agentpack.core.modes import MODE_HELP, invalid_mode_message, is_requested_mode
 from agentpack.commands.pack import _resolve_task
 from agentpack.core.config import load_config, ScoringWeights
 from agentpack.analysis.ranking import (
@@ -166,9 +167,13 @@ def _noise_report(task: str, plan: object) -> list[str]:
     filename_count = sum(1 for sf in selected if "filename keyword match" in sf.reasons)
     symbol_count = sum(1 for sf in selected if "symbol keyword match" in sf.reasons)
     excluded = [r for r in plan.receipts if r.action == "excluded"]  # type: ignore[attr-defined]
-    summary_cap = sum(1 for r in excluded if r.reason == "summary cap reached")
+    summary_cap = sum(1 for r in excluded if r.reason in {"summary cap reached", "compressed context cap reached"})
     score_floor = sum(1 for r in excluded if r.reason == "summary score below floor")
-    strict_support = sum(1 for r in excluded if r.reason == "summary needs stronger support signal")
+    strict_support = sum(
+        1
+        for r in excluded
+        if r.reason in {"summary needs stronger support signal", "compressed context needs stronger support signal"}
+    )
 
     lines = [
         "## Pack noise report",
@@ -194,7 +199,7 @@ def _noise_report(task: str, plan: object) -> list[str]:
     else:
         lines.append("- Task terms are already specific; inspect changed files or score weights next.")
     if summary_count and selected and summary_count / len(selected) >= 0.7:
-        lines.append("- Try `--mode minimal` for edit work, or add exact module/file names.")
+        lines.append("- Keep standard balanced mode and add exact module/file names.")
     if filename_count and selected and filename_count / len(selected) >= 0.6:
         lines.append("- Filename matches dominate; add behavior words that appear inside target files.")
     if ambiguous_terms or generic_terms:
@@ -290,7 +295,7 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def explain(
         task: str = typer.Option("auto", "--task", help="Task description, or 'auto' to infer from git."),
-        mode: str = typer.Option("balanced", "--mode", help="Budget mode (lite|minimal|balanced|deep)."),
+        mode: str = typer.Option("balanced", "--mode", help=f"Budget mode ({MODE_HELP})."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
         since: Optional[str] = typer.Option(None, "--since", help="Git ref to compare against (e.g. HEAD~1, main)."),
         file: Optional[str] = typer.Option(None, "--file", help="Show detailed score breakdown for a specific file."),
@@ -299,8 +304,8 @@ def register(app: typer.Typer) -> None:
         budget_plan: bool = typer.Option(False, "--budget-plan", help="Show selected modes, token costs, and value per token."),
     ) -> None:
         """Explain which files would be selected and why, without writing a context file."""
-        if mode not in ("lite", "minimal", "balanced", "deep"):
-            console.print(f"[red]Invalid mode: {mode}. Use lite|minimal|balanced|deep.[/]")
+        if not is_requested_mode(mode):
+            console.print(f"[red]{invalid_mode_message(mode)}[/]")
             raise typer.Exit(1)
 
         root = _root()

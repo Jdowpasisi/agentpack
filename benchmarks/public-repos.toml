@@ -1,22 +1,33 @@
-# Public real-repo benchmark suite.
+# Public real-repo benchmark suite for v0.3.20+.
 #
-# Each case points to a real public commit. AgentPack checks out the commit's
-# parent, uses the commit subject as the task, and scores whether it selected
-# the files actually changed by that commit.
+# Each explicit case points to a real public commit. Repos may also set
+# sample_history = N. AgentPack samples recent first-parent, non-merge commits,
+# checks out each commit's parent, uses the commit subject as the task, and
+# scores whether it selected the files actually changed by that commit.
 #
 # Run:
 #   agentpack benchmark --public-repos --prove-targets --misses --public-table
+#
+# Current target size: 8 pinned Pallets smoke cases + 100+ sampled historical
+# cases across Python, TypeScript, Go, Java, and monorepo projects.
 
 [[repos]]
 name = "pallets-click"
 url = "https://github.com/pallets/click.git"
 ref = "main"
+sample_history = 20
+task_type = "python-cli"
+mode = "balanced"
+budget = 3000
+include_globs = ["src/**/*.py", "tests/**/*.py", "pyproject.toml"]
+exclude_globs = ["docs/**", "examples/**"]
+max_changed_files = 8
 
 [[repos.cases]]
 commit = "61bdc2ae81f6d0dc19bd247504544659245df056"
 task = "Implement a regex-based solution to hide hidden input"
 task_type = "python-cli"
-mode = "minimal"
+mode = "balanced"
 budget = 2000
 expected_files = [
   "src/click/termui.py",
@@ -27,7 +38,7 @@ expected_files = [
 commit = "fc6c7c47edd6110b6bd5a1a5297b2035214b0cd1"
 task = "FuncParamType should use ValueError message in self.fail"
 task_type = "python-cli"
-mode = "minimal"
+mode = "balanced"
 budget = 6000
 expected_files = [
   "src/click/types.py",
@@ -38,7 +49,7 @@ expected_files = [
 commit = "831c8f0948af519e45b90801d7430ff25451f972"
 task = "Add NoSuchCommand exception with suggestions for misspelled commands"
 task_type = "python-cli"
-mode = "minimal"
+mode = "balanced"
 budget = 4000
 expected_files = [
   "src/click/__init__.py",
@@ -53,7 +64,7 @@ expected_files = [
 commit = "19fd4d6e18bc9fce451f92f422696b11169faa57"
 task = "Ensure fish completion handles multiline help strings correctly"
 task_type = "python-cli"
-mode = "minimal"
+mode = "balanced"
 budget = 2000
 expected_files = [
   "src/click/shell_completion.py",
@@ -64,7 +75,7 @@ expected_files = [
 commit = "d2e4a42ff410d92e88293f3552422a4a284c749b"
 task = "Extract _guess_type from convert_type and add overloads"
 task_type = "python-cli"
-mode = "minimal"
+mode = "balanced"
 budget = 1200
 expected_files = [
   "src/click/types.py",
@@ -74,12 +85,19 @@ expected_files = [
 name = "pallets-itsdangerous"
 url = "https://github.com/pallets/itsdangerous.git"
 ref = "main"
+sample_history = 10
+task_type = "python-library"
+mode = "balanced"
+budget = 2500
+include_globs = ["src/**/*.py", "tests/**/*.py", "pyproject.toml"]
+exclude_globs = ["docs/**"]
+max_changed_files = 8
 
 [[repos.cases]]
 commit = "7edfa12ed562c5d5e9d6faa06812e42f02efb0e0"
 task = "Drop end of life python versions"
 task_type = "python-library"
-mode = "minimal"
+mode = "balanced"
 budget = 2000
 expected_files = [
   "pyproject.toml",
@@ -91,12 +109,19 @@ expected_files = [
 name = "pallets-markupsafe"
 url = "https://github.com/pallets/markupsafe.git"
 ref = "main"
+sample_history = 10
+task_type = "python-library"
+mode = "balanced"
+budget = 2000
+include_globs = ["src/**/*.py", "tests/**/*.py", "pyproject.toml"]
+exclude_globs = ["docs/**"]
+max_changed_files = 8
 
 [[repos.cases]]
 commit = "82cabf9c5a2f8f1b27854afcc3e0d9bf5a32f0c2"
 task = "Remove previously deprecated code"
 task_type = "python-library"
-mode = "minimal"
+mode = "balanced"
 budget = 1000
 expected_files = [
   "src/markupsafe/__init__.py",
@@ -106,8 +131,56 @@ expected_files = [
 commit = "1b54b64cab03d8af99229252e68ff02a72519f6b"
 task = "Change to DeprecationWarning"
 task_type = "python-library"
-mode = "minimal"
+mode = "balanced"
 budget = 1000
 expected_files = [
   "src/markupsafe/__init__.py",
 ]
+
+[[repos]]
+name = "vite"
+url = "https://github.com/vitejs/vite.git"
+ref = "main"
+sample_history = 20
+task_type = "typescript"
+mode = "balanced"
+budget = 4000
+include_globs = ["packages/**/*.ts", "packages/**/*.tsx", "playground/**/*.ts", "playground/**/*.tsx"]
+exclude_globs = ["docs/**", "packages/*/dist/**", "**/*.d.ts"]
+max_changed_files = 8
+
+[[repos]]
+name = "gin"
+url = "https://github.com/gin-gonic/gin.git"
+ref = "master"
+sample_history = 20
+task_type = "go-service"
+mode = "balanced"
+budget = 3500
+include_globs = ["*.go", "**/*.go"]
+exclude_globs = ["docs/**", "examples/**"]
+max_changed_files = 8
+
+[[repos]]
+name = "spring-petclinic"
+url = "https://github.com/spring-projects/spring-petclinic.git"
+ref = "main"
+sample_history = 20
+task_type = "java-spring"
+mode = "balanced"
+budget = 4000
+include_globs = ["src/**/*.java", "src/**/*.xml", "pom.xml"]
+exclude_globs = ["target/**", "docs/**"]
+max_changed_files = 8
+
+[[repos]]
+name = "nestjs"
+url = "https://github.com/nestjs/nest.git"
+ref = "master"
+sample_history = 20
+task_type = "typescript-monorepo"
+mode = "balanced"
+budget = 5000
+include_globs = ["packages/**/*.ts", "integration/**/*.ts", "sample/**/*.ts"]
+exclude_globs = ["docs/**", "**/*.d.ts"]
+max_changed_files = 8

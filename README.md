@@ -8,14 +8,17 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-**Local MCP context router for AI coding agents.**
+**Local context router for AI coding agents.**
 
-Claude Code, Codex, Cursor, and other coding agents can waste tool calls rediscovering your repo before they make the edit you asked for.
+AgentPack gives Claude Code, Codex, Cursor, and other coding agents a ranked starting map before they burn tool calls rediscovering your repo.
 
-AgentPack gives them a ranked map of likely relevant files, tests, rules, and skills for each task. It analyzes your repo locally and packages compact context for CLI and MCP workflows.
+One workflow matters:
 
-How it works: AgentPack compresses repo context into ranked packs, caches scans/summaries/pack metadata for fast refreshes, and retrieves exact file or symbol blocks later when an agent needs more detail. Rendered packs also put stable instructions before volatile task, timestamp, git, and file sections so provider prompt-prefix caches can reuse the front of repeated refreshes. No cloud indexing, embeddings, or API calls are required for scan, summarize, rank, pack, stats, or benchmark. See [How AgentPack works](docs/how-agentpack-works.md) for the full scan, rank, compress, cache, retrieve, route, and benchmark flow.
-Try the read-only task router without writing context files:
+```text
+route -> pack -> agent acts -> benchmark captures miss
+```
+
+First route the task to likely files, tests, rules, and skills:
 
 ```bash
 pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
@@ -23,68 +26,72 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.20).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.21).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
-## What's New in 0.3.20
+## What's New in 0.3.21
 
-`0.3.20` adds a dedicated "How AgentPack works" guide for scan, rank, compress,
-cache, retrieve, route, stable-prefix caching, and skill keyword quality. It
-also polishes the local dashboard and expands skill-routing benchmark guidance
-for `expected_skills`, `avoid_skills`, recall, precision, MRR, and noise.
+`0.3.21` is a benchmark trust release. It keeps the current honest expanded
+public-suite baseline at **57.0% recall / 50.6% token precision**, removes the
+legacy minimal-mode surface in favor of `balanced`, improves benchmark
+diagnostics and public-suite methodology, and documents the next release target:
+**65%+ recall while holding 50%+ token precision**.
 
-## Before vs After
+## Core Workflow
 
-Without AgentPack, a cold coding-agent session often starts with manual repo orientation:
+### 1. Route
 
-```text
-Task: fix auth token expiry
-
-Agent:
-- searches for auth files
-- opens nearby middleware and config
-- may miss related tests
-- spends early turns building a repo map
-```
-
-With AgentPack:
+Use the read-only router when you want quick orientation without writing files:
 
 ```bash
 agentpack route --task "fix auth token expiry"
 ```
 
-```text
-Task:
-fix auth token expiry
+### 2. Pack
 
-Relevant files:
-- tests/test_auth.py
-- src/app/auth.py
-- src/app/users.py
-
-Suggested commands:
-- pytest tests/test_auth.py -q
+```bash
+agentpack task set "fix auth token expiry"
+agentpack pack --task auto
 ```
+
+AgentPack writes `.agentpack/context.md` with selected files, omitted-file
+receipts, task freshness, token stats, and suggested checks.
+
+### 3. Agent Acts
+
+Point the agent at the pack or use MCP tools. Agent still verifies code before
+editing; AgentPack is map, not correctness proof.
+
+### 4. Benchmark Captures Miss
+
+After a task, capture the files that actually changed:
+
+```bash
+agentpack benchmark capture --since main --task "fix auth token expiry"
+agentpack benchmark --misses
+```
+
+Miss diagnostics show whether a required file was ignored, scored too low,
+ranked but cut by budget, or absent from scan.
 
 ## Features
 
-- **Task-focused packing**: ranks files from git changes, task terms, symbols, imports, related tests, configs, churn, repo history, and deterministic offline summaries.
-- **Budget-aware compression**: emits `full`, `diff`, `symbols`, `skeleton`, or `summary` views instead of all-or-nothing file dumps.
-- **Rendered-token accounting and reserve buckets**: budgets against actual markdown while protecting changed files, tests, docs, and dependencies.
-- **Execution state**: optional task state files and git-derived fallback status show whether work is planned, in progress, blocked, done, committed, or committed but not pushed.
-- **Thread-scoped context**: explicit `--thread <id>` or `--thread auto` isolates task/context files for multiple agents in one repo and warns on same-branch file overlap.
-- **Task router**: MCP and CLI surfaces route a task to relevant files, scoped rules, installed skills, suggested commands, and safety warnings without executing skills automatically.
-- **Reversible registry and learning layer**: retrieves packed context by block ID, writes developer lessons, and feeds bounded selected-file miss feedback into future ranking.
-- **Runtime scorecard and output compression**: `perf --history` tracks activity, while `compress-output` preserves failures, paths, diffs, and search hits from noisy logs.
-- **Agent integrations**: installs Claude Code, Cursor, Windsurf, Codex, Antigravity, VS Code tasks, git hooks, and MCP configuration.
-- **Local and measurable**: no API calls for scan, summarize, rank, pack, stats, or benchmark; quality is measured with expected-file evals.
+- **Route**: read-only task map with relevant files, tests, rules, skills, commands, and warnings.
+- **Pack**: budgeted context with `full`, `diff`, `symbols`, `skeleton`, or `summary` file views.
+- **Act**: CLI, markdown, MCP, and agent integrations for Claude Code, Codex, Cursor, Windsurf, Antigravity, and generic agents.
+- **Benchmark**: expected-file recall, token precision, miss diagnostics, public commit suites, and E2E A/B reports.
+- **Local**: no cloud indexing, embeddings, or API calls for scan, summarize, rank, pack, stats, or benchmark.
 
 ## Benchmark Proof
 
-Latest public release gate: 8 real commits from Pallets Click, ItsDangerous, and MarkupSafe, scored against files actually changed by each commit.
+Latest published v0.3.20 release table: 8 pinned public commits from Pallets
+Click, ItsDangerous, and MarkupSafe, scored against files actually changed by
+each commit. The public manifest now also supports 100+ sampled historical
+commits across Python, TypeScript, Go, Java, and monorepo repos for broader
+release runs.
 
 | Metric | Result |
 |---|---:|
@@ -93,19 +100,48 @@ Latest public release gate: 8 real commits from Pallets Click, ItsDangerous, and
 | Pack p50 | 1,450 tokens |
 | Pack p95 | 3,805 tokens |
 
-Full table: [`benchmarks/results/2026-05-27-public.md`](benchmarks/results/2026-05-27-public.md). This is public smoke proof, not a claim of universal ranking quality; expand cases for your own repo with `agentpack benchmark capture`.
+Full v0.3.20 table: [`benchmarks/results/2026-06-11-public.md`](benchmarks/results/2026-06-11-public.md). This is scoped benchmark evidence, not a universal quality claim.
+The expanded 109-case public suite is the current optimization baseline:
+**57.0% recall / 50.6% token precision**. It is broader and harder than the
+8-case published table, and recall remains the active improvement target.
+Reproduce the expanded public suite:
+
+```bash
+agentpack benchmark --public-suite --reproduce v0.3.20
+```
+
+Benchmark methodology lives under [`benchmarks/results/v0.3.20/`](benchmarks/results/v0.3.20/methodology.md).
+
+### Next Release Benchmark Target
+
+The next benchmark release target is to raise the expanded public suite from the
+current **57.0% recall / 50.6% token precision** baseline to **65%+ recall**
+while keeping token precision at **50%+**. The target should be measured on the
+same 100+ public historical-commit suite, with per-language slices published so
+precision gains are not hiding TypeScript, Go, Java, or monorepo regressions.
+
+Decision gate for the next public table:
+
+- full-suite recall is at least 65.0%
+- full-suite token precision is at least 50.0%
+- no major language or task slice loses more than 2 recall points
+- Vite/TypeScript, Gin/Go, and NestJS monorepo misses are reported separately
+- any AgentPack-vs-no-AgentPack A/B claim includes task success, tool calls,
+  token cost, and time-to-first-correct-file
+
+## Trust
+
+AgentPack is MIT licensed, local-first, and uses PyPI Trusted Publishing plus
+npm provenance for release artifacts. See [`SECURITY.md`](SECURITY.md),
+[`docs/privacy.md`](docs/privacy.md), [`docs/threat-model.md`](docs/threat-model.md),
+and [`docs/data-flow.md`](docs/data-flow.md).
 
 ## Use Cases
 
-- [Claude Code context engine](docs/claude-code-context-engine.md)
-- [MCP context engine](docs/mcp-context-engine.md)
-- [Cursor context packing](docs/cursor-context-packing.md)
-- [AI coding agent context packing](docs/ai-coding-agent-context.md)
-- [Reduce Claude Code token usage](docs/reduce-claude-code-token-usage.md)
-- [How AgentPack works](docs/how-agentpack-works.md)
-- [AgentPack vs Repomix](docs/agentpack-vs-repomix.md)
-- [AgentPack vs Augment Context Engine](docs/agentpack-vs-augment-context-engine.md)
-- [Docs index](docs/index.md)
+Start with the [docs index](docs/index.md), or jump to guides for
+[Claude Code](docs/claude-code-context-engine.md), [MCP](docs/mcp-context-engine.md),
+[Cursor](docs/cursor-context-packing.md), [token usage](docs/reduce-claude-code-token-usage.md),
+and [how AgentPack works](docs/how-agentpack-works.md).
 
 ## Install
 
@@ -233,7 +269,7 @@ budget = 8000
 output = ".agentpack/context.md"
 ```
 
-Use `agentpack pack --mode lite` when you want a cheap ranked map before deeper file reads. Use `minimal`, `balanced`, or `deep` when you want progressively more file content in the generated pack.
+Use `agentpack pack --mode lite` when you want a cheap ranked map before deeper file reads. Use the default `balanced` mode for normal agent work and benchmark claims. Use `deep` when the task needs broader docs and source context.
 
 Use `.agentignore` to remove generated output, vendored code, large exports, or files that repeatedly appear as ranking noise. AgentPack imports obvious generated/noisy entries from gitignore sources during init, but repository-specific outputs should still be added by hand.
 
@@ -349,18 +385,6 @@ Run `make help` for the current list. The main targets are:
 THREAD=codex-local make context-thread
 AGENTPACK_THREAD_ID=codex-local make context-thread
 ```
-
-## Benchmark Proof
-
-AgentPack is best treated as a ranked starting map. It can reduce repeated orientation work, but the agent and reviewer still own correctness.
-
-Use real repo evals instead of trusting compression numbers:
-
-```bash
-agentpack benchmark --release-gate
-```
-
-Current benchmark evidence is documented in [`benchmarks/README.md`](benchmarks/README.md) and the generated tables under `benchmarks/results/`. Treat these as scoped evidence for the included cases, not a universal performance claim.
 
 ## What A Pack Contains
 
