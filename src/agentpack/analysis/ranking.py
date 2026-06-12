@@ -1160,6 +1160,149 @@ def _domain_tokens(path: str) -> set[str]:
     return {tok for tok in _path_tokens(path) if len(tok) >= 3 and tok not in _PATH_NOISE_TOKENS}
 
 
+def _api_route_terms(path: str) -> tuple[str, ...]:
+    parts = [part.lower() for part in Path(path).parts]
+    if "api" not in parts:
+        return ()
+    api_index = parts.index("api")
+    suffix = parts[api_index + 1:]
+    if not suffix:
+        return ()
+    route_file_names = {
+        "route.ts", "route.tsx", "route.js", "route.jsx",
+        "routes.py", "urls.py", "views.py", "controller.ts", "controller.js",
+    }
+    if suffix[-1] in route_file_names or Path(suffix[-1]).stem.lower() in {"route", "routes", "urls", "views", "controller"}:
+        suffix = suffix[:-1]
+    terms: list[str] = []
+    for part in suffix:
+        clean = part.strip("[](){}")
+        if not clean or clean.startswith("_"):
+            continue
+        terms.extend(token for token in _ordered_tokens(clean) if token and token not in _PATH_NOISE_TOKENS)
+    return tuple(dict.fromkeys(terms))
+
+
+def _is_api_route_path(path: str) -> bool:
+    return bool(_api_route_terms(path))
+
+
+def _api_route_label(path: str) -> str:
+    terms = _api_route_terms(path)
+    return "/api/" + "/".join(terms) if terms else path
+
+
+def _normalize_api_path(value: str) -> str | None:
+    match = re.search(r"/api/[A-Za-z0-9_./${}\[\]-]+", value)
+    if not match:
+        return None
+    path = match.group(0).split("?", 1)[0].split("#", 1)[0].split("${", 1)[0]
+    path = re.sub(r"/\[[^\]]+\]", "", path)
+    path = path.rstrip("/,;)")
+    return path.rstrip("/") or "/api"
+
+
+def _api_paths_from_summary(summary_data: object | None) -> set[str]:
+    paths: set[str] = set()
+    if summary_data is None:
+        return paths
+    for summary_field in ("calls", "entrypoints", "public_api"):
+        for value in _summary_values(summary_data, summary_field):
+            normalized = _normalize_api_path(value)
+            if normalized:
+                paths.add(normalized)
+    return paths
+
+
+def _api_path_terms(api_path: str) -> set[str]:
+    return {
+        token
+        for token in _ordered_tokens(api_path.removeprefix("/api/"))
+        if token and token not in _PATH_NOISE_TOKENS
+    }
+
+
+def _api_route_path(path: str, summary_data: object | None = None) -> str | None:
+    for value in _summary_values(summary_data, "entrypoints"):
+        normalized = _normalize_api_path(value)
+        if normalized:
+            return normalized
+    terms = _api_route_terms(path)
+    if terms:
+        return "/api/" + "/".join(terms)
+    return None
+
+
+def _looks_like_frontend_consumer(path: str, summary_data: object | None) -> bool:
+    suffix = Path(path).suffix.lower()
+    if suffix in {".tsx", ".jsx"}:
+        return True
+    path_terms = _path_tokens(path)
+    if path_terms & {"component", "components", "page", "pages", "client", "dashboard"}:
+        return True
+    return any(
+        value.startswith(("React page:", "React layout:", "React component:"))
+        for value in _summary_values(summary_data, "entrypoints")
+    )
+
+
+def _has_strong_structural_reason(reasons: list[str]) -> bool:
+    return any(
+        reason.startswith((
+            "API endpoint pair",
+            "API route owner match",
+            "direct content evidence",
+            "direct dependency",
+            "historically co-changed",
+            "keyword phrase match:",
+            "literal definition match:",
+            "matched call:",
+            "matched define:",
+            "matched entrypoint:",
+            "multi-token",
+            "quoted literal match:",
+            "recall neighbor",
+            "reverse dependency",
+            "test for",
+            "workspace match",
+        ))
+        or reason in {
+            "build/dependency metadata",
+            "config file",
+            "has related tests",
+            "knowledge/architecture doc",
+            "release/version metadata",
+        }
+        for reason in reasons
+    )
+
+
+def _keyword_only_false_positive(path: str, reasons: list[str], content_hits: int) -> bool:
+    if _is_test_file(path):
+        return False
+    if _has_strong_structural_reason(reasons):
+        return False
+    keyword_reasons = [
+        reason for reason in reasons
+        if reason == "filename keyword match"
+        or reason == "symbol keyword match"
+        or reason.startswith((
+            "content keyword match",
+            "matched domain:",
+            "matched naming keyword:",
+            "matched ranking keyword:",
+            "matched role keyword:",
+        ))
+    ]
+    if len(keyword_reasons) < 2:
+        return False
+    if _is_api_route_path(path):
+        return False
+    if content_hits >= 4 and "symbol keyword match" in reasons:
+        return False
+    return True
+
+
 def score_files(
     files: list[FileInfo],
     changed_paths: set[str],
@@ -1296,6 +1439,12 @@ def score_files(
                 score += min(-6.0, w.weak_filename_match_penalty / 2)
                 reasons.append(f"generic public API penalty: {generic_public_names[0]}")
 
+        api_route_terms = set(_api_route_terms(fi.path))
+        api_route_matches = api_route_terms & (set(_keyword_token_weights(keywords, path=fi.path)) - _PATH_NOISE_TOKENS)
+        if api_route_matches:
+            score += 170.0 + (35.0 * min(2, len(api_route_matches) - 1))
+            reasons.append(f"API route owner match: {_api_route_label(fi.path)}")
+
         content_hits = 0
         searchable_text = ""
         if fi.content is not None:
@@ -1368,6 +1517,8 @@ def score_files(
         if matched_task_signal and _has_role(fi.path, _IMPLEMENTATION_ROLE_TOKENS):
             score += w.implementation_role
             reasons.append("implementation role match")
+        elif fi.path in changed_paths:
+            reasons.append("modified workspace context only")
 
         if explicit_test_task:
             if _is_test_file(fi.path):
@@ -1397,6 +1548,8 @@ def score_files(
             if tests and any(t in all_paths for t in tests):
                 score += w.related_test
                 reasons.append("has related tests")
+            elif _is_api_route_path(fi.path):
+                reasons.append("no direct tests found for endpoint")
 
             if _is_test_file(fi.path):
                 for src_path in changed_paths:
@@ -1460,6 +1613,10 @@ def score_files(
             score += w.large_unrelated_penalty
             reasons.append("large unrelated file")
 
+        if _keyword_only_false_positive(fi.path, reasons, content_hits):
+            score = max(0.0, score * 0.72)
+            reasons.append("likely false positive: keyword-only match")
+
         results.append((fi, score, reasons))
 
     return results
@@ -1503,6 +1660,107 @@ def boost_cross_layer_related(
             if _domain_tokens(fi.path) & related_terms and "cross-layer related implementation" not in reasons:
                 score += w.cross_layer_related
                 reasons = reasons + ["cross-layer related implementation"]
+        result.append((fi, score, reasons))
+    return result
+
+
+def boost_api_endpoint_pairs(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    keywords: set[str] | dict[str, float] | KeywordPlan,
+    weights: ScoringWeights | None = None,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Boost sibling API endpoints once one endpoint in the family is a strong task match."""
+    w = weights or _DEFAULT_WEIGHTS
+    keyword_tokens = set(_keyword_token_weights(keywords)) - _PATH_NOISE_TOKENS
+    api_rows: list[tuple[FileInfo, float, list[str], tuple[str, ...]]] = []
+    for fi, score, reasons in scored:
+        terms = _api_route_terms(fi.path)
+        if terms and not fi.ignored and not fi.binary:
+            api_rows.append((fi, score, reasons, terms))
+    if len(api_rows) < 2:
+        return scored
+
+    seeds: dict[str, tuple[str, float]] = {}
+    for fi, score, reasons, terms in api_rows:
+        if not terms:
+            continue
+        family = terms[0]
+        direct_owner = any(reason.startswith("API route owner match:") for reason in reasons)
+        endpoint_matches_task = bool(set(terms) & keyword_tokens)
+        if score < 90 and not direct_owner:
+            continue
+        if not (direct_owner or endpoint_matches_task):
+            continue
+        current = seeds.get(family)
+        if current is None or score > current[1]:
+            seeds[family] = (fi.path, score)
+    if not seeds:
+        return scored
+
+    result: list[tuple[FileInfo, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        terms = _api_route_terms(fi.path)
+        if terms:
+            family = terms[0]
+            seed = seeds.get(family)
+            if seed and seed[0] != fi.path and not any(reason.startswith("API endpoint pair") for reason in reasons):
+                seed_path, _seed_score = seed
+                amount = min(85.0, w.cross_layer_related + 15.0)
+                if set(terms) & keyword_tokens:
+                    amount += 25.0
+                score += amount
+                reasons = reasons + [f"API endpoint pair with {_api_route_label(seed_path)}"]
+        result.append((fi, score, reasons))
+    return result
+
+
+def boost_frontend_api_consumers(
+    scored: list[tuple[FileInfo, float, list[str]]],
+    summaries: dict[str, Any] | None,
+    keywords: set[str] | dict[str, float] | KeywordPlan,
+    weights: ScoringWeights | None = None,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Boost API route files consumed by scored frontend/client files."""
+    if not summaries:
+        return scored
+    w = weights or _DEFAULT_WEIGHTS
+    keyword_tokens = set(_keyword_token_weights(keywords)) - _PATH_NOISE_TOKENS
+    endpoint_by_api_path: dict[str, str] = {}
+    for fi, _score, _reasons in scored:
+        api_path = _api_route_path(fi.path, summaries.get(fi.path))
+        if api_path:
+            endpoint_by_api_path[api_path] = fi.path
+    if not endpoint_by_api_path:
+        return scored
+
+    boosts: dict[str, tuple[float, str, str]] = {}
+    for consumer, consumer_score, _consumer_reasons in scored:
+        summary_data = summaries.get(consumer.path)
+        consumed_paths = _api_paths_from_summary(summary_data)
+        if not consumed_paths or consumer_score <= 0:
+            continue
+        if not _looks_like_frontend_consumer(consumer.path, summary_data):
+            continue
+        for api_path in consumed_paths:
+            endpoint_path = endpoint_by_api_path.get(api_path)
+            if not endpoint_path or endpoint_path == consumer.path:
+                continue
+            amount = min(150.0, 90.0 + (w.cross_layer_related * 0.6))
+            if _api_path_terms(api_path) & keyword_tokens:
+                amount += 45.0
+            current = boosts.get(endpoint_path)
+            if current is None or amount > current[0]:
+                boosts[endpoint_path] = (amount, api_path, consumer.path)
+
+    if not boosts:
+        return scored
+    result: list[tuple[FileInfo, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        boost = boosts.get(fi.path)
+        if boost:
+            amount, api_path, consumer_path = boost
+            score += amount
+            reasons = reasons + [f"API producer for frontend call {api_path} from {consumer_path}"]
         result.append((fi, score, reasons))
     return result
 

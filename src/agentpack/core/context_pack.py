@@ -152,6 +152,7 @@ def _has_task_signal(reasons: list[str]) -> bool:
         "staged",
         "recently modified",
         "high churn",
+        "likely false positive",
     )
     return any(not reason.startswith(weak_prefixes) for reason in reasons)
 
@@ -363,6 +364,104 @@ def _content_keyword_hits(reasons: list[str]) -> int:
         if match:
             hits = max(hits, int(match.group(1)))
     return hits
+
+
+_IGNORE_CONTROL_NAMES = {
+    ".agentignore",
+    ".cursorignore",
+    ".dockerignore",
+    ".eslintignore",
+    ".gitignore",
+    ".npmignore",
+    ".prettierignore",
+}
+
+_IGNORE_TASK_TERMS = {
+    "agentignore",
+    "dockerignore",
+    "eslintignore",
+    "exclude",
+    "excluded",
+    "exclusion",
+    "gitignore",
+    "ignore",
+    "ignored",
+    "ignores",
+    "ignoring",
+    "npmignore",
+    "prettierignore",
+}
+
+
+def _is_ignore_control_path(path: str) -> bool:
+    return Path(path).name.lower() in _IGNORE_CONTROL_NAMES
+
+
+def _has_ignore_task_evidence(reasons: list[str], keywords: set[str]) -> bool:
+    if keywords & _IGNORE_TASK_TERMS:
+        return True
+    return any("ignore" in reason.lower() for reason in reasons)
+
+
+def _has_actionable_compressed_evidence(reasons: list[str]) -> bool:
+    content_hits = _content_keyword_hits(reasons)
+    if any(
+        reason.startswith((
+            "caller of selected symbol",
+            "direct content evidence",
+            "direct dependency",
+            "historically co-changed",
+            "keyword phrase match:",
+            "literal definition match:",
+            "matched call:",
+            "matched define:",
+            "matched entrypoint:",
+            "matched env read:",
+            "matched external system:",
+            "matched side effect:",
+            "multi-token defines match",
+            "quoted literal match:",
+            "release/version metadata",
+            "reverse dependency",
+            "test for",
+            "workspace match",
+        ))
+        or reason == "build/dependency metadata"
+        or reason == "has related tests"
+        for reason in reasons
+    ):
+        return True
+    if "symbol keyword match" in reasons and content_hits >= 1:
+        return True
+    if any(reason.startswith("multi-term path match") for reason in reasons) and content_hits >= 1:
+        return True
+    return content_hits >= 4 and any(
+        reason.startswith(("matched naming keyword:", "matched ranking keyword:", "matched role keyword:"))
+        for reason in reasons
+    )
+
+
+def _weak_compressed_noise_reason(path: str, reasons: list[str], keywords: set[str]) -> str | None:
+    if _is_ignore_control_path(path) and not _has_ignore_task_evidence(reasons, keywords):
+        return "ignore-control file lacks ignore-task evidence"
+
+    actionable = _has_actionable_compressed_evidence(reasons)
+    if _is_test_path(path) and "explicit test task file" not in reasons and not actionable:
+        return "test file lacks direct task evidence"
+
+    broad_only = _is_source_path(path) and "implementation role match" in reasons and any(
+        reason.startswith((
+            "matched domain:",
+            "matched naming keyword:",
+            "matched ranking keyword:",
+            "matched role keyword:",
+        ))
+        for reason in reasons
+    )
+    if broad_only and not actionable:
+        return "broad family match lacks direct task evidence"
+
+    return None
 
 
 def _is_source_path(path: str) -> bool:
@@ -700,6 +799,8 @@ def _has_strict_summary_support(reasons: list[str], path: str = "") -> bool:
                 for reason in reasons
             )
         )
+        if content_hits >= 5:
+            return True
         if has_scope_source_evidence or has_content_source_evidence:
             return True
     if has_config and content_hits >= 2:
@@ -1058,6 +1159,12 @@ def select_files(
             continue
 
         compressed_context = mode_str in ("summary", "skeleton")
+        if compressed_context and not is_changed and mode == "balanced":
+            weak_noise_reason = _weak_compressed_noise_reason(fi.path, reasons, kw)
+            if weak_noise_reason:
+                receipts.append(Receipt(path=fi.path, action="excluded", reason=weak_noise_reason))
+                continue
+
         if strict_summary_selection and compressed_context and not is_changed and not _has_strict_summary_support(reasons, fi.path):
             receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context needs stronger support signal"))
             continue

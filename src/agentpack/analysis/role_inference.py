@@ -323,7 +323,7 @@ def _js_ts_intelligence(path: str, text: str, symbols: list[Symbol]) -> CodeInte
     if text.startswith("#!") and "node" in text.splitlines()[0]:
         entrypoints.append(f"CLI script: {norm_path}")
 
-    calls = _js_calls(text)
+    calls = [*_js_calls(text), *_js_api_calls(text)]
     return CodeIntelligence(
         entrypoints=_dedupe(entrypoints)[:40],
         defines=_dedupe(defines)[:60],
@@ -486,6 +486,24 @@ def _js_calls(text: str) -> list[str]:
         if name.split(".")[0] not in skip:
             calls.append(name)
     return calls
+
+
+def _js_api_calls(text: str) -> list[str]:
+    calls: list[str] = []
+    for raw in re.findall(r"['\"`](/api/[^'\"`\s)]+)", text):
+        normalized = _normalize_api_literal(raw)
+        if normalized:
+            calls.append(f"API call: {normalized}")
+    return calls
+
+
+def _normalize_api_literal(raw: str) -> str:
+    value = raw.split("?", 1)[0].split("#", 1)[0]
+    value = value.split("${", 1)[0]
+    value = value.rstrip("/,;)")
+    if not value.startswith("/api/"):
+        return ""
+    return value.rstrip("/") or "/api"
 
 
 def _next_api_path(path: str) -> str:

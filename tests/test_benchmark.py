@@ -92,6 +92,8 @@ def _make_result(
     noise_pct: float | None = None,
     random_f1: float | None = None,
     missed_expected: list[dict] | None = None,
+    top_candidates: list[dict] | None = None,
+    selection_diagnostics: dict | None = None,
 ) -> CaseResult:
     return CaseResult(
         case=BenchmarkCase(task="t", expected_files=expected),
@@ -124,6 +126,8 @@ def _make_result(
         random_recall=None,
         random_f1=random_f1,
         missed_expected=missed_expected or [],
+        top_candidates=top_candidates or [],
+        selection_diagnostics=selection_diagnostics or {},
     )
 
 
@@ -860,6 +864,29 @@ def test_persist_result_writes_jsonl(tmp_path: Path) -> None:
         failure_type_counts={"EXPECTED_SKIPPED": 1},
         noise_pct=30.0,
         random_f1=0.2,
+        top_candidates=[{
+            "path": "a.py",
+            "rank": 1,
+            "score": 10.0,
+            "family": "source",
+            "selected": True,
+            "expected": True,
+            "reasons": ["symbol keyword match"],
+        }],
+        selection_diagnostics={
+            "selected_noise": [{
+                "path": "b.py",
+                "family": "source",
+                "tokens": 100,
+                "mode": None,
+                "rank": 2,
+                "score": 5.0,
+                "reasons": ["filename keyword match"],
+            }],
+            "selected_noise_family_tokens": {"source": 100},
+            "expected_ranked_not_selected": 0,
+            "missed_expected_count": 0,
+        },
     )
     _persist_result(tmp_path, r)
 
@@ -886,6 +913,8 @@ def test_persist_result_writes_jsonl(tmp_path: Path) -> None:
     assert record["noise_pct"] == pytest.approx(30.0)
     assert record["token_precision"] == pytest.approx(0.7)
     assert record["random_f1"] == pytest.approx(0.2)
+    assert record["top_candidates"][0]["path"] == "a.py"
+    assert record["selection_diagnostics"]["selected_noise"][0]["path"] == "b.py"
 
 
 def test_quality_status_passes_on_recall_and_token_precision() -> None:
@@ -1029,6 +1058,8 @@ def _make_mock_plan(files: int = 10, tokens: int = 5000):
     sf.summary = ""
     sf.symbols = []
     sf.reasons = ["filename keyword match"]
+    sf.include_mode = "summary"
+    sf.score = 1.0
 
     scored_fi = MagicMock()
     scored_fi.path = "src/foo.py"
@@ -1040,6 +1071,7 @@ def _make_mock_plan(files: int = 10, tokens: int = 5000):
     plan.phase_times = {"scan": 0.1, "rank": 0.05}
     plan.scored = [(scored_fi, 1.0, ["keyword_match"])]
     plan.receipts = []
+    plan.summaries = {}
     plan.changed_files_source = "git working tree"
     return plan
 
@@ -1081,7 +1113,7 @@ def test_run_case_with_expected_files_sets_quality_fields(tmp_path: Path) -> Non
 
 
 def test_run_case_records_miss_diagnostics(tmp_path: Path) -> None:
-    case = BenchmarkCase(task="fix bug", mode="balanced", expected_files=["src/foo.py", "src/missing.py"])
+    case = BenchmarkCase(task="fix bug", mode="balanced", expected_files=["src/missing.py"])
     mock_plan = _make_mock_plan()
     mock_plan.receipts = [Receipt(path="src/missing.py", action="excluded", reason="budget exhausted")]
 
@@ -1099,15 +1131,60 @@ def test_run_case_records_miss_diagnostics(tmp_path: Path) -> None:
         MockPlanner.return_value.plan.return_value = mock_plan
         result = _run_case(tmp_path, case)
 
-    assert result.missed_expected == [{
-        "path": "src/missing.py",
-        "status": "budget exhausted",
-        "failure_type": "EXPECTED_SKIPPED",
-        "rank": 1,
-        "score": 42.0,
-        "reasons": ["filename keyword match"],
-        "basis": mock_plan.changed_files_source,
-    }]
+    assert result.top_candidates[0]["path"] == "src/missing.py"
+    assert result.top_candidates[0]["expected"] is True
+    assert result.selection_diagnostics["selected_noise"][0]["path"] == "src/foo.py"
+
+    miss = result.missed_expected[0]
+    assert miss["path"] == "src/missing.py"
+    assert miss["status"] == "budget exhausted"
+    assert miss["failure_type"] == "EXPECTED_SKIPPED"
+    assert miss["family"] == "source"
+    assert miss["rank"] == 1
+    assert miss["score"] == 42.0
+    assert miss["reasons"] == ["filename keyword match"]
+    assert miss["basis"] == mock_plan.changed_files_source
+    assert miss["would_select_with_one_more_slot"] is True
+    assert miss["score_delta_vs_last_selected"] == pytest.approx(41.0)
+    assert miss["selected_noise_file_that_beat_expected"] is None
+    assert miss["cap_block_diagnostic"] is None
+
+
+def test_run_case_records_cap_block_diagnostic(tmp_path: Path) -> None:
+    case = BenchmarkCase(task="fix config", mode="balanced", expected_files=["src/missing.py"])
+    mock_plan = _make_mock_plan()
+    mock_plan.receipts = [Receipt(path="src/missing.py", action="excluded", reason="compressed context cap reached")]
+
+    missing_fi = MagicMock()
+    missing_fi.path = "src/missing.py"
+    missing_fi.estimated_tokens = 200
+    missing_fi.ignored = False
+    missing_fi.binary = False
+    mock_plan.scan_result.packable = mock_plan.scan_result.packable + [missing_fi]
+    mock_plan.scan_result.all_files = mock_plan.scan_result.all_files + [missing_fi]
+    mock_plan.scored = mock_plan.scored + [(
+        missing_fi,
+        220.0,
+        ["config file", "content keyword match (3)", "matched define: missing_config"],
+    )]
+    mock_plan.summaries = {
+        "src/missing.py": {
+            "summary": "Missing config owner.",
+            "symbols": [{"signature": "def missing_config(): ..."}],
+        }
+    }
+
+    with patch("agentpack.application.pack_service.PackPlanner") as MockPlanner, \
+         patch("agentpack.application.pack_service._sf_tokens", return_value=50):
+        MockPlanner.return_value.plan.return_value = mock_plan
+        result = _run_case(tmp_path, case)
+
+    diagnostic = result.missed_expected[0]["cap_block_diagnostic"]
+    assert diagnostic["candidate_mode"] == "skeleton"
+    assert diagnostic["candidate_has_strong_evidence"] is True
+    assert diagnostic["replaceable_selected_tokens"] == 50
+    assert diagnostic["replaceable_selected"][0]["path"] == "src/foo.py"
+    assert diagnostic["block_reason"] == "replacement appears feasible"
 
 
 def test_benchmark_cli_single_task(tmp_path: Path) -> None:

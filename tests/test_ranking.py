@@ -2,7 +2,9 @@ from pathlib import Path
 from agentpack.analysis.ranking import (
     ambiguous_task_terms,
     build_keyword_plan,
+    boost_api_endpoint_pairs,
     boost_cross_layer_related,
+    boost_frontend_api_consumers,
     boost_paired_tests,
     concrete_task_terms,
     extract_keywords,
@@ -952,3 +954,152 @@ def test_large_file_with_task_support_is_not_marked_large_unrelated():
     assert score > 0
     assert "large supported file" in reasons
     assert "large unrelated file" not in reasons
+
+
+def test_api_route_owner_beats_broad_domain_engine_file():
+    route = _fi("dashboard/src/app/api/signals/stats/route.ts", language="typescript")
+    broad = _fi("dashboard/src/lib/signals/signal-generator.ts", language="typescript")
+
+    scored = score_files(
+        [broad, route],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("fix dashboard signals stats win rate metric"),
+        summaries={
+            route.path: {
+                "entrypoints": ["Next API route: dashboard/src/app/api/signals/stats/route.ts"],
+                "ranking_keywords": ["signals", "stats", "win_rate"],
+            },
+            broad.path: {
+                "role": "signal generator engine",
+                "domain": "signals",
+                "ranking_keywords": ["signals"],
+            },
+        },
+    )
+
+    scores = {item[0].path: item[1] for item in scored}
+    reasons = {item[0].path: item[2] for item in scored}
+    assert scores[route.path] > scores[broad.path]
+    assert any(reason.startswith("API route owner match:") for reason in reasons[route.path])
+    assert "no direct tests found for endpoint" in reasons[route.path]
+
+
+def test_api_endpoint_pair_boosts_same_family_history_route():
+    stats = _fi("dashboard/src/app/api/signals/stats/route.ts", language="typescript")
+    history = _fi("dashboard/src/app/api/signals/history/route.ts", language="typescript")
+    unrelated = _fi("dashboard/src/app/api/runs/history/route.ts", language="typescript")
+    keywords = build_keyword_plan("fix signals stats win rate metric")
+
+    scored = score_files(
+        [history, unrelated, stats],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=keywords,
+        summaries={
+            stats.path: {"entrypoints": ["Next API route: app/api/signals/stats/route.ts"]},
+            history.path: {"entrypoints": ["Next API route: app/api/signals/history/route.ts"]},
+            unrelated.path: {"entrypoints": ["Next API route: app/api/runs/history/route.ts"]},
+        },
+    )
+    boosted = boost_api_endpoint_pairs(scored, keywords)
+
+    scores = {item[0].path: item[1] for item in boosted}
+    reasons = {item[0].path: item[2] for item in boosted}
+    assert scores[history.path] > scores[unrelated.path]
+    assert any(reason.startswith("API endpoint pair with") for reason in reasons[history.path])
+    assert not any(reason.startswith("API endpoint pair with") for reason in reasons[unrelated.path])
+
+
+def test_frontend_api_consumer_boosts_owning_endpoint_over_broad_domain_file():
+    client = _fi("dashboard/src/app/signals/signals-client.tsx", language="typescript")
+    stats = _fi("dashboard/src/app/api/signals/stats/route.ts", language="typescript")
+    broad = _fi("dashboard/src/lib/signals/signal-generator.ts", language="typescript")
+    keywords = build_keyword_plan("fix dashboard win rate metric")
+
+    scored = score_files(
+        [broad, stats, client],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=keywords,
+        summaries={
+            client.path: {
+                "entrypoints": ["React component: SignalsClient"],
+                "calls": ["API call: /api/signals/stats"],
+                "ranking_keywords": ["win_rate"],
+            },
+            stats.path: {
+                "entrypoints": ["GET /api/signals/stats"],
+            },
+            broad.path: {
+                "role": "signal generator engine",
+                "domain": "signals",
+                "ranking_keywords": ["signals"],
+            },
+        },
+    )
+    boosted = boost_frontend_api_consumers(scored, {
+        client.path: {
+            "entrypoints": ["React component: SignalsClient"],
+            "calls": ["API call: /api/signals/stats"],
+            "ranking_keywords": ["win_rate"],
+        },
+        stats.path: {
+            "entrypoints": ["GET /api/signals/stats"],
+        },
+        broad.path: {
+            "role": "signal generator engine",
+            "domain": "signals",
+            "ranking_keywords": ["signals"],
+        },
+    }, keywords)
+
+    scores = {item[0].path: item[1] for item in boosted}
+    reasons = {item[0].path: item[2] for item in boosted}
+    assert scores[stats.path] > scores[broad.path]
+    assert any(reason.startswith("API producer for frontend call /api/signals/stats") for reason in reasons[stats.path])
+
+
+def test_keyword_only_broad_domain_match_is_labeled_likely_false_positive():
+    broad = _fi("dashboard/src/lib/signals/factor-history.ts", language="typescript")
+
+    scored = score_files(
+        [broad],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("fix 12 factor signals history stats"),
+        summaries={
+            broad.path: {
+                "role": "signal factor engine",
+                "domain": "signals factor history",
+                "ranking_keywords": ["factor", "history"],
+            },
+        },
+    )
+
+    reasons = scored[0][2]
+    assert "likely false positive: keyword-only match" in reasons
+
+
+def test_changed_noise_file_is_labeled_workspace_context_only():
+    gitignore = _fi(".gitignore", language=None)
+
+    scored = score_files(
+        [gitignore],
+        changed_paths={gitignore.path},
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("fix signals stats win rate metric"),
+        summaries={},
+    )
+
+    assert "modified workspace context only" in scored[0][2]

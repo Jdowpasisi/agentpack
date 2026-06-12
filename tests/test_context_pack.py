@@ -1288,6 +1288,187 @@ def test_strict_summary_selection_keeps_high_content_phrase_match():
     assert [sf.path for sf in selected] == ["src/open_browser.py"]
 
 
+def test_strict_summary_selection_keeps_high_content_source_match_without_phrase():
+    fi = _fi("context.go")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(
+            fi,
+            215.0,
+            [
+                "content keyword match (5)",
+                "recently modified",
+                "high churn (14 commits)",
+                "large supported file",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "HTTP context helpers.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        min_summary_score=100,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["context.go"]
+
+
+def test_balanced_excludes_gitignore_without_ignore_task_evidence():
+    gitignore = _fi(".gitignore")
+
+    selected, receipts = select_files(
+        files=[gitignore],
+        scored=[(gitignore, 220.0, ["filename keyword match", "content keyword match (2)"])],
+        changed_paths=set(),
+        summaries={gitignore.path: {"summary": "Ignore build output.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        keywords={"current", "bar", "factor"},
+    )
+
+    assert selected == []
+    assert any(
+        r.path == ".gitignore" and r.reason == "ignore-control file lacks ignore-task evidence"
+        for r in receipts
+    )
+
+
+def test_balanced_keeps_gitignore_for_ignore_task():
+    gitignore = _fi(".gitignore")
+
+    selected, _receipts = select_files(
+        files=[gitignore],
+        scored=[(
+            gitignore,
+            220.0,
+            ["filename keyword match", "content keyword match (1)", "keyword phrase match: gitignore"],
+        )],
+        changed_paths=set(),
+        summaries={gitignore.path: {"summary": "Ignore build output.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        keywords={"gitignore", "ignore"},
+    )
+
+    assert [sf.path for sf in selected] == [".gitignore"]
+
+
+def test_balanced_excludes_unrelated_test_without_direct_evidence():
+    test_file = _fi("tests/intraday_current_bar_test.py")
+
+    selected, receipts = select_files(
+        files=[test_file],
+        scored=[(
+            test_file,
+            260.0,
+            [
+                "filename keyword match",
+                "matched domain: intraday factor",
+                "content keyword match (2)",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={test_file.path: {"summary": "Current bar intraday tests.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        keywords={"current", "bar", "factor"},
+    )
+
+    assert selected == []
+    assert any(
+        r.path == test_file.path and r.reason == "test file lacks direct task evidence"
+        for r in receipts
+    )
+
+
+def test_balanced_keeps_paired_test_with_direct_evidence():
+    test_file = _fi("tests/current_bar_test.py")
+
+    selected, _receipts = select_files(
+        files=[test_file],
+        scored=[(
+            test_file,
+            260.0,
+            [
+                "filename keyword match",
+                "content keyword match (3)",
+                "direct content evidence +170",
+                "test for src/current_bar.py",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={test_file.path: {"summary": "Current bar regression test.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        keywords={"current", "bar"},
+    )
+
+    assert [sf.path for sf in selected] == [test_file.path]
+
+
+def test_balanced_excludes_broad_factor_file_without_direct_evidence():
+    broad = _fi("src/factors/current_bar_factor.py")
+
+    selected, receipts = select_files(
+        files=[broad],
+        scored=[(
+            broad,
+            260.0,
+            [
+                "filename keyword match",
+                "matched domain: factors",
+                "matched role keyword: factor model",
+                "content keyword match (1)",
+                "implementation role match",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={broad.path: {"summary": "General factor calculations.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        keywords={"current", "bar", "factor"},
+    )
+
+    assert selected == []
+    assert any(
+        r.path == broad.path and r.reason == "broad family match lacks direct task evidence"
+        for r in receipts
+    )
+
+
+def test_balanced_keeps_factor_file_with_direct_definition_evidence():
+    direct = _fi("src/factors/current_bar_factor.py")
+
+    selected, _receipts = select_files(
+        files=[direct],
+        scored=[(
+            direct,
+            320.0,
+            [
+                "filename keyword match",
+                "matched define: CurrentBarFactor",
+                "content keyword match (2)",
+                "keyword phrase match: current bar",
+                "implementation role match",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={direct.path: {"summary": "Defines CurrentBarFactor.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        keywords={"current", "bar", "factor"},
+    )
+
+    assert [sf.path for sf in selected] == [direct.path]
+
+
 def test_excluded_ignored_files():
     fi = FileInfo(
         path="node_modules/x.js",

@@ -147,6 +147,23 @@ def test_js_role_inference_react_component_and_next_routes(tmp_path: Path) -> No
     assert "React page: src/app/dashboard/page.tsx" in page_summary.entrypoints
 
 
+def test_js_role_inference_extracts_frontend_api_literals(tmp_path: Path) -> None:
+    client = _write(
+        tmp_path,
+        "src/app/signals/signals-client.tsx",
+        "export function SignalsClient() {\n"
+        "  fetch('/api/signals/stats')\n"
+        "  fetch(`/api/signals/history?limit=${limit}`)\n"
+        "  return null\n"
+        "}\n",
+    )
+
+    summary = summarize("src/app/signals/signals-client.tsx", client, "typescript", "h1")
+
+    assert "API call: /api/signals/stats" in summary.calls
+    assert "API call: /api/signals/history" in summary.calls
+
+
 def test_env_file_external_system_and_side_effect_detection(tmp_path: Path) -> None:
     src = _write(
         tmp_path,

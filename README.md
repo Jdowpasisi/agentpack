@@ -38,10 +38,8 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ## What's New in 0.3.21
 
-`0.3.21` is a benchmark trust release. It keeps the current honest expanded
-public-suite baseline at **57.0% recall / 50.6% token precision**, removes the
-legacy minimal-mode surface in favor of `balanced`, improves benchmark
-diagnostics and public-suite methodology, and documents the next release target:
+`0.3.21` is a benchmark trust release. It keeps the current honest expanded public-suite baseline at **57.0% recall / 50.6% token precision**, removes the
+legacy minimal-mode surface in favor of `balanced`, improves benchmark diagnostics and public-suite methodology, and documents the next release target:
 **65%+ recall while holding 50%+ token precision**.
 
 ## Core Workflow

@@ -87,6 +87,8 @@ class CaseResult:
     skill_token_cost: int = 0
     missed_expected: list[dict[str, Any]] = field(default_factory=list)
     selected_modes: dict[str, str] = field(default_factory=dict)
+    top_candidates: list[dict[str, Any]] = field(default_factory=list)
+    selection_diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -1060,6 +1062,8 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
     selected_family_waste_tokens: dict[str, int] = {}
     reason_family_precision: dict[str, dict[str, float]] = {}
     failure_type_counts: dict[str, int] = {}
+    top_candidates: list[dict[str, Any]] = []
+    selection_diagnostics: dict[str, Any] = {}
     rand_p = rand_r = rand_f1 = None
 
     if case.expected_files:
@@ -1075,6 +1079,11 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
             fi.path: {"rank": rank, "score": score, "reasons": reasons}
             for rank, (fi, score, reasons) in enumerate(ranked_scored, 1)
         }
+        top_candidates = _top_candidate_diagnostics(
+            ranked_scored=ranked_scored,
+            selected_set=selected_set,
+            expected_set=expected_set,
+        )
         all_file_map = {fi.path: fi for fi in plan.scan_result.all_files}
         receipt_map = {receipt.path: receipt.reason for receipt in plan.receipts}
         found: set[str] = set()
@@ -1099,6 +1108,14 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
             selected_tokens,
         )
         reason_family_precision = _reason_family_precision(plan.selected, expected_set)
+        selected_by_path = {sf.path: sf for sf in plan.selected}
+        selected_noise = _selected_noise_diagnostics(
+            selected_paths=selected_paths,
+            selected_tokens=selected_tokens,
+            selected_modes=selected_modes,
+            scored_map=scored_map,
+            expected_set=expected_set,
+        )
         low_budget_extra_file_waste, precision_delta_if_drop_last_summary = _low_budget_extra_file_waste(
             selected=plan.selected,
             selected_tokens=selected_tokens,
@@ -1136,11 +1153,43 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
                 "path": expected_path,
                 "status": status,
                 "failure_type": failure_type,
+                "family": _path_family(expected_path),
                 "rank": scored_info["rank"] if scored_info else None,
                 "score": round(scored_info["score"], 1) if scored_info else None,
                 "reasons": scored_info["reasons"][:4] if scored_info else [],
                 "basis": plan.changed_files_source,
+                "would_select_with_one_more_slot": _would_select_with_one_more_slot(
+                    scored_info=scored_info,
+                    selected_count=len(selected_paths),
+                    status=status,
+                ),
+                "score_delta_vs_last_selected": _score_delta_vs_last_selected(
+                    scored_info=scored_info,
+                    selected_paths=selected_paths,
+                    scored_map=scored_map,
+                ),
+                "selected_noise_file_that_beat_expected": _selected_noise_that_beat_expected(
+                    scored_info=scored_info,
+                    selected_noise=selected_noise,
+                ),
+                "cap_block_diagnostic": _cap_block_diagnostic(
+                    status=status,
+                    fi=fi,
+                    scored_info=scored_info,
+                    summaries=plan.summaries,
+                    selected_by_path=selected_by_path,
+                    selected_tokens=selected_tokens,
+                    expected_set=expected_set,
+                    packed_tokens=packed_tokens,
+                    budget=budget,
+                ),
             })
+        selection_diagnostics = {
+            "selected_noise": selected_noise[:10],
+            "selected_noise_family_tokens": selected_family_waste_tokens,
+            "expected_ranked_not_selected": sum(1 for miss in missed_expected if miss["rank"] is not None),
+            "missed_expected_count": len(missed_expected),
+        }
     else:
         missed_expected = []
 
@@ -1188,6 +1237,8 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         skill_mrr=skill_mrr,
         skill_noise_rate=skill_noise,
         missed_expected=missed_expected,
+        top_candidates=top_candidates,
+        selection_diagnostics=selection_diagnostics,
     )
 
 
@@ -1202,6 +1253,251 @@ def _candidate_precision_at(scored_paths: list[str], expected_files: set[str], k
     if not candidates:
         return 0.0
     return len(set(candidates) & expected_files) / len(candidates)
+
+
+def _top_candidate_diagnostics(
+    *,
+    ranked_scored: list[tuple[Any, float, list[str]]],
+    selected_set: set[str],
+    expected_set: set[str],
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for rank, (fi, score, reasons) in enumerate(ranked_scored[:limit], 1):
+        path = str(getattr(fi, "path", ""))
+        rows.append({
+            "path": path,
+            "rank": rank,
+            "score": round(score, 1),
+            "family": _path_family(path),
+            "selected": path in selected_set,
+            "expected": path in expected_set,
+            "reasons": reasons[:4],
+        })
+    return rows
+
+
+def _selected_noise_diagnostics(
+    *,
+    selected_paths: list[str],
+    selected_tokens: dict[str, int],
+    selected_modes: dict[str, str],
+    scored_map: dict[str, dict[str, Any]],
+    expected_set: set[str],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in selected_paths:
+        if path in expected_set:
+            continue
+        scored_info = scored_map.get(path)
+        rows.append({
+            "path": path,
+            "family": _path_family(path),
+            "tokens": selected_tokens.get(path, 0),
+            "mode": selected_modes.get(path),
+            "rank": scored_info["rank"] if scored_info else None,
+            "score": round(scored_info["score"], 1) if scored_info else None,
+            "reasons": scored_info["reasons"][:4] if scored_info else [],
+        })
+    return rows
+
+
+def _would_select_with_one_more_slot(
+    *,
+    scored_info: dict[str, Any] | None,
+    selected_count: int,
+    status: str,
+) -> bool:
+    if scored_info is None:
+        return False
+    if any(term in status.lower() for term in ("not found", "ignored", "binary", "scored too low")):
+        return False
+    return int(scored_info.get("rank") or 0) <= selected_count + 1
+
+
+def _score_delta_vs_last_selected(
+    *,
+    scored_info: dict[str, Any] | None,
+    selected_paths: list[str],
+    scored_map: dict[str, dict[str, Any]],
+) -> float | None:
+    if scored_info is None:
+        return None
+    for path in reversed(selected_paths):
+        selected_info = scored_map.get(path)
+        if selected_info:
+            delta = float(scored_info["score"]) - float(selected_info["score"])
+            return round(delta, 1)
+    return None
+
+
+def _selected_noise_that_beat_expected(
+    *,
+    scored_info: dict[str, Any] | None,
+    selected_noise: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if scored_info is None:
+        return selected_noise[0] if selected_noise else None
+    expected_rank = int(scored_info.get("rank") or 0)
+    expected_score = float(scored_info.get("score") or 0.0)
+    ranked_noise = [
+        row for row in selected_noise
+        if row.get("rank") is not None and int(row["rank"]) < expected_rank
+    ]
+    if not ranked_noise:
+        ranked_noise = [
+            row for row in selected_noise
+            if row.get("score") is not None and float(row["score"]) >= expected_score
+        ]
+    return ranked_noise[0] if ranked_noise else None
+
+
+_CAP_STRONG_REASON_PREFIXES = (
+    "direct content evidence",
+    "direct dependency",
+    "has related tests",
+    "historically co-changed",
+    "keyword phrase match:",
+    "literal definition match:",
+    "matched call:",
+    "matched define:",
+    "matched entrypoint:",
+    "matched env read:",
+    "matched external system:",
+    "matched side effect:",
+    "multi-token",
+    "quoted literal match:",
+    "release/version metadata",
+    "reverse dependency",
+    "test for",
+    "workspace match",
+)
+
+
+def _cap_block_diagnostic(
+    *,
+    status: str,
+    fi: Any,
+    scored_info: dict[str, Any] | None,
+    summaries: dict[str, Any],
+    selected_by_path: dict[str, Any],
+    selected_tokens: dict[str, int],
+    expected_set: set[str],
+    packed_tokens: int,
+    budget: int,
+) -> dict[str, Any] | None:
+    if "cap reached" not in status.lower():
+        return None
+    candidate_path = str(getattr(fi, "path", ""))
+    candidate_tokens, candidate_mode = _candidate_compressed_estimate(
+        candidate_path,
+        fi=fi,
+        score=float(scored_info["score"]) if scored_info else 0.0,
+        summaries=summaries,
+    )
+    candidate_reasons = scored_info["reasons"] if scored_info else []
+    candidate_has_strong_evidence = _cap_has_strong_evidence(candidate_reasons)
+    replaceable = _replaceable_selected_noise(
+        selected_by_path=selected_by_path,
+        selected_tokens=selected_tokens,
+        expected_set=expected_set,
+    )
+    replaceable_tokens = sum(item["tokens"] for item in replaceable)
+    needed_tokens = max(0, packed_tokens + candidate_tokens - budget)
+    if not candidate_has_strong_evidence:
+        block_reason = "candidate evidence below replacement gate"
+    elif not replaceable:
+        block_reason = "no replaceable selected compressed noise"
+    elif replaceable_tokens < needed_tokens:
+        block_reason = "candidate too large for replaceable selected noise"
+    else:
+        block_reason = "replacement appears feasible"
+    return {
+        "candidate_tokens": candidate_tokens,
+        "candidate_mode": candidate_mode,
+        "candidate_has_strong_evidence": candidate_has_strong_evidence,
+        "needed_tokens": needed_tokens,
+        "replaceable_selected_tokens": replaceable_tokens,
+        "replaceable_selected": replaceable[:5],
+        "block_reason": block_reason,
+    }
+
+
+def _candidate_compressed_estimate(
+    path: str,
+    *,
+    fi: Any,
+    score: float,
+    summaries: dict[str, Any],
+) -> tuple[int, str]:
+    summary_data = summaries.get(path) or {}
+    symbols = _summary_symbols(summary_data)
+    if symbols and score >= 160:
+        parts: list[str] = []
+        summary = str(summary_data.get("summary") or "").strip() if isinstance(summary_data, dict) else ""
+        if summary:
+            parts.append(summary)
+        parts.extend(signature for signature in symbols if signature)
+        text = "\n".join(parts)
+        return (estimate_tokens(text) if text else 50), "skeleton"
+    if isinstance(summary_data, dict):
+        summary = str(summary_data.get("summary") or "").strip()
+        if summary:
+            return estimate_tokens(summary), "summary"
+    return min(int(getattr(fi, "estimated_tokens", 0) or 0), 200) or 50, "summary"
+
+
+def _summary_symbols(summary_data: Any) -> list[str]:
+    if not isinstance(summary_data, dict):
+        return []
+    signatures: list[str] = []
+    for item in summary_data.get("symbols") or []:
+        if isinstance(item, dict):
+            signature = item.get("signature")
+            if signature:
+                signatures.append(str(signature))
+        elif hasattr(item, "signature") and item.signature:
+            signatures.append(str(item.signature))
+    return signatures
+
+
+def _cap_has_strong_evidence(reasons: list[str]) -> bool:
+    content_hits = 0
+    for reason in reasons:
+        match = re.match(r"content keyword match \((\d+)\)", reason)
+        if match:
+            content_hits = max(content_hits, int(match.group(1)))
+    if content_hits >= 3 and any(reason.startswith(("matched define:", "matched call:", "keyword phrase match:")) for reason in reasons):
+        return True
+    if "config file" in reasons and content_hits >= 2:
+        return True
+    return any(reason.startswith(_CAP_STRONG_REASON_PREFIXES) for reason in reasons)
+
+
+def _replaceable_selected_noise(
+    *,
+    selected_by_path: dict[str, Any],
+    selected_tokens: dict[str, int],
+    expected_set: set[str],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path, sf in selected_by_path.items():
+        if path in expected_set:
+            continue
+        mode = getattr(sf, "include_mode", "")
+        reasons = list(getattr(sf, "reasons", []) or [])
+        if mode not in {"summary", "skeleton"}:
+            continue
+        if _cap_has_strong_evidence(reasons):
+            continue
+        rows.append({
+            "path": path,
+            "tokens": selected_tokens.get(path, 0),
+            "mode": mode,
+            "score": round(float(getattr(sf, "score", 0.0) or 0.0), 1),
+            "reasons": reasons[:4],
+        })
+    return sorted(rows, key=lambda row: (row["score"], -row["tokens"]))
 
 
 def _path_family(path: str) -> str:
@@ -1490,6 +1786,8 @@ def _result_record(result: CaseResult) -> dict[str, Any]:
         "skill_noise_rate": round(result.skill_noise_rate, 3) if result.skill_noise_rate is not None else None,
         "skill_token_cost": result.skill_token_cost,
         "misses": result.missed_expected,
+        "top_candidates": result.top_candidates,
+        "selection_diagnostics": result.selection_diagnostics,
     }
 
 

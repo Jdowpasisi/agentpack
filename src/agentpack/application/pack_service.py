@@ -46,6 +46,8 @@ from agentpack.analysis.ranking import (
     score_files,
     enrich_keyword_weights_from_files,
     boost_paired_tests,
+    boost_api_endpoint_pairs,
+    boost_frontend_api_consumers,
     boost_cross_layer_related,
     boost_monorepo_workspaces,
     boost_recall_neighbors,
@@ -262,6 +264,8 @@ class FileRanker:
         )
         scored = boost_recall_neighbors(scored, dep_graph, changes.all_changed, weights=cfg.scoring)
         scored = boost_second_pass_expansion(scored, dep_graph, keyword_plan, weights=cfg.scoring)
+        scored = boost_frontend_api_consumers(scored, summaries, keyword_plan, weights=cfg.scoring)
+        scored = boost_api_endpoint_pairs(scored, keyword_plan, weights=cfg.scoring)
         scored = boost_cross_layer_related(scored, keyword_plan, weights=cfg.scoring)
         scored = boost_paired_tests(scored, weights=cfg.scoring)
         if root is not None:
