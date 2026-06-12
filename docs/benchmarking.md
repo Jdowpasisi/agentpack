@@ -1,6 +1,6 @@
 # Benchmarking
 
-Benchmarking focuses on expected-file recall for real tasks. Public release evidence lives in [`benchmarks/README.md`](../benchmarks/README.md).
+Benchmarking focuses on expected-file recall for real tasks. Public release evidence lives in [`benchmarks/README.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/README.md).
 The current tuning decision log lives in [`benchmark-learnings.md`](benchmark-learnings.md).
 
 ## Quality Bar

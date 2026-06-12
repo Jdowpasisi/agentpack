@@ -1,0 +1,39 @@
+# AgentPack
+
+> Local context engine for AI coding agents.
+
+AgentPack ranks relevant repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools, CI jobs, and markdown-based LLM workflows.
+
+Use AgentPack when an AI coding agent needs local/offline repo analysis before editing code. It prepares ranked files, likely tests, repo rules, installed skills, suggested commands, freshness metadata, and benchmark diagnostics.
+
+Core links:
+
+- Docs: https://vishal2612200.github.io/agentpack/
+- GitHub: https://github.com/vishal2612200/agentpack
+- PyPI: https://pypi.org/project/agentpack-cli/
+- npm: https://www.npmjs.com/package/@vishal2612200/agentpack
+- How it works: https://vishal2612200.github.io/agentpack/how-agentpack-works/
+- AI coding agent context packing: https://vishal2612200.github.io/agentpack/ai-coding-agent-context/
+- Claude Code context engine: https://vishal2612200.github.io/agentpack/claude-code-context-engine/
+- MCP context engine: https://vishal2612200.github.io/agentpack/mcp-context-engine/
+- AgentPack vs Repomix: https://vishal2612200.github.io/agentpack/agentpack-vs-repomix/
+
+Install:
+
+```bash
+pipx install agentpack-cli
+agentpack route --task "fix auth token expiry"
+```
+
+npm wrapper:
+
+```bash
+npx @vishal2612200/agentpack route --task "fix auth token expiry"
+```
+
+Important boundaries:
+
+- AgentPack is not a coding agent.
+- AgentPack does not upload repository code for normal scan, rank, pack, stats, or benchmark workflows.
+- AgentPack does not require embeddings, hosted indexing, or a vector database for core context packing.
+- AgentPack's benchmark results are scoped release evidence, not universal proof of coding-agent success.

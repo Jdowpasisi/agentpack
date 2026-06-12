@@ -1089,7 +1089,7 @@ agentpack benchmark --compare --misses --prove-targets
 
 For an 8+ usefulness signal, use `benchmark.toml` with real third-party or customer-style repos: 5-20 historical tasks, `task_type` labels, the files actually changed for each task, and `--compare` results for recall, F1, rank@K, and token noise. That is better than trusting generic benchmarks because it tells you whether AgentPack selects the files that matter in code the package has never seen.
 
-See [benchmarks/README.md](../benchmarks/README.md) for the public smoke-suite fixtures, quality gates, and the recommended miss-debugging workflow.
+See [benchmarks/README.md](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/README.md) for the public smoke-suite fixtures, quality gates, and the recommended miss-debugging workflow.
 
 ---
 

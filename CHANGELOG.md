@@ -8,6 +8,9 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Changed
+- Improved search and AI-discovery readiness with aligned package metadata, project URLs, README positioning, MkDocs site metadata, intent-page expansions, and AI-readable `llms.txt` summaries.
+
 ---
 
 ## [0.3.21] — 2026-06-12

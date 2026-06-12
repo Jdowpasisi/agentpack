@@ -8,9 +8,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-**Local context router for AI coding agents.**
+**Local context engine for AI coding agents.**
 
-AgentPack gives Claude Code, Codex, Cursor, and other coding agents a ranked starting map before they burn tool calls rediscovering your repo.
+AgentPack ranks relevant repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools, CI jobs, and markdown-based LLM workflows.
+
+It runs local/offline repo analysis, compresses selected files into a token budget, and keeps context fresh through CLI commands, MCP tools, hooks, and agent integrations. Use it when an AI coding agent needs a ranked starting map instead of burning tool calls rediscovering your repo.
+
+AgentPack is a context preparation tool, not a coding agent.
 
 One workflow matters:
 
@@ -141,7 +145,7 @@ and [`docs/data-flow.md`](docs/data-flow.md).
 Start with the [docs index](docs/index.md), or jump to guides for
 [Claude Code](docs/claude-code-context-engine.md), [MCP](docs/mcp-context-engine.md),
 [Cursor](docs/cursor-context-packing.md), [token usage](docs/reduce-claude-code-token-usage.md),
-and [how AgentPack works](docs/how-agentpack-works.md).
+[AI coding agent context](docs/ai-coding-agent-context.md), and [how AgentPack works](docs/how-agentpack-works.md).
 
 ## Install
 

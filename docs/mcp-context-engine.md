@@ -1,6 +1,13 @@
+---
+title: MCP Context Engine
+description: AgentPack exposes local repo context through MCP so AI coding agents can request fresh task-specific files, rules, skills, commands, and warnings.
+---
+
 # MCP Context Engine
 
-AgentPack exposes local repo context through CLI and MCP workflows. The MCP path lets an agent request task-specific context instead of relying on one large static prompt.
+AgentPack exposes local repo context through CLI and MCP workflows. The MCP path lets an AI coding agent request task-specific context instead of relying on one large static prompt.
+
+Use AgentPack as an MCP context engine when an agent needs fresh local repository context for a concrete task.
 
 ## Core MCP flow
 
@@ -8,6 +15,8 @@ AgentPack exposes local repo context through CLI and MCP workflows. The MCP path
 2. `get_context()` returns the latest pack and refreshes once when the task or repo snapshot changed.
 3. `route_task(task)` returns a read-only route: relevant files, rules, skills, commands, safety warnings, and an agent prompt.
 4. `get_skill(name_or_path)` loads one recommended skill's `SKILL.md` content on demand.
+
+This keeps the first prompt smaller while still letting the agent retrieve more detail when needed.
 
 ## Local-first design
 
@@ -19,7 +28,7 @@ AgentPack does not need cloud indexing, hosted LLM calls, embeddings, or a vecto
 agentpack route --task "fix billing webhook retry handling"
 ```
 
-Use `--format json` when wiring the result into scripts:
+Use JSON output when wiring results into scripts:
 
 ```bash
 agentpack route --task "fix billing webhook retry handling" --format json
@@ -31,6 +40,21 @@ Debug skill routing directly:
 agentpack skills recommend --task "fix billing webhook retry handling" --explain
 ```
 
-## When MCP helps
+## Why MCP helps
 
-MCP is useful when agents otherwise spend turns grepping, opening files, and refreshing stale context manually. AgentPack keeps that selection step explicit, local, and measurable.
+MCP is useful when agents otherwise spend turns searching, opening files, and refreshing stale context manually. AgentPack keeps that selection step explicit, local, and measurable.
+
+MCP also lets agents fetch context after the working tree changes. Static markdown can go stale; AgentPack includes freshness metadata and can refresh when task text, git state, or repo snapshots drift.
+
+## What AgentPack can return
+
+An MCP route or context response can include:
+
+- selected files and render modes
+- omitted files and selection receipts
+- likely tests and suggested commands
+- repo-local rules and skills
+- safety warnings
+- token stats and freshness metadata
+
+The coding agent still owns source inspection, edits, and verification.

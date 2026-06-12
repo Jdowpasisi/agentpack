@@ -1,6 +1,8 @@
 # AgentPack Docs
 
-AgentPack is a local MCP context router for Claude Code, Codex, Cursor, Windsurf, Antigravity, and other AI coding agents.
+AgentPack is a local context engine for AI coding agents. It ranks relevant repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools, CI jobs, and markdown-based LLM workflows.
+
+Use these docs when you want local/offline repo analysis, MCP-first routing, CI-friendly context packs, and benchmarkable file-selection quality without hosted indexing or embeddings.
 
 ## Start here
 
@@ -11,6 +13,7 @@ AgentPack is a local MCP context router for Claude Code, Codex, Cursor, Windsurf
 - [How AgentPack works](how-agentpack-works.md)
 - [Benchmarking](benchmarking.md)
 - [Benchmark learnings](benchmark-learnings.md)
+- [AgentPack for AI agents](agentpack-for-ai-agents.md)
 - [Privacy](privacy.md)
 - [Threat model](threat-model.md)
 - [Data flow](data-flow.md)

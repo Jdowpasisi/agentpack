@@ -1,6 +1,13 @@
+---
+title: Reduce Claude Code Token Usage
+description: How AgentPack reduces repeated repo-orientation context in Claude Code by preparing compact task-specific context packs.
+---
+
 # Reduce Claude Code Token Usage
 
 AgentPack can reduce context waste in Claude Code workflows by preparing a compact, task-specific context pack instead of dumping broad repo text into the prompt.
+
+The goal is not a magic fixed reduction percentage. The goal is to avoid repeated orientation work and give Claude the files, tests, rules, and commands most likely to matter for one task.
 
 ## What it reduces
 
@@ -8,21 +15,13 @@ AgentPack can reduce context waste in Claude Code workflows by preparing a compa
 - unrelated files in prompts
 - stale markdown packs
 - manual repo maps rebuilt across sessions
+- broad copy-paste context for tasks that need a narrow file set
 
 ## What it does not claim
 
 AgentPack does not guarantee a fixed percent token reduction for every repo or task. Token savings depend on repo size, task specificity, ignore rules, and the selected context budget.
 
-The current published v0.3.20 public release table reports:
-
-| Metric | Result |
-|---|---:|
-| Avg recall | 79.2% |
-| Avg token precision | 51.2% |
-| Pack p50 | 1,450 tokens |
-| Pack p95 | 3,805 tokens |
-
-See [`../benchmarks/results/2026-06-11-public.md`](../benchmarks/results/2026-06-11-public.md) for the full table.
+AgentPack also does not prove correctness. Claude Code and the reviewer still own source inspection, tests, and final review.
 
 ## Safer first command
 
@@ -37,3 +36,34 @@ Then use a full pack when you want a markdown context artifact:
 ```bash
 agentpack work "fix auth token expiry"
 ```
+
+## Current benchmark framing
+
+The current published public release table reports scoped evidence from pinned public commits. It is useful for regression checks, not universal proof.
+
+| Metric | Result |
+|---|---:|
+| Avg recall | 79.2% |
+| Avg token precision | 51.2% |
+| Pack p50 | 1,450 tokens |
+| Pack p95 | 3,805 tokens |
+
+See [`benchmarks/results/2026-06-11-public.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/results/2026-06-11-public.md) for the full table.
+
+## How to tune token use
+
+Start with specific task text:
+
+```bash
+agentpack task set "fix expired refresh token handling in auth middleware"
+agentpack pack --task auto
+```
+
+If AgentPack selects too much, tighten `.agentignore`, lower budgets, or use route-only output. If it misses files, capture the task as a benchmark case:
+
+```bash
+agentpack benchmark capture --since main --task "fix expired refresh token handling in auth middleware"
+agentpack benchmark --misses
+```
+
+That feedback helps teams measure whether packs are getting smaller and more accurate over time.

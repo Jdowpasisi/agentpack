@@ -1,11 +1,11 @@
 [project]
 name = "agentpack-cli"
 version = "0.3.21"
-description = "Local MCP context router for Claude Code, Codex, Cursor, and AI coding agents."
+description = "Local context engine for AI coding agents that ranks relevant repo files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, MCP, and CI workflows."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-keywords = ["ai-coding-agents", "coding-agent", "ai-agent", "claude-code", "developer-tools", "repo-analysis", "repo-context", "context-engine", "mcp-context-engine", "context-router", "context-packing", "prompt-context", "reduce-token-usage", "mcp", "ci", "codex", "cursor", "windsurf", "antigravity", "ai", "llm", "context", "packing"]
+keywords = ["ai-coding-agents", "coding-agent", "ai-agent", "claude-code", "developer-tools", "repo-analysis", "repo-context", "context-engine", "mcp-context-engine", "context-router", "context-packing", "prompt-context", "task-focused-context", "reduce-token-usage", "local-first", "repo-map", "mcp", "ci", "codex", "cursor", "windsurf", "antigravity", "ai", "llm", "context", "packing"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -27,6 +27,13 @@ dependencies = [
   "watchdog>=4.0.0",
   "tomli>=2.0.0; python_version < '3.11'"
 ]
+
+[project.urls]
+Homepage = "https://github.com/vishal2612200/agentpack"
+Documentation = "https://vishal2612200.github.io/agentpack/"
+Repository = "https://github.com/vishal2612200/agentpack"
+Issues = "https://github.com/vishal2612200/agentpack/issues"
+Changelog = "https://github.com/vishal2612200/agentpack/blob/main/CHANGELOG.md"
 
 [project.scripts]
 agentpack = "agentpack.cli:app"
