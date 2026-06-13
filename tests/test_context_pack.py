@@ -787,6 +787,57 @@ def test_same_playground_test_can_overflow_summary_cap_once():
     )
 
 
+def test_same_playground_overflow_test_is_not_replaced_by_later_source_noise():
+    selected_context = _fi("playground/css/vite.config.ts")
+    paired_test = _fi("playground/css/__tests__/tests.ts")
+    later_source = _fi("packages/vite/rollupLicensePlugin.ts")
+
+    selected, receipts = select_files(
+        files=[selected_context, paired_test, later_source],
+        scored=[
+            (
+                selected_context,
+                800.0,
+                ["filename keyword match", "conventional scope path match", "config file", "content keyword match (4)"],
+            ),
+            (
+                paired_test,
+                120.0,
+                [
+                    "filename keyword match",
+                    "conventional scope path match",
+                    "matched call: rawImportCss.textContent",
+                    "content keyword match (4)",
+                ],
+            ),
+            (
+                later_source,
+                110.0,
+                [
+                    "symbol keyword match",
+                    "matched define: renderLicense",
+                    "matched call: rawImportCss.textContent",
+                    "content keyword match (5)",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            selected_context.path: {"summary": "CSS playground config.", "symbols": []},
+            paired_test.path: {"summary": "CSS playground tests.", "symbols": []},
+            later_source.path: {"summary": "Rollup license plugin.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [selected_context.path, paired_test.path]
+    assert "same-playground test overflow" in selected[1].reasons
+    assert any(r.path == later_source.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
 def test_strict_summary_selection_keeps_direct_summary_evidence():
     fi = _fi("src/lib/auth.ts")
     selected, _ = select_files(
@@ -972,6 +1023,121 @@ def test_strict_balanced_caps_duplicate_config_summaries():
 
     assert len(selected) == 1
     assert any(r.path == "tailwind.config.ts" and r.reason == "config compressed context cap reached" for r in receipts)
+
+
+def test_strict_balanced_replaces_weak_config_slot_with_stronger_direct_evidence():
+    weak = _fi("playground/basic/vite.config.ts", tokens=120)
+    strong = _fi("vite.config.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[weak, strong],
+        scored=[
+            (weak, 260.0, ["filename keyword match", "config file", "content keyword match (2)"]),
+            (
+                strong,
+                220.0,
+                [
+                    "filename keyword match",
+                    "config file",
+                    "content keyword match (6)",
+                    "keyword phrase match: vite config",
+                    "matched env read: VITE_API_URL",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            weak.path: {"summary": "Weak playground config.", "symbols": []},
+            strong.path: {"summary": "Root Vite config.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [strong.path]
+    assert any(
+        r.path == weak.path and r.reason == f"marginal slot replaced by {strong.path}"
+        for r in receipts
+    )
+
+
+def test_config_source_balance_seeds_source_before_duplicate_configs():
+    first_config = _fi("packages/vite/vite.config.ts", tokens=120)
+    second_config = _fi("packages/vite/vitest.config.ts", tokens=120)
+    source = _fi("packages/vite/src/node/server/index.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[first_config, second_config, source],
+        scored=[
+            (first_config, 420.0, ["config file", "content keyword match (3)", "keyword phrase match: vite config"]),
+            (second_config, 410.0, ["config file", "content keyword match (3)", "keyword phrase match: vite config"]),
+            (
+                source,
+                300.0,
+                ["symbol keyword match", "matched define: createServer", "content keyword match (3)"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            first_config.path: {"summary": "Vite config.", "symbols": []},
+            second_config.path: {"summary": "Vitest config.", "symbols": []},
+            source.path: {"summary": "Server source.", "symbols": []},
+        },
+        mode="balanced",
+        budget=10000,
+        max_file_tokens=4000,
+        max_summary_files=2,
+    )
+
+    assert [sf.path for sf in selected] == [source.path, first_config.path]
+    assert any(r.path == second_config.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
+def test_scoped_replacement_can_spend_small_token_delta_for_stronger_evidence():
+    weak = _fi("packages/vite/src/node/plugins/html.ts", tokens=120)
+    strong = _fi("packages/vite/src/node/plugins/index.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[weak, strong],
+        scored=[
+            (weak, 500.0, ["filename keyword match", "content keyword match (1)"]),
+            (
+                strong,
+                300.0,
+                [
+                    "symbol keyword match",
+                    "matched define: createServer",
+                    "matched call: resolveServerOptions",
+                    "content keyword match (4)",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            weak.path: {"summary": "Short plugin.", "symbols": []},
+            strong.path: {
+                "summary": "Server source has direct evidence and a slightly longer useful summary.",
+                "symbols": [
+                    {
+                        "name": "createServer",
+                        "kind": "function",
+                        "start_line": 1,
+                        "end_line": 3,
+                        "signature": "export async function createServer()",
+                    }
+                ],
+            },
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [strong.path]
+    assert any(r.path == weak.path and r.reason == f"marginal slot replaced by {strong.path}" for r in receipts)
 
 
 def test_direct_source_candidate_beats_smaller_playground_match():

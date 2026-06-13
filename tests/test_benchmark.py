@@ -62,6 +62,7 @@ from agentpack.commands.benchmark import (
     _low_budget_extra_file_waste,
     _low_budget_waste_summary,
     _write_results_jsonl,
+    _replacement_pair_diagnostics,
 )
 
 
@@ -328,6 +329,38 @@ def test_low_budget_waste_summary_averages_observed_cases() -> None:
     assert cases == 2
     assert avg_waste == pytest.approx(50)
     assert avg_delta == pytest.approx(0.0)
+
+
+def test_replacement_pair_diagnostics_parse_marginal_receipts() -> None:
+    rows = _replacement_pair_diagnostics(
+        receipts=[
+            Receipt(
+                path="src/noise.py",
+                action="excluded",
+                reason="marginal slot replaced by src/expected.py",
+            )
+        ],
+        scored_map={
+            "src/noise.py": {"rank": 1, "score": 300.0, "reasons": ["filename keyword match"]},
+            "src/expected.py": {
+                "rank": 5,
+                "score": 260.0,
+                "reasons": ["matched define: expected", "content keyword match (4)"],
+            },
+        },
+        selected_tokens={"src/noise.py": 120},
+    )
+
+    assert rows == [{
+        "displaced": "src/noise.py",
+        "challenger": "src/expected.py",
+        "displaced_score": 300.0,
+        "challenger_score": 260.0,
+        "challenger_rank": 5,
+        "displaced_tokens": 120,
+        "challenger_reasons": ["matched define: expected", "content keyword match (4)"],
+        "displaced_reasons": ["filename keyword match"],
+    }]
 
 
 # ---------------------------------------------------------------------------

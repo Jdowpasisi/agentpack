@@ -499,6 +499,36 @@ def _is_root_go_source_candidate(path: str, reasons: list[str]) -> bool:
     )
 
 
+def _is_balance_config_candidate(path: str, reasons: list[str]) -> bool:
+    if "config file" not in reasons or _is_lock_or_generated_path(path):
+        return False
+    return _content_keyword_hits(reasons) >= 2 or any(
+        reason.startswith((
+            "keyword phrase match:",
+            "matched define:",
+            "matched env read:",
+            "multi-term path match",
+        ))
+        for reason in reasons
+    )
+
+
+def _is_balance_source_candidate(path: str, reasons: list[str]) -> bool:
+    if not _is_source_path(path) or "config file" in reasons:
+        return False
+    return _has_direct_source_evidence(reasons) or _has_actionable_compressed_evidence(reasons)
+
+
+def _balance_scope(path: str) -> str:
+    scoped = _package_root(path) or _playground_root(path)
+    if scoped:
+        return scoped
+    parts = [part for part in Path(path).parts if part]
+    if len(parts) >= 2 and parts[0] in {"src", "lib", "app", "apps"}:
+        return "/".join(parts[:2])
+    return ""
+
+
 def _selection_priority(
     item: tuple[FileInfo, float, list[str]],
     changed_paths: set[str],
@@ -723,6 +753,50 @@ def _reserve_bucket_order(
     if not seeded:
         return ordered
     seeded.extend(item for index, item in enumerate(ordered) if index not in selected_indexes)
+    return seeded
+
+
+def _config_source_balanced_order(
+    ordered: list[tuple[FileInfo, float, list[str]]],
+    max_summary_files: int,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Seed one strong config and one strong source before duplicate same-family picks."""
+    if max_summary_files < 2 or len(ordered) < 3:
+        return ordered
+    first_window = ordered[:max_summary_files]
+    has_config = any(_is_balance_config_candidate(fi.path, reasons) for fi, _score, reasons in first_window)
+    has_source = any(_is_balance_source_candidate(fi.path, reasons) for fi, _score, reasons in first_window)
+    if has_config and has_source:
+        return ordered
+
+    config_index: int | None = None
+    source_index: int | None = None
+    config_scope = ""
+    source_scope = ""
+    for index, (fi, _score, reasons) in enumerate(ordered[:30]):
+        if config_index is None and _is_balance_config_candidate(fi.path, reasons):
+            config_index = index
+            config_scope = _balance_scope(fi.path)
+        if source_index is None and _is_balance_source_candidate(fi.path, reasons):
+            source_index = index
+            source_scope = _balance_scope(fi.path)
+        if config_index is not None and source_index is not None:
+            break
+    if config_index is None or source_index is None:
+        return ordered
+    if config_scope and source_scope and config_scope != source_scope:
+        return ordered
+
+    seed_indexes: list[int] = []
+    if not has_config:
+        seed_indexes.append(config_index)
+    if not has_source:
+        seed_indexes.append(source_index)
+    if not seed_indexes:
+        return ordered
+    seed_indexes = sorted(set(seed_indexes))
+    seeded = [ordered[index] for index in seed_indexes]
+    seeded.extend(item for index, item in enumerate(ordered) if index not in seed_indexes)
     return seeded
 
 
@@ -976,6 +1050,112 @@ def _can_overflow_same_playground_test(path: str, reasons: list[str], selected: 
     return any(_playground_root(sf.path) == playground for sf in selected)
 
 
+def _marginal_evidence_score(path: str, score: float, reasons: list[str], token_cost: int) -> float:
+    """Score final-slot utility using evidence density, not raw rank alone."""
+    evidence = min(score, 220.0) * 0.25
+    content_hits = _content_keyword_hits(reasons)
+    evidence += min(content_hits, 6) * 18.0
+    if _has_direct_source_evidence(reasons):
+        evidence += 130.0
+    if _has_actionable_compressed_evidence(reasons):
+        evidence += 95.0
+    if _has_strict_summary_support(reasons, path):
+        evidence += 65.0
+    if "config file" in reasons and content_hits >= 2:
+        evidence += 45.0
+    if any(reason.startswith(("direct dependency", "reverse dependency", "caller of selected symbol")) for reason in reasons):
+        evidence += 60.0
+    if any(reason.startswith("workspace match") for reason in reasons):
+        evidence += 25.0
+    if _is_test_path(path) and "explicit test task file" not in reasons:
+        evidence -= 55.0
+    if _is_example_or_playground_path(path):
+        evidence -= 45.0
+    if _is_docs_path(path):
+        evidence -= 40.0
+    if _is_weak_signal_candidate(reasons):
+        evidence -= 60.0
+    if token_cost > 0:
+        evidence += min(35.0, 1200.0 / max(token_cost, 40))
+    return evidence
+
+
+def _find_marginal_replacement(
+    selected: list[SelectedFile],
+    *,
+    challenger_path: str,
+    challenger_score: float,
+    challenger_reasons: list[str],
+    challenger_tokens: int,
+    selected_token_costs: dict[str, int],
+    required_family: str | None = None,
+    max_extra_tokens: int = 0,
+) -> int | None:
+    if _is_test_path(challenger_path) and "explicit test task file" not in challenger_reasons:
+        return None
+    challenger_evidence = _marginal_evidence_score(
+        challenger_path,
+        challenger_score,
+        challenger_reasons,
+        challenger_tokens,
+    )
+    best_index: int | None = None
+    best_gain = 0.0
+    for index, incumbent in enumerate(selected):
+        if incumbent.include_mode not in ("summary", "skeleton"):
+            continue
+        if any(reason in {"same-package test overflow", "same-playground test overflow"} for reason in incumbent.reasons):
+            continue
+        if (
+            len(Path(incumbent.path).parts) == 1
+            and _is_primary_release_metadata(incumbent.path, incumbent.reasons)
+            and len(Path(challenger_path).parts) > 1
+        ):
+            continue
+        incumbent_scope = _replacement_scope(incumbent.path, incumbent.reasons)
+        challenger_scope = _replacement_scope(challenger_path, challenger_reasons)
+        challenger_is_root_config = len(Path(challenger_path).parts) == 1 and "config file" in challenger_reasons
+        if incumbent_scope is not None and challenger_scope != incumbent_scope and not challenger_is_root_config:
+            continue
+        incumbent_tokens = selected_token_costs.get(incumbent.path, 0)
+        token_delta = challenger_tokens - incumbent_tokens
+        if token_delta > max_extra_tokens:
+            continue
+        if required_family is not None:
+            incumbent_family = _compressed_context_family(incumbent.path, incumbent.reasons)
+            if incumbent_family is None or incumbent_family[0] != required_family:
+                continue
+        incumbent_evidence = _marginal_evidence_score(
+            incumbent.path,
+            incumbent.score,
+            incumbent.reasons,
+            incumbent_tokens,
+        )
+        gain = challenger_evidence - incumbent_evidence
+        required_gain = 70.0 + max(0, token_delta) * 0.15
+        if gain >= required_gain and gain > best_gain:
+            best_gain = gain
+            best_index = index
+    return best_index
+
+
+def _replacement_scope(path: str, reasons: list[str]) -> str | None:
+    parts = [part for part in Path(path).parts if part]
+    if not parts:
+        return None
+    if _playground_root(path):
+        return _playground_root(path)
+    if len(parts) >= 2 and parts[0] == "integration":
+        return "/".join(parts[:2])
+    if _is_source_path(path) and len(parts) >= 5 and parts[0] == "packages" and parts[2] == "src":
+        return "/".join(parts[:-1])
+    if _is_test_path(path) and len(parts) >= 3:
+        return "/".join(parts[:-1])
+    if _package_root(path):
+        return _package_root(path)
+    return _balance_scope(path) or None
+
+
 def select_files(
     files: list[FileInfo],
     scored: list[tuple[FileInfo, float, list[str]]],
@@ -994,6 +1174,7 @@ def select_files(
     opts = _MODE_WEIGHTS[mode]
     selected: list[SelectedFile] = []
     receipts: list[Receipt] = []
+    selected_token_costs: dict[str, int] = {}
     tokens_used = 0
     summaries_used = 0
     kw = keywords or set()
@@ -1006,12 +1187,32 @@ def select_files(
     primary_release_metadata_selected = False
     compressed_family_counts: dict[str, int] = {}
 
+    def displace_selected(index: int, challenger_path: str) -> None:
+        nonlocal tokens_used, summaries_used
+        displaced = selected.pop(index)
+        displaced_tokens = selected_token_costs.pop(displaced.path, 0)
+        tokens_used -= displaced_tokens
+        if displaced.include_mode in ("summary", "skeleton"):
+            summaries_used = max(0, summaries_used - 1)
+        displaced_family = _compressed_context_family(displaced.path, displaced.reasons)
+        if displaced_family is not None:
+            family, _cap = displaced_family
+            compressed_family_counts[family] = max(0, compressed_family_counts.get(family, 0) - 1)
+        receipts.append(
+            Receipt(
+                path=displaced.path,
+                action="excluded",
+                reason=f"marginal slot replaced by {challenger_path}",
+            )
+        )
+
     ranked = sorted(
         scored,
         key=lambda item: _selection_priority(item, changed_paths, max_file_tokens, summaries=summaries),
         reverse=True,
     )
     ordered = _reserve_bucket_order(ranked, changed_paths, budget)
+    ordered = _config_source_balanced_order(ordered, max_summary_files)
     for fi, score, reasons in ordered:
         if fi.ignored or fi.binary:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="ignored or binary"))
@@ -1174,6 +1375,23 @@ def select_files(
             if family_cap is not None:
                 family, cap = family_cap
                 if compressed_family_counts.get(family, 0) >= cap:
+                    max_extra_tokens = min(120, max(0, budget - tokens_used))
+                    replacement_index = _find_marginal_replacement(
+                        selected,
+                        challenger_path=fi.path,
+                        challenger_score=score,
+                        challenger_reasons=reasons,
+                        challenger_tokens=tok,
+                        selected_token_costs=selected_token_costs,
+                        required_family=family,
+                        max_extra_tokens=max_extra_tokens,
+                    )
+                    if replacement_index is not None:
+                        displace_selected(replacement_index, fi.path)
+                    else:
+                        receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
+                        continue
+                if compressed_family_counts.get(family, 0) >= cap:
                     receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
                     continue
 
@@ -1193,11 +1411,54 @@ def select_files(
                 and _can_overflow_same_playground_test(fi.path, reasons, selected)
             )
             if not paired_test_overflow and not playground_test_overflow:
-                receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context cap reached"))
+                max_extra_tokens = min(120, max(0, budget - tokens_used))
+                replacement_index = _find_marginal_replacement(
+                    selected,
+                    challenger_path=fi.path,
+                    challenger_score=score,
+                    challenger_reasons=reasons,
+                    challenger_tokens=tok,
+                    selected_token_costs=selected_token_costs,
+                    max_extra_tokens=max_extra_tokens,
+                )
+                if replacement_index is not None:
+                    displace_selected(replacement_index, fi.path)
+                else:
+                    receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context cap reached"))
+                    continue
+            else:
+                reasons = reasons + [
+                    "same-package test overflow" if paired_test_overflow else "same-playground test overflow"
+                ]
+
+        if tokens_used + tok > budget:
+            replacement_index = _find_marginal_replacement(
+                selected,
+                challenger_path=fi.path,
+                challenger_score=score,
+                challenger_reasons=reasons,
+                challenger_tokens=tok,
+                selected_token_costs=selected_token_costs,
+            )
+            if replacement_index is not None:
+                displace_selected(replacement_index, fi.path)
+            elif omitted_relevant_files is not None:
+                omitted_relevant_files.append(
+                    OmittedRelevantFile(
+                        path=fi.path,
+                        score=score,
+                        reasons=reasons,
+                        estimated_tokens=fi.estimated_tokens,
+                        suggested_mode=mode_str,
+                        omission_reason="budget exhausted",
+                        risk=classify_omission_risk(fi.path, reasons, score),
+                    )
+                )
+                receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
                 continue
-            reasons = reasons + [
-                "same-package test overflow" if paired_test_overflow else "same-playground test overflow"
-            ]
+            else:
+                receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
+                continue
 
         if tokens_used + tok > budget:
             if omitted_relevant_files is not None:
@@ -1272,6 +1533,7 @@ def select_files(
                 redaction_warnings=redaction_warnings,
             )
         )
+        selected_token_costs[fi.path] = tok
 
         action: Literal["included", "excluded", "summarized"] = (
             "included" if mode_str == "full" else "summarized"

@@ -1189,6 +1189,7 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
             "selected_noise_family_tokens": selected_family_waste_tokens,
             "expected_ranked_not_selected": sum(1 for miss in missed_expected if miss["rank"] is not None),
             "missed_expected_count": len(missed_expected),
+            "replacement_pairs": _replacement_pair_diagnostics(plan.receipts, scored_map, selected_tokens),
         }
     else:
         missed_expected = []
@@ -1472,6 +1473,34 @@ def _cap_has_strong_evidence(reasons: list[str]) -> bool:
     if "config file" in reasons and content_hits >= 2:
         return True
     return any(reason.startswith(_CAP_STRONG_REASON_PREFIXES) for reason in reasons)
+
+
+def _replacement_pair_diagnostics(
+    receipts: list[Any],
+    scored_map: dict[str, dict[str, Any]],
+    selected_tokens: dict[str, int],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    marker = "marginal slot replaced by "
+    for receipt in receipts:
+        reason = getattr(receipt, "reason", "")
+        if not isinstance(reason, str) or marker not in reason:
+            continue
+        displaced_path = getattr(receipt, "path", "")
+        challenger_path = reason.split(marker, 1)[1].strip()
+        displaced = scored_map.get(displaced_path, {})
+        challenger = scored_map.get(challenger_path, {})
+        rows.append({
+            "displaced": displaced_path,
+            "challenger": challenger_path,
+            "displaced_score": round(float(displaced.get("score", 0.0) or 0.0), 1),
+            "challenger_score": round(float(challenger.get("score", 0.0) or 0.0), 1),
+            "challenger_rank": challenger.get("rank"),
+            "displaced_tokens": selected_tokens.get(displaced_path, 0),
+            "challenger_reasons": list(challenger.get("reasons", []) or [])[:4],
+            "displaced_reasons": list(displaced.get("reasons", []) or [])[:4],
+        })
+    return rows[:20]
 
 
 def _replaceable_selected_noise(
