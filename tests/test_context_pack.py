@@ -1442,6 +1442,136 @@ def test_strong_test_cap_overflow_adds_two_cheap_high_evidence_tests():
     assert any(r.path == files[6].path and r.reason == "tests compressed context cap reached" for r in receipts)
 
 
+def test_cleanup_refactor_candidates_can_bypass_guarded_summary_floor():
+    files = [
+        _fi("src/main/java/example/OwnerRepository.java", tokens=200),
+        _fi("src/main/java/example/PetTypeRepository.java", tokens=180),
+        _fi("src/test/java/example/PetControllerTests.java", tokens=160),
+        _fi("pom.xml", tokens=80),
+    ]
+    maintenance_reasons = [
+        "content keyword match (1)",
+        "implementation role match",
+        "cross-layer related implementation",
+    ]
+
+    selected, receipts = select_files(
+        files=files,
+        scored=[
+            (files[0], 90.0, maintenance_reasons),
+            (files[1], 75.0, maintenance_reasons),
+            (files[2], 85.0, maintenance_reasons),
+            (files[3], 65.0, ["recently modified", "high churn (29 commits)"]),
+        ],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": f"Summary for {fi.path}.", "symbols": []} for fi in files},
+        mode="balanced",
+        budget=5000,
+        max_file_tokens=4000,
+        keywords={"unused", "imports"},
+        min_summary_score=130.0,
+        max_summary_files=4,
+        strict_summary_selection=True,
+    )
+
+    assert {sf.path for sf in selected} == {files[0].path, files[1].path, files[2].path}
+    assert all(sf.include_mode == "summary" for sf in selected)
+    assert any(r.path == files[3].path and r.reason == "summary score below floor" for r in receipts)
+
+
+def test_cleanup_refactor_config_file_can_bypass_guarded_summary_floor():
+    config = _fi("pyproject.toml", tokens=120)
+    weak_config = _fi("pom.xml", tokens=120)
+
+    selected, receipts = select_files(
+        files=[config, weak_config],
+        scored=[
+            (config, 88.0, ["filename keyword match", "content keyword match (2)", "config file"]),
+            (weak_config, 65.0, ["content keyword match (1)", "config file"]),
+        ],
+        changed_paths=set(),
+        summaries={
+            config.path: {"summary": "Python project configuration.", "symbols": []},
+            weak_config.path: {"summary": "Maven project configuration.", "symbols": []},
+        },
+        mode="balanced",
+        budget=5000,
+        max_file_tokens=4000,
+        keywords={"unused", "config"},
+        min_summary_score=130.0,
+        max_summary_files=4,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [config.path]
+    assert any(r.path == weak_config.path and r.reason == "summary score below floor" for r in receipts)
+
+
+def test_deprecation_maintenance_code_can_bypass_guarded_summary_floor():
+    source = _fi("src/markupsafe/__init__.py", tokens=160)
+    weak_source = _fi("src/markupsafe/_native.py", tokens=160)
+
+    selected, receipts = select_files(
+        files=[source, weak_source],
+        scored=[
+            (source, 60.0, ["content keyword match (2)", "recently modified", "high churn (25 commits)"]),
+            (weak_source, 55.0, ["recently modified", "high churn (25 commits)"]),
+        ],
+        changed_paths=set(),
+        summaries={
+            source.path: {"summary": "Package init deprecation cleanup.", "symbols": []},
+            weak_source.path: {"summary": "Native helpers.", "symbols": []},
+        },
+        mode="balanced",
+        budget=5000,
+        max_file_tokens=4000,
+        keywords={"deprecated", "code"},
+        min_summary_score=130.0,
+        max_summary_files=4,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [source.path]
+    assert any(r.path == weak_source.path and r.reason == "summary score below floor" for r in receipts)
+
+
+def test_cleanup_refactor_cap_overflow_adds_one_same_scope_candidate():
+    first = _fi("src/main/java/example/OwnerRepository.java", tokens=200)
+    overflow = _fi("src/main/java/example/PetTypeRepository.java", tokens=180)
+    unrelated = _fi("src/main/java/other/OtherRepository.java", tokens=180)
+    maintenance_reasons = [
+        "content keyword match (1)",
+        "implementation role match",
+        "cross-layer related implementation",
+    ]
+
+    selected, receipts = select_files(
+        files=[first, overflow, unrelated],
+        scored=[
+            (first, 95.0, maintenance_reasons),
+            (overflow, 90.0, maintenance_reasons),
+            (unrelated, 85.0, maintenance_reasons),
+        ],
+        changed_paths=set(),
+        summaries={
+            first.path: {"summary": "Owner repository cleanup.", "symbols": []},
+            overflow.path: {"summary": "Pet type repository cleanup.", "symbols": []},
+            unrelated.path: {"summary": "Other repository cleanup.", "symbols": []},
+        },
+        mode="balanced",
+        budget=5000,
+        max_file_tokens=4000,
+        keywords={"cleanup", "imports"},
+        min_summary_score=130.0,
+        max_summary_files=1,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [first.path, overflow.path]
+    assert "cleanup-refactor cap overflow" in selected[1].reasons
+    assert any(r.path == unrelated.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
 def test_direct_source_candidate_beats_smaller_playground_match():
     source = _fi("packages/vite/src/node/plugins/css.ts", tokens=900)
     playground = _fi("playground/css/lightningcss-plugins.js", tokens=50)
