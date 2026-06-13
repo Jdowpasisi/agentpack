@@ -1095,6 +1095,136 @@ def test_config_source_balance_seeds_source_before_duplicate_configs():
     assert any(r.path == second_config.path and r.reason == "compressed context cap reached" for r in receipts)
 
 
+def test_context_shape_order_does_not_seed_tests_before_duplicate_sources():
+    source_one = _fi("packages/app/src/auth/session.ts", tokens=120)
+    source_two = _fi("packages/app/src/auth/cache.ts", tokens=120)
+    paired_test = _fi("packages/app/src/auth/session.spec.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[source_one, source_two, paired_test],
+        scored=[
+            (
+                source_one,
+                520.0,
+                ["matched call: verifySession", "content keyword match (4)", "direct content evidence +220"],
+            ),
+            (
+                source_two,
+                500.0,
+                ["matched call: loadSession", "content keyword match (3)", "direct content evidence +170"],
+            ),
+            (
+                paired_test,
+                360.0,
+                [
+                    "matched define: test_verify_session",
+                    "matched call: verifySession",
+                    "content keyword match (5)",
+                    f"test for high-scoring {source_one.path}",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            source_one.path: {"summary": "Session owner.", "symbols": []},
+            source_two.path: {"summary": "Session cache.", "symbols": []},
+            paired_test.path: {"summary": "Session tests.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=2,
+    )
+
+    assert [sf.path for sf in selected] == [source_one.path, source_two.path]
+    assert any(r.path == paired_test.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
+def test_context_shape_order_respects_package_scope():
+    source_one = _fi("packages/app/src/auth/session.ts", tokens=120)
+    source_two = _fi("packages/app/src/auth/cache.ts", tokens=120)
+    other_package_test = _fi("packages/admin/src/auth/session.spec.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[source_one, source_two, other_package_test],
+        scored=[
+            (
+                source_one,
+                520.0,
+                ["matched call: verifySession", "content keyword match (4)", "direct content evidence +220"],
+            ),
+            (
+                source_two,
+                500.0,
+                ["matched call: loadSession", "content keyword match (3)", "direct content evidence +170"],
+            ),
+            (
+                other_package_test,
+                480.0,
+                [
+                    "matched define: test_verify_session",
+                    "matched call: verifySession",
+                    "content keyword match (5)",
+                    "direct content evidence +170",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            source_one.path: {"summary": "Session owner.", "symbols": []},
+            source_two.path: {"summary": "Session cache.", "symbols": []},
+            other_package_test.path: {"summary": "Admin session tests.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=2,
+    )
+
+    assert [sf.path for sf in selected] == [source_one.path, source_two.path]
+    assert any(r.path == other_package_test.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
+def test_context_shape_order_requires_concrete_scope():
+    focused_source = _fi("render/reader.go", tokens=120)
+    root_source = _fi("gin.go", tokens=120)
+    sibling_source = _fi("binding/default_validator.go", tokens=120)
+
+    selected, receipts = select_files(
+        files=[focused_source, root_source, sibling_source],
+        scored=[
+            (
+                focused_source,
+                520.0,
+                ["matched call: Render", "content keyword match (4)", "direct content evidence +220"],
+            ),
+            (
+                root_source,
+                500.0,
+                ["matched define: Engine", "content keyword match (3)", "direct content evidence +170"],
+            ),
+            (
+                sibling_source,
+                480.0,
+                ["matched define: Validate", "content keyword match (3)", "direct content evidence +170"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            focused_source.path: {"summary": "Focused render code.", "symbols": []},
+            root_source.path: {"summary": "Root engine code.", "symbols": []},
+            sibling_source.path: {"summary": "Binding validator.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=2,
+    )
+
+    assert {sf.path for sf in selected} == {focused_source.path, root_source.path}
+    assert any(r.path == sibling_source.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
 def test_scoped_replacement_can_spend_small_token_delta_for_stronger_evidence():
     weak = _fi("packages/vite/src/node/plugins/html.ts", tokens=120)
     strong = _fi("packages/vite/src/node/plugins/index.ts", tokens=120)

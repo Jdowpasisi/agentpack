@@ -800,6 +800,112 @@ def _config_source_balanced_order(
     return seeded
 
 
+_ContextRole = Literal["manifest", "config", "source_owner"]
+
+
+def _context_shape_order(
+    ordered: list[tuple[FileInfo, float, list[str]]],
+    max_summary_files: int,
+) -> list[tuple[FileInfo, float, list[str]]]:
+    """Seed generic context roles before duplicate same-role candidates."""
+    if max_summary_files < 2 or len(ordered) < 3:
+        return ordered
+    window_size = min(max_summary_files, 4)
+    first_window = ordered[:window_size]
+    present_roles = {
+        role
+        for fi, score, reasons in first_window
+        if (role := _context_role(fi.path, score, reasons)) is not None
+    }
+    scope = _context_shape_scope(first_window)
+    if not scope:
+        return ordered
+
+    seed_indexes: list[int] = []
+    for role in ("manifest", "config", "source_owner"):
+        if role in present_roles:
+            continue
+        candidate_index = _best_context_role_index(
+            ordered,
+            role=role,
+            scope=scope,
+            used=set(seed_indexes),
+        )
+        if candidate_index is not None:
+            seed_indexes.append(candidate_index)
+
+    if not seed_indexes:
+        return ordered
+    protected = set(range(window_size))
+    seed_indexes = [index for index in sorted(set(seed_indexes)) if index not in protected]
+    if not seed_indexes:
+        return ordered
+    seeded = [ordered[index] for index in seed_indexes]
+    seeded.extend(item for index, item in enumerate(ordered) if index not in seed_indexes)
+    return seeded
+
+
+def _best_context_role_index(
+    ordered: list[tuple[FileInfo, float, list[str]]],
+    *,
+    role: _ContextRole,
+    scope: str,
+    used: set[int],
+) -> int | None:
+    best_index: int | None = None
+    best_value = 0.0
+    for index, (fi, score, reasons) in enumerate(ordered[:40]):
+        if index in used:
+            continue
+        if _context_role(fi.path, score, reasons) != role:
+            continue
+        if scope and _balance_scope(fi.path) and _balance_scope(fi.path) != scope:
+            continue
+        value = _context_role_value(fi.path, score, reasons)
+        if value > best_value:
+            best_index = index
+            best_value = value
+    return best_index
+
+
+def _context_shape_scope(items: list[tuple[FileInfo, float, list[str]]]) -> str:
+    counts: dict[str, int] = {}
+    for fi, _score, _reasons in items:
+        scope = _balance_scope(fi.path)
+        if scope:
+            counts[scope] = counts.get(scope, 0) + 1
+    if not counts:
+        return ""
+    return max(sorted(counts), key=lambda item: counts[item])
+
+
+def _context_role(path: str, score: float, reasons: list[str]) -> _ContextRole | None:
+    if score <= 0 or _is_weak_signal_candidate(reasons):
+        return None
+    if _has_release_metadata_reason(reasons) or any(reason == "build/dependency metadata" for reason in reasons):
+        return "manifest"
+    if _is_balance_config_candidate(path, reasons):
+        return "config"
+    if _is_source_path(path) and _context_role_value(path, score, reasons) >= 130:
+        return "source_owner"
+    return None
+
+
+def _context_role_value(path: str, score: float, reasons: list[str]) -> float:
+    value = min(score, 300.0) * 0.25
+    content_hits = _content_keyword_hits(reasons)
+    value += min(content_hits, 6) * 15.0
+    if _has_direct_source_evidence(reasons):
+        value += 90.0
+    if _has_actionable_compressed_evidence(reasons):
+        value += 65.0
+    if _has_strict_summary_support(reasons, path):
+        value += 45.0
+    if _is_docs_path(path) or _is_example_or_playground_path(path):
+        value -= 35.0
+    return value
+
+
 _WEAK_SIGNAL_REASONS = {
     "broad-task weak-signal dampening",
     "no-live filename-only dampening",
@@ -1383,6 +1489,7 @@ def select_files(
     )
     ordered = _reserve_bucket_order(ranked, changed_paths, budget)
     ordered = _config_source_balanced_order(ordered, max_summary_files)
+    ordered = _context_shape_order(ordered, max_summary_files)
     for fi, score, reasons in ordered:
         if fi.ignored or fi.binary:
             receipts.append(Receipt(path=fi.path, action="excluded", reason="ignored or binary"))
