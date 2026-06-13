@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import typer
 from rich.table import Table
@@ -1194,7 +1194,14 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
             expected_set=expected_set,
             scored_map=scored_map,
         )
+        intent_profile = _benchmark_intent_profile(
+            task=case.task,
+            expected_files=expected_set,
+            missed_expected=missed_expected,
+            selected_noise=selected_noise,
+        )
         selection_diagnostics = {
+            "intent_profile": intent_profile,
             "selected_noise": selected_noise[:10],
             "selected_noise_family_tokens": selected_family_waste_tokens,
             "expected_ranked_not_selected": sum(1 for miss in missed_expected if miss["rank"] is not None),
@@ -1678,6 +1685,152 @@ def _label_audit_summary(
         "adjusted_token_precision": round(adjusted_token_precision, 3)
         if adjusted_token_precision is not None else None,
     }
+
+
+_INTENT_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "dependency_release",
+        (
+            "dependency",
+            "dependencies",
+            "deps",
+            "upgrade",
+            "update",
+            "version",
+            "release",
+            "docker image",
+            "license metadata",
+            "spring boot",
+            "java 17",
+        ),
+    ),
+    (
+        "config_build",
+        (
+            "config",
+            "build",
+            "cache",
+            "env",
+            "eslint",
+            "checkstyle",
+            "mypy",
+            "ci",
+            "node_modules",
+            "pnp",
+            "naming strategy",
+        ),
+    ),
+    (
+        "test_focus",
+        (
+            "test",
+            "tests",
+            "snapshot",
+            "regression",
+            "fixture",
+        ),
+    ),
+    (
+        "typing_api",
+        (
+            "typing",
+            "type",
+            "overload",
+            "deprecated",
+            "deprecation",
+            "parameter",
+            "exception",
+            "api",
+        ),
+    ),
+    (
+        "cleanup_refactor",
+        (
+            "unused",
+            "import",
+            "refactor",
+            "simplify",
+            "cleanup",
+            "polish",
+            "format",
+            "lint",
+        ),
+    ),
+    (
+        "docs_metadata",
+        (
+            "doc",
+            "docs",
+            "document",
+            "readme",
+            "changelog",
+        ),
+    ),
+)
+
+
+def _benchmark_intent_profile(
+    *,
+    task: str,
+    expected_files: set[str],
+    missed_expected: list[dict[str, Any]],
+    selected_noise: list[dict[str, Any]],
+) -> dict[str, Any]:
+    task_lc = task.lower()
+    expected_family_counts = _family_counts(expected_files)
+    missed_family_counts = _family_counts(str(miss.get("path") or "") for miss in missed_expected)
+    noise_family_counts: dict[str, int] = {}
+    for row in selected_noise:
+        family = str(row.get("family") or _path_family(str(row.get("path") or "")))
+        if family:
+            noise_family_counts[family] = noise_family_counts.get(family, 0) + 1
+
+    scores: dict[str, int] = {}
+    signals: list[str] = []
+    for intent, terms in _INTENT_RULES:
+        matches = [term for term in terms if term in task_lc]
+        if matches:
+            scores[intent] = scores.get(intent, 0) + len(matches) * 3
+            signals.extend(f"task:{intent}:{term}" for term in matches[:3])
+
+    if expected_family_counts.get("config", 0):
+        scores["config_build"] = scores.get("config_build", 0) + expected_family_counts["config"] * 2
+        signals.append("expected:config")
+    if expected_family_counts.get("docs", 0):
+        scores["docs_metadata"] = scores.get("docs_metadata", 0) + expected_family_counts["docs"] * 2
+        signals.append("expected:docs")
+    if expected_family_counts.get("test", 0) >= max(1, expected_family_counts.get("source", 0)):
+        scores["test_focus"] = scores.get("test_focus", 0) + expected_family_counts["test"]
+        signals.append("expected:test-heavy")
+    if missed_family_counts.get("config", 0):
+        scores["config_build"] = scores.get("config_build", 0) + missed_family_counts["config"]
+        signals.append("missed:config")
+    if missed_family_counts.get("test", 0) >= 2:
+        scores["test_focus"] = scores.get("test_focus", 0) + missed_family_counts["test"]
+        signals.append("missed:test-heavy")
+
+    if not scores and any(term in task_lc for term in ("fix", "feat", "support", "add")):
+        scores["source_behavior"] = 1
+        signals.append("task:source_behavior")
+    primary = max(sorted(scores), key=lambda key: scores[key]) if scores else "general"
+    return {
+        "primary": primary,
+        "scores": dict(sorted(scores.items())),
+        "signals": signals[:10],
+        "expected_family_counts": expected_family_counts,
+        "missed_family_counts": missed_family_counts,
+        "selected_noise_family_counts": dict(sorted(noise_family_counts.items())),
+    }
+
+
+def _family_counts(paths: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for path in paths:
+        if not path:
+            continue
+        family = _path_family(path)
+        counts[family] = counts.get(family, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _owner_file_recall(*, selected_set: set[str], expected_set: set[str]) -> dict[str, Any]:
@@ -2522,6 +2675,59 @@ def _print_task_type_summary(results: list[CaseResult]) -> None:
         )
 
     console.print("\n[bold]By Task Type[/]")
+    console.print(tbl)
+
+
+def _print_intent_summary(results: list[CaseResult]) -> None:
+    grouped: dict[str, list[CaseResult]] = {}
+    for result in results:
+        if not result.case.expected_files:
+            continue
+        intent_profile = result.selection_diagnostics.get("intent_profile")
+        intent = "unknown"
+        if isinstance(intent_profile, dict):
+            intent = str(intent_profile.get("primary") or "unknown")
+        grouped.setdefault(intent, []).append(result)
+    if not grouped:
+        return
+
+    tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+    tbl.add_column("intent", max_width=24)
+    tbl.add_column("cases", justify="right")
+    tbl.add_column("avg R", justify="right")
+    tbl.add_column("avg TP", justify="right")
+    tbl.add_column("misses", justify="right")
+    tbl.add_column("audited noise", justify="right")
+    tbl.add_column("plausible", justify="right")
+
+    for intent, rows in sorted(grouped.items()):
+        recalls = [_precision_recall(row)[1] for row in rows]
+        token_precisions = [
+            1 - (row.noise_pct / 100)
+            for row in rows
+            if row.noise_pct is not None
+        ]
+        misses = sum(len(row.missed_expected) for row in rows)
+        audited_noise = 0
+        plausible_noise = 0
+        for row in rows:
+            audit = row.selection_diagnostics.get("label_audit")
+            if isinstance(audit, dict):
+                audited_noise += int(audit.get("audited_noise_tokens") or 0)
+                plausible_noise += int(audit.get("plausibly_useful_tokens") or 0)
+        avg_recall = sum(recalls) / len(recalls)
+        avg_token_precision = sum(token_precisions) / len(token_precisions) if token_precisions else 0.0
+        tbl.add_row(
+            intent,
+            str(len(rows)),
+            f"{avg_recall:.1%}",
+            f"{avg_token_precision:.1%}",
+            str(misses),
+            f"{audited_noise:,}t",
+            f"{plausible_noise:,}t",
+        )
+
+    console.print("\n[bold]By Intent[/]")
     console.print(tbl)
 
 
@@ -3747,6 +3953,7 @@ def benchmark(
             console.print("\n[bold]Summary[/]")
             _print_fixture_summary_table(results)
             _print_task_type_summary(results)
+            _print_intent_summary(results)
             _print_precision_diagnostics(results)
             if misses:
                 _print_miss_details(results)
@@ -3799,6 +4006,7 @@ def benchmark(
         console.print("\n[bold]Summary[/]")
         _print_summary_table(results)
         _print_task_type_summary(results)
+        _print_intent_summary(results)
         _print_precision_diagnostics(results)
         if misses:
             _print_miss_details(results)
@@ -3910,6 +4118,7 @@ def benchmark(
         console.print("\n[bold]Summary[/]")
         _print_summary_table(results)
         _print_task_type_summary(results)
+        _print_intent_summary(results)
         _print_precision_diagnostics(results)
         if misses:
             _print_miss_details(results)

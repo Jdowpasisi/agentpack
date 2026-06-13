@@ -66,6 +66,7 @@ from agentpack.commands.benchmark import (
     _same_scope_replacement_opportunities,
     _plausibly_useful_selected_noise,
     _label_audit_summary,
+    _benchmark_intent_profile,
     _owner_file_recall,
     _expected_family_recall,
     _expected_include_mode_diagnostics,
@@ -507,6 +508,24 @@ def test_label_audit_summary_estimates_plausible_unlabeled_tokens() -> None:
         "audited_noise_tokens": 80,
         "adjusted_token_precision": 0.92,
     }
+
+
+def test_benchmark_intent_profile_classifies_dependency_and_miss_families() -> None:
+    profile = _benchmark_intent_profile(
+        task="Upgrade Spring Boot and update Docker images",
+        expected_files={"pom.xml", "src/test/java/acme/AppTests.java"},
+        missed_expected=[
+            {"path": "src/test/java/acme/AppTests.java"},
+            {"path": "pom.xml"},
+        ],
+        selected_noise=[{"path": "src/main/java/acme/App.java", "family": "source"}],
+    )
+
+    assert profile["primary"] == "dependency_release"
+    assert profile["expected_family_counts"] == {"config": 1, "test": 1}
+    assert profile["missed_family_counts"] == {"config": 1, "test": 1}
+    assert profile["selected_noise_family_counts"] == {"source": 1}
+    assert "task:dependency_release:upgrade" in profile["signals"]
 
 
 def test_owner_family_include_rank_and_package_diagnostics() -> None:
