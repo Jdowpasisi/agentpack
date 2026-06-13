@@ -65,6 +65,7 @@ from agentpack.commands.benchmark import (
     _replacement_pair_diagnostics,
     _same_scope_replacement_opportunities,
     _plausibly_useful_selected_noise,
+    _label_audit_summary,
     _owner_file_recall,
     _expected_family_recall,
     _expected_include_mode_diagnostics,
@@ -484,6 +485,28 @@ def test_plausibly_useful_selected_noise_flags_same_package_noise() -> None:
         ],
         "selection_reasons": ["filename keyword match"],
     }]
+
+
+def test_label_audit_summary_estimates_plausible_unlabeled_tokens() -> None:
+    summary = _label_audit_summary(
+        selected_noise=[
+            {"path": "packages/vite/src/node/server/middleware.ts", "tokens": 180},
+            {"path": "docs/server.md", "tokens": 80},
+        ],
+        plausibly_useful=[
+            {"path": "packages/vite/src/node/server/middleware.ts", "tokens": 180},
+        ],
+        packed_tokens=1000,
+    )
+
+    assert summary == {
+        "selected_noise_count": 2,
+        "selected_noise_tokens": 260,
+        "plausibly_useful_count": 1,
+        "plausibly_useful_tokens": 180,
+        "audited_noise_tokens": 80,
+        "adjusted_token_precision": 0.92,
+    }
 
 
 def test_owner_family_include_rank_and_package_diagnostics() -> None:

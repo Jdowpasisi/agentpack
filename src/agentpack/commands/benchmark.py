@@ -1189,6 +1189,11 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
                     budget=budget,
                 ),
             })
+        plausibly_useful_noise = _plausibly_useful_selected_noise(
+            selected_noise=selected_noise,
+            expected_set=expected_set,
+            scored_map=scored_map,
+        )
         selection_diagnostics = {
             "selected_noise": selected_noise[:10],
             "selected_noise_family_tokens": selected_family_waste_tokens,
@@ -1200,10 +1205,11 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
                 selected_noise=selected_noise,
                 scored_map=scored_map,
             ),
-            "selected_not_expected_but_plausibly_useful": _plausibly_useful_selected_noise(
+            "selected_not_expected_but_plausibly_useful": plausibly_useful_noise,
+            "label_audit": _label_audit_summary(
                 selected_noise=selected_noise,
-                expected_set=expected_set,
-                scored_map=scored_map,
+                plausibly_useful=plausibly_useful_noise,
+                packed_tokens=packed_tokens,
             ),
             "owner_file_recall": _owner_file_recall(selected_set=selected_set, expected_set=expected_set),
             "expected_family_recall": _expected_family_recall(selected_set=selected_set, expected_set=expected_set),
@@ -1649,6 +1655,29 @@ def _plausibly_useful_selected_noise(
             str(row["path"]),
         ),
     )[:limit]
+
+
+def _label_audit_summary(
+    *,
+    selected_noise: list[dict[str, Any]],
+    plausibly_useful: list[dict[str, Any]],
+    packed_tokens: int,
+) -> dict[str, Any]:
+    noise_tokens = sum(int(row.get("tokens") or 0) for row in selected_noise)
+    plausible_tokens = sum(int(row.get("tokens") or 0) for row in plausibly_useful)
+    audited_noise_tokens = max(0, noise_tokens - plausible_tokens)
+    adjusted_token_precision = None
+    if packed_tokens > 0:
+        adjusted_token_precision = 1 - (audited_noise_tokens / packed_tokens)
+    return {
+        "selected_noise_count": len(selected_noise),
+        "selected_noise_tokens": noise_tokens,
+        "plausibly_useful_count": len(plausibly_useful),
+        "plausibly_useful_tokens": plausible_tokens,
+        "audited_noise_tokens": audited_noise_tokens,
+        "adjusted_token_precision": round(adjusted_token_precision, 3)
+        if adjusted_token_precision is not None else None,
+    }
 
 
 def _owner_file_recall(*, selected_set: set[str], expected_set: set[str]) -> dict[str, Any]:
@@ -2519,6 +2548,10 @@ def _print_precision_diagnostics(results: list[CaseResult]) -> None:
     family_waste: dict[str, int] = {}
     reason_counts: dict[str, dict[str, float]] = {}
     coverage_values: list[float] = []
+    label_audit_cases = 0
+    label_audit_plausible_tokens = 0
+    label_audit_noise_tokens = 0
+    adjusted_precision_values: list[float] = []
 
     for result in scored:
         for failure_type, count in result.failure_type_counts.items():
@@ -2531,6 +2564,17 @@ def _print_precision_diagnostics(results: list[CaseResult]) -> None:
             bucket["expected"] += stats.get("expected", 0.0)
         if result.expected_token_coverage is not None:
             coverage_values.append(result.expected_token_coverage)
+        label_audit = result.selection_diagnostics.get("label_audit")
+        if isinstance(label_audit, dict):
+            plausible_tokens = int(label_audit.get("plausibly_useful_tokens") or 0)
+            noise_tokens = int(label_audit.get("selected_noise_tokens") or 0)
+            adjusted_precision = label_audit.get("adjusted_token_precision")
+            if plausible_tokens > 0:
+                label_audit_cases += 1
+                label_audit_plausible_tokens += plausible_tokens
+                label_audit_noise_tokens += noise_tokens
+            if isinstance(adjusted_precision, (int, float)):
+                adjusted_precision_values.append(float(adjusted_precision))
 
     tbl = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
     tbl.add_column("diagnostic", max_width=30)
@@ -2550,6 +2594,22 @@ def _print_precision_diagnostics(results: list[CaseResult]) -> None:
     for family, tokens in sorted(family_waste.items(), key=lambda item: (-item[1], item[0]))[:6]:
         if tokens > 0:
             tbl.add_row(f"{family} waste", f"{tokens:,}t", "selected tokens outside expected files")
+
+    if label_audit_plausible_tokens > 0:
+        avg_adjusted_precision = (
+            sum(adjusted_precision_values) / len(adjusted_precision_values)
+            if adjusted_precision_values else None
+        )
+        tbl.add_row(
+            "label-audit plausible noise",
+            f"{label_audit_plausible_tokens:,}t/{label_audit_cases}",
+            "non-expected selected tokens with same-scope/package/family evidence",
+        )
+        tbl.add_row(
+            "label-audit adjusted TP",
+            f"{avg_adjusted_precision:.1%}" if avg_adjusted_precision is not None else "-",
+            "diagnostic only; treats plausible unlabeled context as useful",
+        )
 
     for family, stats in sorted(reason_counts.items()):
         selected = stats.get("selected", 0.0)
