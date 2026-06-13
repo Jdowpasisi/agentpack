@@ -1075,6 +1075,15 @@ def _marginal_evidence_score(path: str, score: float, reasons: list[str], token_
         evidence -= 40.0
     if _is_weak_signal_candidate(reasons):
         evidence -= 60.0
+    if (
+        _is_source_path(path)
+        and content_hits <= 1
+        and not any(
+            reason.startswith(("direct content evidence", "keyword phrase match:", "matched call:"))
+            for reason in reasons
+        )
+    ):
+        evidence -= 70.0
     if token_cost > 0:
         evidence += min(35.0, 1200.0 / max(token_cost, 40))
     return evidence
@@ -1115,7 +1124,12 @@ def _find_marginal_replacement(
         incumbent_scope = _replacement_scope(incumbent.path, incumbent.reasons)
         challenger_scope = _replacement_scope(challenger_path, challenger_reasons)
         challenger_is_root_config = len(Path(challenger_path).parts) == 1 and "config file" in challenger_reasons
-        if incumbent_scope is not None and challenger_scope != incumbent_scope and not challenger_is_root_config:
+        if (
+            incumbent_scope is not None
+            and challenger_scope != incumbent_scope
+            and not challenger_is_root_config
+            and not _can_cross_scope_replace(incumbent_scope, challenger_scope, incumbent.reasons, challenger_reasons)
+        ):
             continue
         incumbent_tokens = selected_token_costs.get(incumbent.path, 0)
         token_delta = challenger_tokens - incumbent_tokens
@@ -1154,6 +1168,26 @@ def _replacement_scope(path: str, reasons: list[str]) -> str | None:
     if _package_root(path):
         return _package_root(path)
     return _balance_scope(path) or None
+
+
+def _can_cross_scope_replace(
+    incumbent_scope: str | None,
+    challenger_scope: str | None,
+    incumbent_reasons: list[str],
+    challenger_reasons: list[str],
+) -> bool:
+    if not incumbent_scope or not challenger_scope:
+        return False
+    incumbent_parts = incumbent_scope.split("/")
+    challenger_parts = challenger_scope.split("/")
+    if len(challenger_parts) <= len(incumbent_parts):
+        return False
+    if challenger_parts[: len(incumbent_parts)] != incumbent_parts:
+        return False
+    incumbent_direct_content = any(reason.startswith("direct content evidence") for reason in incumbent_reasons)
+    if incumbent_direct_content or _content_keyword_hits(incumbent_reasons) >= 3:
+        return False
+    return any(reason.startswith("direct content evidence") for reason in challenger_reasons)
 
 
 def select_files(

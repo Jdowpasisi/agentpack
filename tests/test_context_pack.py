@@ -1140,6 +1140,64 @@ def test_scoped_replacement_can_spend_small_token_delta_for_stronger_evidence():
     assert any(r.path == weak.path and r.reason == f"marginal slot replaced by {strong.path}" for r in receipts)
 
 
+def test_specific_source_scope_can_replace_generic_parent_source():
+    weak_parent = _fi("packages/vite/src/node/config.ts", tokens=120)
+    strong_child = _fi("packages/vite/src/node/server/index.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[weak_parent, strong_child],
+        scored=[
+            (weak_parent, 360.0, ["symbol keyword match", "matched define: applyConfig", "content keyword match (1)"]),
+            (
+                strong_child,
+                280.0,
+                ["matched call: ssrFixStacktrace", "content keyword match (3)", "direct content evidence +120"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            weak_parent.path: {"summary": "Generic node config.", "symbols": []},
+            strong_child.path: {"summary": "Server source with direct evidence.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [strong_child.path]
+    assert any(r.path == weak_parent.path and r.reason == f"marginal slot replaced by {strong_child.path}" for r in receipts)
+
+
+def test_generic_parent_source_cannot_replace_specific_child_source():
+    specific_child = _fi("packages/vite/src/node/optimizer/index.ts", tokens=120)
+    generic_parent = _fi("packages/vite/src/node/build.ts", tokens=120)
+
+    selected, receipts = select_files(
+        files=[specific_child, generic_parent],
+        scored=[
+            (
+                specific_child,
+                500.0,
+                ["matched call: closeBundle", "content keyword match (3)", "direct content evidence +120"],
+            ),
+            (generic_parent, 360.0, ["symbol keyword match", "matched define: build", "content keyword match (1)"]),
+        ],
+        changed_paths=set(),
+        summaries={
+            specific_child.path: {"summary": "Optimizer source with direct evidence.", "symbols": []},
+            generic_parent.path: {"summary": "Generic build source.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [specific_child.path]
+    assert any(r.path == generic_parent.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
 def test_direct_source_candidate_beats_smaller_playground_match():
     source = _fi("packages/vite/src/node/plugins/css.ts", tokens=900)
     playground = _fi("playground/css/lightningcss-plugins.js", tokens=50)
