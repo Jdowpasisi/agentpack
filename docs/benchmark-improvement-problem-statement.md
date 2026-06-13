@@ -13,21 +13,63 @@ much surrounding noise while plausible files consume the same budget.
 
 ## Current State
 
-The trusted public baseline from the 0.3.21 release cycle is:
+The trusted public baseline from the 0.3.21 release cycle was:
 
 | Suite | Recall | Token precision | Notes |
 |---|---:|---:|---|
 | Expanded 109-case precision baseline | 57.0% | 50.6% | Verified after parent-checkout expected-file filtering |
 | Full 128-case release gate run | 59.9% | 50.0% | Just under the configured 60% recall gate |
+| Latest local checkpoint | 60.8% | 49.98% | Recall improved, but exact precision is just below the hard 50% floor |
 
-The next target remains:
+The 2026-06-13 local release-candidate checkpoint is:
+
+| Suite | Recall | Token precision | Notes |
+|---|---:|---:|---|
+| Expanded 108-case maintenance recovery baseline | 66.0% | 51.1% | Target achieved; see `benchmarks/results/2026-06-13-public.md` |
+
+The target gate is now:
 
 | Metric | Target |
 |---|---:|
-| Expanded public-suite recall | 65%+ |
-| Expanded public-suite token precision | 50%+ |
+| Expanded public-suite recall | >= 65% |
+| Expanded public-suite token precision | >= 51% |
 | `EXPECTED_NOT_FOUND` sampled-public misses | 0 |
 | Major language/task-slice recall regression | <= 2 points |
+
+## Where We Are Stuck
+
+The previous blocker was not that AgentPack could not find more expected files.
+It could. The blocker was that recall gains came from the same selection slots
+and token budget that protect precision.
+
+The latest local checkpoint is better than the released v0.3.20 expanded public
+result, but it is not a clean next-goal win:
+
+| Run | Recall | Token precision | Interpretation |
+|---|---:|---:|---|
+| Released v0.3.20 expanded public result | 44.6% | 14.9% | Old public baseline |
+| 0.3.21 precision baseline | 57.0% | 50.6% | Current trustworthy precision floor |
+| Latest local checkpoint | 60.8% | 49.98% | Recall improved, but precision is on the wrong side of the floor |
+| Maintenance recovery final run | 66.0% | 51.1% | Target achieved with a thin precision margin |
+
+The practical stuck point is this:
+
+- broad recall boosts recover files, but admit plausible non-actionable noise
+- stricter precision gates preserve token precision, but block expected files
+- TypeScript/Vite has the worst tradeoff: expected config/source files are often
+  present in candidates, but selected slots go to plausible nearby source,
+  playground, test, or package files
+- Go/Gin improvements are real, but not large enough to offset TypeScript and
+  monorepo precision losses
+- Python is no longer the main blocker, so Python-only gains do not move the
+  headline enough
+- exact precision is too close to 50%, so small noisy experiments can make the
+  release claim fragile
+
+This means the next cycle should not be another broad weight-tuning pass. The
+release target was reached by identifying marginal slot waste and replacing it
+with stronger expected-like evidence without increasing generic recall. The
+remaining work should be diagnostic-first, especially for config/build intent.
 
 ## Why This Is Hard
 
@@ -74,6 +116,7 @@ as the default benchmark mode and improve its dynamic decision policy.
 
 | Area | Problem |
 |---|---|
+| Config/build intent | Lowest remaining intent slice: about 48.8% recall and 35.0% token precision. Broad config recovery is risky. |
 | TypeScript/Vite | Expected config/source files are found but often lose to plausible playground, test, or nearby source noise. |
 | Go/Gin | Source/test pairing improved, but root source, helper, and test selection is still imprecise. |
 | Java/Spring | Build metadata improved, but broad source recovery can admit non-expected Java files. |
@@ -138,7 +181,8 @@ Revert a change if:
 
 ## Success Statement
 
-The next improvement cycle succeeds when AgentPack can publish a full-suite
-benchmark showing 65%+ recall and 50%+ token precision, with slice-level
+The current improvement cycle succeeded when AgentPack produced a full-suite
+benchmark showing 66.0% recall and 51.1% token precision, with slice-level
 evidence explaining where recall was recovered and why precision remained
-credible.
+credible. The next cycle succeeds only if it preserves that gate while improving
+the config/build and monorepo precision bottlenecks.

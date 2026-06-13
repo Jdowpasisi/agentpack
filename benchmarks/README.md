@@ -40,6 +40,11 @@ is `benchmarks/results/2026-06-11-public.md`, generated from the locally built
 wheel before release. Older `0.3.12` tables remain historical artifacts only.
 Methodology and baseline plans live under `benchmarks/results/v0.3.20/`.
 
+The current local release-candidate baseline is
+`benchmarks/results/2026-06-13-public.md`: 108 scored public cases at 66.0%
+recall and 51.1% token precision. Treat it as scoped release evidence for this
+public suite, not as a universal agent-success claim.
+
 For additional repo-specific proof, create `.agentpack/benchmark.toml` with real
 historical tasks and files that were actually changed:
 
@@ -57,17 +62,17 @@ Quality gates for a serious local eval:
 
 | Metric | Target |
 |---|---|
-| Recall | 65%+ across the expanded public suite for the next benchmark release |
-| Token precision | 50%+ |
+| Recall | 65%+ across the expanded public suite |
+| Token precision | 51%+ for the current release-candidate gate |
 | Pack size | within the configured budget |
 | Miss diagnostics | every miss has status, rank, score, and reasons |
 | Mode comparison | `lite`, `balanced`, and `deep` all reported |
 
-The current expanded-suite baseline is **57.0% recall / 50.6% token precision**
-across 109 scored public cases. For the next benchmark release, do not improve
-headline recall by spending the precision margin. Keep the 50% token-precision
-bar, publish per-language slices, and call out whether gains came from Python,
-TypeScript/Vite, Go/Gin, Java/Spring, or TypeScript monorepos.
+The current expanded-suite local baseline is **66.0% recall / 51.1% token
+precision** across 108 scored public cases. Do not improve headline recall by
+spending the precision margin. Publish per-language slices, and call out whether
+gains came from Python, TypeScript/Vite, Go/Gin, Java/Spring, or TypeScript
+monorepos.
 
 Runtime-loop features also have deterministic regression checks:
 

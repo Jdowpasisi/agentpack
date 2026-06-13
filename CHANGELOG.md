@@ -8,8 +8,12 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Added
+- Added a 2026-06-13 expanded public-suite baseline showing 66.0% recall and 51.1% token precision across 108 scored public cases, plus sensitive Click and NestJS regression-slice readouts.
+
 ### Changed
 - Improved search and AI-discovery readiness with aligned package metadata, project URLs, README positioning, MkDocs site metadata, intent-page expansions, and AI-readable `llms.txt` summaries.
+- Documented that maintenance-context recovery cleared the 65% recall target, while config/build and NestJS token precision remain the main follow-up risks.
 
 ---
 

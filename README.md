@@ -38,9 +38,13 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ## What's New in 0.3.21
 
-`0.3.21` is a benchmark trust release. It keeps the current honest expanded public-suite baseline at **57.0% recall / 50.6% token precision**, removes the
+`0.3.21` is a benchmark trust release. It established the prior honest expanded public-suite baseline at **57.0% recall / 50.6% token precision**, removes the
 legacy minimal-mode surface in favor of `balanced`, improves benchmark diagnostics and public-suite methodology, and documents the next release target:
 **65%+ recall while holding 50%+ token precision**.
+
+Current local release-candidate evidence after maintenance-context recovery is
+**66.0% recall / 51.1% token precision** across 108 scored public cases. The
+result is documented in [`benchmarks/results/2026-06-13-public.md`](benchmarks/results/2026-06-13-public.md).
 
 ## Core Workflow
 
@@ -89,23 +93,21 @@ ranked but cut by budget, or absent from scan.
 
 ## Benchmark Proof
 
-Latest published v0.3.20 release table: 8 pinned public commits from Pallets
-Click, ItsDangerous, and MarkupSafe, scored against files actually changed by
-each commit. The public manifest now also supports 100+ sampled historical
-commits across Python, TypeScript, Go, Java, and monorepo repos for broader
-release runs.
+Current local release-candidate table: expanded public-suite historical commits
+across Python, TypeScript, Go, Java, and monorepo repos, scored against files
+actually changed by each commit.
 
 | Metric | Result |
 |---|---:|
-| Avg recall | 79.2% |
-| Avg token precision | 51.2% |
-| Pack p50 | 1,450 tokens |
-| Pack p95 | 3,805 tokens |
+| Scored cases | 108 |
+| Avg recall | 66.0% |
+| Avg token precision | 51.1% |
+| Pack p50 | 315 tokens |
+| Pack p95 | 1,150 tokens |
 
-Full v0.3.20 table: [`benchmarks/results/2026-06-11-public.md`](benchmarks/results/2026-06-11-public.md). This is scoped benchmark evidence, not a universal quality claim.
-The expanded 109-case public suite is the current optimization baseline:
-**57.0% recall / 50.6% token precision**. It is broader and harder than the
-8-case published table, and recall remains the active improvement target.
+Full local table: [`benchmarks/results/2026-06-13-public.md`](benchmarks/results/2026-06-13-public.md). This is scoped benchmark evidence, not a universal quality claim.
+The latest published v0.3.20 table remains available at
+[`benchmarks/results/2026-06-11-public.md`](benchmarks/results/2026-06-11-public.md).
 Reproduce the expanded public suite:
 
 ```bash
@@ -114,20 +116,19 @@ agentpack benchmark --public-suite --reproduce v0.3.20
 
 Benchmark methodology lives under [`benchmarks/results/v0.3.20/`](benchmarks/results/v0.3.20/methodology.md).
 
-### Next Release Benchmark Target
+### Release Benchmark Gate
 
-The next benchmark release target is to raise the expanded public suite from the
-current **57.0% recall / 50.6% token precision** baseline to **65%+ recall**
-while keeping token precision at **50%+**. The target should be measured on the
+The current local release-candidate result clears the target: **66.0% recall**
+and **51.1% token precision**. The target should continue to be measured on the
 same 100+ public historical-commit suite, with per-language slices published so
-precision gains are not hiding TypeScript, Go, Java, or monorepo regressions.
+aggregate gains are not hiding TypeScript, Go, Java, or monorepo regressions.
 
 Decision gate for the next public table:
 
 - full-suite recall is at least 65.0%
-- full-suite token precision is at least 50.0%
+- full-suite token precision is at least 51.0%
 - no major language or task slice loses more than 2 recall points
-- Vite/TypeScript, Gin/Go, and NestJS monorepo misses are reported separately
+- Vite/TypeScript, Gin/Go, Click/Python, and NestJS monorepo misses are reported separately
 - any AgentPack-vs-no-AgentPack A/B claim includes task success, tool calls,
   token cost, and time-to-first-correct-file
 

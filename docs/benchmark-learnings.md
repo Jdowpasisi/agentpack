@@ -29,8 +29,9 @@ Result:
 
 This is the first local checkpoint in this cycle that clears the 65% recall bar
 while keeping token precision above 51%. The precision margin is real but thin,
-so release notes should report the exact benchmark command and JSONL artifact
-rather than only the rounded headline.
+so release notes should report the exact benchmark command and result artifact
+rather than only the rounded headline. The persistent result note is
+[`benchmarks/results/2026-06-13-public.md`](../benchmarks/results/2026-06-13-public.md).
 
 ## 2026-06-13 Release-Target Experiment Log
 
@@ -44,6 +45,13 @@ validated by intent-level diagnostics.
 | Intent diagnostics baseline | 64.2% | 52.5% | Below 65% recall, but precision was healthy enough to inspect misses by intent. |
 | Cleanup recovery, first full run | 64.8% | 51.9% | Recall improved but stayed below target; precision stayed above the 51% floor. |
 | Maintenance recovery final run | 66.0% | 51.1% | Target cleared across 108 scored public cases. |
+
+Two sensitive regression slices were run after the full suite:
+
+| Slice | Cases | Avg recall | Avg token precision | Readout |
+|---|---:|---:|---:|---|
+| `pallets-click` | 25 | 71.0% | 50.3% | Passed the default gate, but precision is thin. |
+| `nestjs` | 4 | 75.0% | 43.9% | Recall is stable; token precision remains below the slice target. |
 
 The final useful intent readout from the 108-case run was:
 

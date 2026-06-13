@@ -82,6 +82,12 @@ Python, TypeScript, Go, Java, and monorepo projects. For sampled repos,
 `exclude_globs`, and `max_changed_files`. Synthetic fixtures are useful
 regression tests, but should not be presented as market proof.
 
+The current local release-candidate baseline is published as
+[`benchmarks/results/2026-06-13-public.md`](../benchmarks/results/2026-06-13-public.md):
+108 scored public cases at 66.0% recall and 51.1% token precision. The
+precision margin is thin, so use slice regressions before changing selector
+rules.
+
 The v0.3.20 reproduction command is:
 
 ```bash
