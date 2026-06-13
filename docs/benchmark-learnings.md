@@ -5,31 +5,101 @@ It is a decision log, not a marketing table.
 
 ## Current Verified State
 
-The latest verified precision gate was run against the expanded public suite:
+The latest verified release-target gate was run against the expanded public
+suite:
 
 ```bash
 PYTHONPATH=src python -m agentpack.cli benchmark \
-  --public-repos \
-  --public-repos-file benchmarks/public-repos.toml \
-  --public-repos-cache /tmp/agentpack-public-cache-full \
-  --misses \
-  --prove-targets \
-  --min-token-precision 0.50 \
-  --min-recall 0.0
+  --public-suite \
+  --no-public-table \
+  --benchmark-jsonl /tmp/agentpack-full-maintenance-recovery.jsonl
 ```
 
 Result:
 
 | Metric | Result |
 |---|---:|
-| Scored cases | 109 |
-| Avg recall | 57.0% |
-| Avg token precision | 50.6% |
-| Precision target | Passed, 50.0% |
+| Scored cases | 108 |
+| Avg precision | 43.6% |
+| Avg recall | 66.0% |
+| Avg F1 | 48.2% |
+| Avg token precision | 51.1% |
+| Recall target | Passed, 65.0% |
+| Token precision target | Passed, 51.0% |
 
-Recall was intentionally not used as a pass/fail gate for this run because the
-active target was token precision. Recall remains below the longer-term 65%+
-quality bar.
+This is the first local checkpoint in this cycle that clears the 65% recall bar
+while keeping token precision above 51%. The precision margin is real but thin,
+so release notes should report the exact benchmark command and JSONL artifact
+rather than only the rounded headline.
+
+## 2026-06-13 Release-Target Experiment Log
+
+The release-target work converged only after separating evaluation noise,
+diagnostics, and selector behavior. The successful path was not a larger budget
+or broader ranking boost; it was a narrow maintenance-context recovery rule
+validated by intent-level diagnostics.
+
+| Run | Avg recall | Avg token precision | Outcome |
+|---|---:|---:|---|
+| Intent diagnostics baseline | 64.2% | 52.5% | Below 65% recall, but precision was healthy enough to inspect misses by intent. |
+| Cleanup recovery, first full run | 64.8% | 51.9% | Recall improved but stayed below target; precision stayed above the 51% floor. |
+| Maintenance recovery final run | 66.0% | 51.1% | Target cleared across 108 scored public cases. |
+
+The final useful intent readout from the 108-case run was:
+
+| Intent | Cases | Avg recall | Avg token precision | Misses | Interpretation |
+|---|---:|---:|---:|---:|---|
+| `cleanup_refactor` | 9 | 57.4% | 67.1% | 5 | Best safe recall-recovery area; high precision allowed narrow cap/floor exceptions. |
+| `typing_api` | 17 | 70.6% | 57.5% | 10 | Improved from deprecation maintenance recovery, but still has cap/floor misses. |
+| `dependency_release` | 25 | 70.1% | 66.9% | 21 | Good precision, but many misses are legitimate multi-file dependency changes. |
+| `test_focus` | 20 | 77.4% | 51.1% | 21 | Recall is strong, but precision is near the floor; avoid broad test expansion. |
+| `config_build` | 14 | 48.8% | 35.0% | 14 | Main remaining bottleneck; low precision makes broad config recovery risky. |
+| `source_behavior` | 10 | 70.0% | 35.1% | 9 | Many plausible source files are unlabeled or noisy; needs better scope/package intent. |
+| `docs_metadata` | 5 | 40.0% | 9.1% | 6 | Too noisy for selector tuning until labels and task intent are audited. |
+
+### Successful Experiments
+
+| Experiment | Result | Why it worked |
+|---|---|---|
+| Intent diagnostics | Added `By Intent` summaries and JSON diagnostics without changing selector behavior. | It identified `cleanup_refactor` as low recall but high token precision, which made it a safer target than `config_build` or docs. |
+| Label-audit diagnostics | Separated audited noise from plausibly useful unlabeled context. | It prevented overreacting to low raw precision in cases where selected context was related but not labeled expected. |
+| Maintenance summary-floor bypass | Allowed cleanup/refactor/deprecation candidates through the summary floor only with direct evidence. | It recovered files that were ranked and relevant but blocked by strict precision guards. |
+| Cleanup/refactor cap overflow | Allowed at most two cheap compressed maintenance candidates under strict caps. | It recovered maintenance files without widening the global summary cap. |
+| Token-neutral maintenance replacement | Let stronger maintenance candidates replace weaker selected maintenance summaries. | It improved slot quality without increasing token volume. |
+| Deprecation-specific content gate | Allowed deprecation maintenance files with at least two content hits and a 60-point score floor. | It recovered MarkupSafe deprecation cleanup while avoiding broad recently-modified file inclusion. |
+
+### Failed Or Marginal Experiments
+
+| Experiment | Result | Lesson |
+|---|---|---|
+| Drastically widening the token budget | Did not produce a reliable move past 65% recall and risked lowering token precision. | The bottleneck was not only budget size; it was which marginal files survived selection. |
+| Broad ranking boosts | Produced little or no durable aggregate gain. | Many expected files were already candidates; ranking-only changes did not fix cap, floor, and replacement losses. |
+| Static variable/path-style expansion | Rejected as overfitting risk. | New rules should encode portable conventions or dynamic evidence, not public-suite expected-file lists. |
+| Broad cleanup/refactor trigger including generic `refactor` and `import` | Caused Vite precision regressions without recall gains. | Generic refactor/import wording is too broad; the retained trigger is limited to maintenance terms such as `unused`, `cleanup`, `simplify`, `lint`, `format`, `polish`, and deprecation. |
+| Scope-sticky cleanup overflow | Dropped the Spring slice from 65.0% to 63.3% recall. | The first overflow scope is not always the expected scope; replacement is safer than locking future overflow to the first selected scope. |
+| Forcing `remove unused config` toward `pyproject.toml` | Rejected after slice inspection. | The competing workflow file scored higher with the same evidence; forcing the expected file would be label-specific rather than generic. |
+| More test cap expansion | Kept narrow only. | Test-focused recall is already high, while token precision is close to the floor; broad test expansion would spend the precision margin. |
+
+### Eval-Set Caveats
+
+The expanded public suite is useful, but it is not a perfect product-quality
+oracle.
+
+- The command prints 128 public cases in some runs, but the current scored
+  release-target JSONL has 108 cases with `expected_files`. Report the scored
+  count when citing recall and precision.
+- Expected files come from real commits, but labels are incomplete. Some
+  selected "noise" is plausibly useful context, especially same-package,
+  same-family, dependency, and test-adjacent files.
+- Added files must be filtered out when benchmarking the parent checkout,
+  because AgentPack cannot select files that do not exist yet.
+- Token precision is harsher than file recall. A selected expected file can
+  still contribute few expected tokens if the packed summary is too broad.
+- Vite and config/build tasks remain precision-sensitive. A change that improves
+  Spring or MarkupSafe can still regress Vite because plausible source,
+  playground, config, and test files compete for the same slots.
+- Slice wins are diagnostic, not release claims. The release claim needs a full
+  public-suite run with exact recall and token precision.
 
 ## What Improved
 
@@ -174,35 +244,35 @@ These metrics were the most useful during tuning:
 
 ## Next Optimization Areas
 
-The next benchmark release target is:
+The 2026-06-13 local checkpoint clears the immediate release target:
 
 | Metric | Target |
 |---|---:|
-| Expanded public-suite recall | 65%+ |
-| Expanded public-suite token precision | 50%+ |
+| Expanded public-suite recall | 66.0% |
+| Expanded public-suite token precision | 51.1% |
 | Major language/task-slice recall regression | <= 2 points |
 | `EXPECTED_NOT_FOUND` sampled-public misses | 0 |
 
-The current verified baseline is 57.0% recall / 50.6% token precision across
-109 scored public cases, so the next release should be treated as a recall
-recovery release with a hard precision floor. Do not claim the target from
-slice-only improvements; publish the full-suite run before using the number in
-release notes.
+The next release should treat this as a achieved-but-thin margin, not as room
+for broad expansion. Token precision has only about one point of headroom above
+the 50% floor, so the next changes should start with diagnostics and targeted
+slice validation.
 
 The next precision/recall work should focus on these areas:
 
-1. NestJS wrong-package locality.
-   Monorepo tasks need better package/workspace intent detection so `packages/core`
-   and `integration/*` do not steal from each other unless the task evidence says
-   so.
+1. Config/build intent recovery.
+   `config_build` is the main remaining bottleneck: 48.8% recall and 35.0%
+   token precision in the latest full run. Do not raise config caps broadly.
+   First diagnose config-only, source-only, and config-plus-source tasks.
 
 2. Vite config/source balance.
    Some config tasks need only config files, while CSS/build tasks need both source
    and config. Selection needs conditional inclusion, not global suppression.
 
-3. Gin source/test pairing.
-   Go test naming is now recognized, but tasks still confuse root source, helpers,
-   and tests. More precise source-to-test mapping is needed.
+3. NestJS wrong-package locality.
+   Monorepo tasks need better package/workspace intent detection so `packages/core`
+   and `integration/*` do not steal from each other unless the task evidence says
+   so.
 
 4. Snippet/block packing.
    Several cases select the expected file but include too much surrounding noise.
@@ -210,6 +280,6 @@ The next precision/recall work should focus on these areas:
    precision without sacrificing selected-file recall.
 
 5. Publish decision gates.
-   Keep changes only when full-suite recall moves toward 65%, token precision
-   stays at or above 50%, and no major language/task slice regresses by more
-   than 2 recall points.
+   Keep changes only when full-suite recall stays at or above 65%, token
+   precision stays at or above 51%, and no major language/task slice regresses
+   by more than 2 recall points.
