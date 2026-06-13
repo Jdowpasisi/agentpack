@@ -1299,7 +1299,7 @@ the installed `agentpack` command through the benchmark release gate.
 
 ```bash
 agentpack verify-wheel
-agentpack verify-wheel --wheel dist/agentpack_cli-0.3.21-py3-none-any.whl
+agentpack verify-wheel --wheel dist/agentpack_cli-0.3.22-py3-none-any.whl
 agentpack verify-wheel --skip-build --json
 ```
 

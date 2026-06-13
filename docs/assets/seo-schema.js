@@ -14,7 +14,7 @@
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Linux, Windows",
       "description": "Local context engine for AI coding agents that ranks relevant repo files and builds compact task-focused context packs.",
-      "softwareVersion": "0.3.21",
+      "softwareVersion": "0.3.22",
       "license": "https://github.com/vishal2612200/agentpack/blob/main/LICENSE",
       "codeRepository": "https://github.com/vishal2612200/agentpack",
       "url": siteUrl,

@@ -8,12 +8,18 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+---
+
+## [0.3.22] — 2026-06-13
+
 ### Added
+- Added benchmark intent diagnostics and label-audit diagnostics to make recall and precision failures easier to inspect by task family.
 - Added a 2026-06-13 expanded public-suite baseline showing 66.0% recall and 51.1% token precision across 108 scored public cases, plus sensitive Click and NestJS regression-slice readouts.
 
 ### Changed
 - Improved search and AI-discovery readiness with aligned package metadata, project URLs, README positioning, MkDocs site metadata, intent-page expansions, and AI-readable `llms.txt` summaries.
-- Documented that maintenance-context recovery cleared the 65% recall target, while config/build and NestJS token precision remain the main follow-up risks.
+- Recovered maintenance-context files under strict caps, clearing the 65% recall target while keeping token precision above the 51% release floor.
+- Documented that config/build recall and NestJS token precision remain the main follow-up risks.
 
 ---
 

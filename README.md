@@ -30,21 +30,19 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.21).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.22).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
-## What's New in 0.3.21
+## What's New in 0.3.22
 
-`0.3.21` is a benchmark trust release. It established the prior honest expanded public-suite baseline at **57.0% recall / 50.6% token precision**, removes the
-legacy minimal-mode surface in favor of `balanced`, improves benchmark diagnostics and public-suite methodology, and documents the next release target:
-**65%+ recall while holding 50%+ token precision**.
-
-Current local release-candidate evidence after maintenance-context recovery is
-**66.0% recall / 51.1% token precision** across 108 scored public cases. The
-result is documented in [`benchmarks/results/2026-06-13-public.md`](benchmarks/results/2026-06-13-public.md).
+`0.3.22` is a benchmark recall release. It promotes maintenance-context
+recovery to the current expanded public-suite baseline: **66.0% recall / 51.1%
+token precision** across 108 scored public cases.
+`0.3.21` established the prior honest baseline at **57.0% recall / 50.6% token precision**. The new result clears the 65% recall target while keeping token
+precision above the 51% release floor; remaining risk is config/build recall and NestJS token precision. Result: [`benchmarks/results/2026-06-13-public.md`](benchmarks/results/2026-06-13-public.md).
 
 ## Core Workflow
 
