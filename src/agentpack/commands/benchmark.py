@@ -1200,6 +1200,22 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
                 selected_noise=selected_noise,
                 scored_map=scored_map,
             ),
+            "selected_not_expected_but_plausibly_useful": _plausibly_useful_selected_noise(
+                selected_noise=selected_noise,
+                expected_set=expected_set,
+                scored_map=scored_map,
+            ),
+            "owner_file_recall": _owner_file_recall(selected_set=selected_set, expected_set=expected_set),
+            "expected_family_recall": _expected_family_recall(selected_set=selected_set, expected_set=expected_set),
+            "expected_include_modes": _expected_include_mode_diagnostics(
+                expected_set=expected_set,
+                selected_modes=selected_modes,
+            ),
+            "expected_rank_distribution": _expected_rank_distribution(expected_set, scored_map),
+            "package_boundary": _package_boundary_diagnostics(
+                selected_paths=selected_paths,
+                expected_set=expected_set,
+            ),
         }
     else:
         missed_expected = []
@@ -1584,6 +1600,221 @@ def _same_scope_replacement_opportunities(
             int(row["noise_rank"] or 999999),
         ),
     )[:limit]
+
+
+def _plausibly_useful_selected_noise(
+    *,
+    selected_noise: list[dict[str, Any]],
+    expected_set: set[str],
+    scored_map: dict[str, dict[str, Any]],
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    expected_scopes = {_diagnostic_scope(path) for path in expected_set}
+    expected_packages = {_workspace_package(path) for path in expected_set}
+    expected_families = {_path_family(path) for path in expected_set}
+    rows: list[dict[str, Any]] = []
+    for noise in selected_noise:
+        path = str(noise.get("path") or "")
+        if not path:
+            continue
+        scope = _diagnostic_scope(path)
+        package = _workspace_package(path)
+        family = _path_family(path)
+        reasons: list[str] = []
+        if any(_diagnostic_related_scope(scope, expected_scope) for expected_scope in expected_scopes):
+            reasons.append("same_or_related_scope_as_expected")
+        if package and package in expected_packages:
+            reasons.append("same_workspace_package_as_expected")
+        if family in expected_families and _cap_has_strong_evidence(list(noise.get("reasons") or [])):
+            reasons.append("same_family_with_strong_evidence")
+        if not reasons:
+            continue
+        scored_info = scored_map.get(path) or {}
+        rows.append({
+            "path": path,
+            "family": family,
+            "scope": scope,
+            "workspace_package": package,
+            "rank": noise.get("rank"),
+            "score": noise.get("score"),
+            "tokens": noise.get("tokens"),
+            "plausibility_reasons": reasons,
+            "selection_reasons": list(noise.get("reasons") or scored_info.get("reasons") or [])[:4],
+        })
+    return sorted(
+        rows,
+        key=lambda row: (
+            int(row["rank"] or 999999),
+            -float(row["score"] or 0.0),
+            str(row["path"]),
+        ),
+    )[:limit]
+
+
+def _owner_file_recall(*, selected_set: set[str], expected_set: set[str]) -> dict[str, Any]:
+    if not expected_set:
+        return {"owner_files": [], "selected": 0, "total": 0, "recall": None}
+    owner_priority = min(_owner_priority(path) for path in expected_set)
+    owner_files = sorted(path for path in expected_set if _owner_priority(path) == owner_priority)
+    selected = sum(1 for path in owner_files if path in selected_set)
+    return {
+        "owner_files": owner_files,
+        "selected": selected,
+        "total": len(owner_files),
+        "recall": round(selected / len(owner_files), 3) if owner_files else None,
+        "owner_family": _path_family(owner_files[0]) if owner_files else None,
+    }
+
+
+def _owner_priority(path: str) -> int:
+    family = _path_family(path)
+    if family == "source":
+        return 0
+    if family == "config":
+        return 1
+    if family == "test":
+        return 2
+    if family == "docs":
+        return 3
+    return 4
+
+
+def _expected_family_recall(*, selected_set: set[str], expected_set: set[str]) -> dict[str, dict[str, float]]:
+    buckets: dict[str, dict[str, float]] = {}
+    for path in expected_set:
+        family = _path_family(path)
+        bucket = buckets.setdefault(family, {"selected": 0.0, "expected": 0.0, "recall": 0.0})
+        bucket["expected"] += 1
+        if path in selected_set:
+            bucket["selected"] += 1
+    for bucket in buckets.values():
+        expected = bucket["expected"]
+        bucket["recall"] = round(bucket["selected"] / expected, 3) if expected else 0.0
+    return dict(sorted(buckets.items()))
+
+
+def _expected_include_mode_diagnostics(
+    *,
+    expected_set: set[str],
+    selected_modes: dict[str, str],
+) -> dict[str, Any]:
+    selected_expected = sorted(path for path in expected_set if path in selected_modes)
+    mode_counts: dict[str, int] = {}
+    by_family: dict[str, dict[str, int]] = {}
+    for path in selected_expected:
+        mode = selected_modes.get(path, "missing")
+        family = _path_family(path)
+        mode_counts[mode] = mode_counts.get(mode, 0) + 1
+        family_counts = by_family.setdefault(family, {})
+        family_counts[mode] = family_counts.get(mode, 0) + 1
+    summary_only = sum(1 for path in selected_expected if selected_modes.get(path) == "summary")
+    return {
+        "selected_expected_count": len(selected_expected),
+        "expected_count": len(expected_set),
+        "mode_counts": dict(sorted(mode_counts.items())),
+        "by_family": {family: dict(sorted(counts.items())) for family, counts in sorted(by_family.items())},
+        "source_code_block_rate": _family_actionable_mode_rate(
+            expected_set=expected_set,
+            selected_modes=selected_modes,
+            family="source",
+        ),
+        "test_code_block_rate": _family_actionable_mode_rate(
+            expected_set=expected_set,
+            selected_modes=selected_modes,
+            family="test",
+        ),
+        "summary_only_expected_rate": round(summary_only / len(selected_expected), 3) if selected_expected else None,
+    }
+
+
+def _family_actionable_mode_rate(
+    *,
+    expected_set: set[str],
+    selected_modes: dict[str, str],
+    family: str,
+) -> float | None:
+    paths = [path for path in expected_set if _path_family(path) == family]
+    if not paths:
+        return None
+    actionable_modes = {"full", "diff", "symbols", "skeleton"}
+    selected_actionable = sum(1 for path in paths if selected_modes.get(path) in actionable_modes)
+    return round(selected_actionable / len(paths), 3)
+
+
+def _expected_rank_distribution(
+    expected_set: set[str],
+    scored_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    ranks = sorted(int(scored_map[path]["rank"]) for path in expected_set if path in scored_map and scored_map[path].get("rank"))
+    if not ranks:
+        return {
+            "ranked_expected_count": 0,
+            "unranked_expected_count": len(expected_set),
+            "median": None,
+            "p90": None,
+            "min": None,
+            "max": None,
+            "buckets": {},
+        }
+    return {
+        "ranked_expected_count": len(ranks),
+        "unranked_expected_count": len(expected_set) - len(ranks),
+        "median": _percentile_rank(ranks, 0.5),
+        "p90": _percentile_rank(ranks, 0.9),
+        "min": ranks[0],
+        "max": ranks[-1],
+        "buckets": {
+            "1_3": sum(1 for rank in ranks if rank <= 3),
+            "4_8": sum(1 for rank in ranks if 4 <= rank <= 8),
+            "9_20": sum(1 for rank in ranks if 9 <= rank <= 20),
+            "21_plus": sum(1 for rank in ranks if rank >= 21),
+        },
+    }
+
+
+def _percentile_rank(sorted_ranks: list[int], percentile: float) -> int:
+    if not sorted_ranks:
+        return 0
+    index = min(len(sorted_ranks) - 1, max(0, int(round((len(sorted_ranks) - 1) * percentile))))
+    return sorted_ranks[index]
+
+
+def _package_boundary_diagnostics(
+    *,
+    selected_paths: list[str],
+    expected_set: set[str],
+) -> dict[str, Any]:
+    expected_packages = {_workspace_package(path) for path in expected_set if _workspace_package(path)}
+    selected_packages = [_workspace_package(path) for path in selected_paths if _workspace_package(path)]
+    selected_expected_package = sum(1 for package in selected_packages if package in expected_packages)
+    selected_cross_package = len(selected_packages) - selected_expected_package
+    return {
+        "expected_packages": sorted(expected_packages),
+        "selected_expected_package_files": selected_expected_package,
+        "selected_cross_package_files": selected_cross_package,
+        "selected_package_match_rate": round(selected_expected_package / len(selected_packages), 3)
+        if selected_packages else None,
+    }
+
+
+def _workspace_package(path: str) -> str:
+    normalized = path.lower().replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+    if not parts:
+        return ""
+    if "packages" in parts:
+        index = parts.index("packages")
+        if len(parts) > index + 1:
+            return "/".join(parts[:index + 2])
+    if "apps" in parts:
+        index = parts.index("apps")
+        if len(parts) > index + 1:
+            return "/".join(parts[:index + 2])
+    if parts[0] in {"integration", "examples", "playground"} and len(parts) > 1:
+        return "/".join(parts[:2])
+    if parts[0] in {"src", "lib", "app", "tests", "test"}:
+        return parts[0]
+    return parts[0]
 
 
 def _diagnostic_replacement_status(status: str) -> bool:

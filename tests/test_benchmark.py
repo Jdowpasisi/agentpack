@@ -64,6 +64,12 @@ from agentpack.commands.benchmark import (
     _write_results_jsonl,
     _replacement_pair_diagnostics,
     _same_scope_replacement_opportunities,
+    _plausibly_useful_selected_noise,
+    _owner_file_recall,
+    _expected_family_recall,
+    _expected_include_mode_diagnostics,
+    _expected_rank_distribution,
+    _package_boundary_diagnostics,
 )
 
 
@@ -443,6 +449,106 @@ def test_same_scope_replacement_opportunities_ignore_unrelated_or_larger_miss() 
     )
 
     assert rows == []
+
+
+def test_plausibly_useful_selected_noise_flags_same_package_noise() -> None:
+    rows = _plausibly_useful_selected_noise(
+        selected_noise=[{
+            "path": "packages/vite/src/node/server/middleware.ts",
+            "tokens": 180,
+            "rank": 8,
+            "score": 90.0,
+            "reasons": ["filename keyword match"],
+        }, {
+            "path": "docs/server.md",
+            "tokens": 80,
+            "rank": 2,
+            "score": 120.0,
+            "reasons": ["filename keyword match"],
+        }],
+        expected_set={"packages/vite/src/node/server/index.ts"},
+        scored_map={},
+    )
+
+    assert rows == [{
+        "path": "packages/vite/src/node/server/middleware.ts",
+        "family": "source",
+        "scope": "packages/vite/src/node/server",
+        "workspace_package": "packages/vite",
+        "rank": 8,
+        "score": 90.0,
+        "tokens": 180,
+        "plausibility_reasons": [
+            "same_or_related_scope_as_expected",
+            "same_workspace_package_as_expected",
+        ],
+        "selection_reasons": ["filename keyword match"],
+    }]
+
+
+def test_owner_family_include_rank_and_package_diagnostics() -> None:
+    expected = {
+        "packages/vite/src/node/server/index.ts",
+        "packages/vite/src/node/server/index.spec.ts",
+        "docs/server.md",
+    }
+    selected = {
+        "packages/vite/src/node/server/index.ts",
+        "docs/server.md",
+    }
+    selected_modes = {
+        "packages/vite/src/node/server/index.ts": "skeleton",
+        "docs/server.md": "summary",
+    }
+    scored_map = {
+        "packages/vite/src/node/server/index.ts": {"rank": 2},
+        "packages/vite/src/node/server/index.spec.ts": {"rank": 9},
+        "docs/server.md": {"rank": 21},
+    }
+
+    assert _owner_file_recall(selected_set=selected, expected_set=expected) == {
+        "owner_files": ["packages/vite/src/node/server/index.ts"],
+        "selected": 1,
+        "total": 1,
+        "recall": 1.0,
+        "owner_family": "source",
+    }
+    assert _expected_family_recall(selected_set=selected, expected_set=expected) == {
+        "docs": {"selected": 1.0, "expected": 1.0, "recall": 1.0},
+        "source": {"selected": 1.0, "expected": 1.0, "recall": 1.0},
+        "test": {"selected": 0.0, "expected": 1.0, "recall": 0.0},
+    }
+    assert _expected_include_mode_diagnostics(expected_set=expected, selected_modes=selected_modes) == {
+        "selected_expected_count": 2,
+        "expected_count": 3,
+        "mode_counts": {"skeleton": 1, "summary": 1},
+        "by_family": {"docs": {"summary": 1}, "source": {"skeleton": 1}},
+        "source_code_block_rate": 1.0,
+        "test_code_block_rate": 0.0,
+        "summary_only_expected_rate": 0.5,
+    }
+    assert _expected_rank_distribution(expected, scored_map) == {
+        "ranked_expected_count": 3,
+        "unranked_expected_count": 0,
+        "median": 9,
+        "p90": 21,
+        "min": 2,
+        "max": 21,
+        "buckets": {"1_3": 1, "4_8": 0, "9_20": 1, "21_plus": 1},
+    }
+    assert _package_boundary_diagnostics(
+        selected_paths=[
+            "packages/vite/src/node/server/index.ts",
+            "packages/playground/src/main.ts",
+            "docs/server.md",
+        ],
+        expected_set=expected,
+    ) == {
+        "expected_packages": ["docs", "packages/vite"],
+        "selected_expected_package_files": 2,
+        "selected_cross_package_files": 1,
+        "selected_package_match_rate": 0.667,
+    }
 
 
 # ---------------------------------------------------------------------------
