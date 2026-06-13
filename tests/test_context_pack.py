@@ -1169,6 +1169,77 @@ def test_specific_source_scope_can_replace_generic_parent_source():
     assert any(r.path == weak_parent.path and r.reason == f"marginal slot replaced by {strong_child.path}" for r in receipts)
 
 
+def test_token_neutral_strong_test_can_replace_weaker_same_scope_test():
+    weak_test = _fi("packages/vite/src/node/__tests__/config.spec.ts", tokens=220)
+    strong_test = _fi("packages/vite/src/node/__tests__/utils.spec.ts", tokens=160)
+
+    selected, receipts = select_files(
+        files=[weak_test, strong_test],
+        scored=[
+            (
+                weak_test,
+                500.0,
+                ["filename keyword match", "matched define: test_config_defaults", "content keyword match (1)"],
+            ),
+            (
+                strong_test,
+                360.0,
+                [
+                    "matched define: test_clean_up_eslint_config",
+                    "matched call: resolveConfig",
+                    "content keyword match (5)",
+                    "direct content evidence +170",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            weak_test.path: {"summary": "Broad config tests covering several defaults and setup branches.", "symbols": []},
+            strong_test.path: {"summary": "Focused utils tests.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [strong_test.path]
+    assert any(r.path == weak_test.path and r.reason == f"marginal slot replaced by {strong_test.path}" for r in receipts)
+
+
+def test_token_neutral_source_does_not_replace_selected_test_context():
+    selected_test = _fi("packages/vite/src/node/__tests__/config.spec.ts", tokens=220)
+    source = _fi("packages/vite/src/node/config.ts", tokens=160)
+
+    selected, receipts = select_files(
+        files=[selected_test, source],
+        scored=[
+            (
+                selected_test,
+                500.0,
+                ["matched define: test_config_defaults", "matched call: resolveConfig", "content keyword match (4)"],
+            ),
+            (
+                source,
+                360.0,
+                ["matched define: resolveConfig", "matched call: loadEnv", "content keyword match (5)", "direct content evidence +170"],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={
+            selected_test.path: {"summary": "Focused config tests covering setup branches.", "symbols": []},
+            source.path: {"summary": "Focused config source.", "symbols": []},
+        },
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        max_summary_files=1,
+    )
+
+    assert [sf.path for sf in selected] == [selected_test.path]
+    assert any(r.path == source.path and r.reason == "compressed context cap reached" for r in receipts)
+
+
 def test_generic_parent_source_cannot_replace_specific_child_source():
     specific_child = _fi("packages/vite/src/node/optimizer/index.ts", tokens=120)
     generic_parent = _fi("packages/vite/src/node/build.ts", tokens=120)

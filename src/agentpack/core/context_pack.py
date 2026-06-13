@@ -1144,8 +1144,6 @@ def _find_marginal_replacement(
     required_family: str | None = None,
     max_extra_tokens: int = 0,
 ) -> int | None:
-    if _is_test_path(challenger_path) and "explicit test task file" not in challenger_reasons:
-        return None
     challenger_evidence = _marginal_evidence_score(
         challenger_path,
         challenger_score,
@@ -1179,6 +1177,16 @@ def _find_marginal_replacement(
         token_delta = challenger_tokens - incumbent_tokens
         if token_delta > max_extra_tokens:
             continue
+        if (
+            _is_test_path(challenger_path)
+            and "explicit test task file" not in challenger_reasons
+            and not _can_token_neutral_test_replace_incumbent(
+                challenger_reasons=challenger_reasons,
+                incumbent=incumbent,
+                token_delta=token_delta,
+            )
+        ):
+            continue
         if required_family is not None:
             incumbent_family = _compressed_context_family(incumbent.path, incumbent.reasons)
             if incumbent_family is None or incumbent_family[0] != required_family:
@@ -1191,10 +1199,93 @@ def _find_marginal_replacement(
         )
         gain = challenger_evidence - incumbent_evidence
         required_gain = 70.0 + max(0, token_delta) * 0.15
+        if _can_token_neutral_owner_replace_incumbent(
+            challenger_path=challenger_path,
+            challenger_reasons=challenger_reasons,
+            incumbent=incumbent,
+            token_delta=token_delta,
+        ):
+            required_gain = min(required_gain, 45.0)
+        if (
+            _is_test_path(challenger_path)
+            and _can_token_neutral_test_replace_incumbent(
+                challenger_reasons=challenger_reasons,
+                incumbent=incumbent,
+                token_delta=token_delta,
+            )
+        ):
+            required_gain = min(required_gain, 55.0)
         if gain >= required_gain and gain > best_gain:
             best_gain = gain
             best_index = index
     return best_index
+
+
+def _can_token_neutral_owner_replace_incumbent(
+    *,
+    challenger_path: str,
+    challenger_reasons: list[str],
+    incumbent: SelectedFile,
+    token_delta: int,
+) -> bool:
+    if token_delta > 0 or _is_test_path(challenger_path):
+        return False
+    if not _is_source_path(challenger_path) and "config file" not in challenger_reasons:
+        return False
+    if not (
+        _has_direct_source_evidence(challenger_reasons)
+        or _has_actionable_compressed_evidence(challenger_reasons)
+        or _has_strict_summary_support(challenger_reasons, challenger_path)
+    ):
+        return False
+    if _is_test_path(incumbent.path):
+        return False
+    incumbent_has_strong_owner_signal = (
+        _is_source_path(incumbent.path)
+        and (
+            _has_direct_source_evidence(incumbent.reasons)
+            or _has_actionable_compressed_evidence(incumbent.reasons)
+        )
+    )
+    if incumbent_has_strong_owner_signal:
+        return False
+    if _is_primary_release_metadata(incumbent.path, incumbent.reasons):
+        return False
+    return True
+
+
+def _can_token_neutral_test_replace_incumbent(
+    *,
+    challenger_reasons: list[str],
+    incumbent: SelectedFile,
+    token_delta: int,
+) -> bool:
+    if token_delta > 0:
+        return False
+    has_test_pairing = any(
+        reason.startswith("test for high-scoring") or "related test" in reason
+        for reason in challenger_reasons
+    )
+    has_direct_test_evidence = _content_keyword_hits(challenger_reasons) >= 3 and any(
+        reason.startswith((
+            "matched call:",
+            "matched define:",
+            "keyword phrase match:",
+            "quoted literal match:",
+            "direct content evidence",
+        ))
+        for reason in challenger_reasons
+    )
+    if not (has_test_pairing or has_direct_test_evidence):
+        return False
+    if _is_source_path(incumbent.path) and (
+        _has_direct_source_evidence(incumbent.reasons)
+        or _has_actionable_compressed_evidence(incumbent.reasons)
+    ):
+        return False
+    if any(reason in {"same-package test overflow", "same-playground test overflow"} for reason in incumbent.reasons):
+        return False
+    return True
 
 
 def _replacement_scope(path: str, reasons: list[str]) -> str | None:
@@ -1530,7 +1621,7 @@ def select_files(
                     reasons = reasons + ["same-package test overflow"]
                 elif playground_test_overflow:
                     reasons = reasons + ["same-playground test overflow"]
-                elif "strong-test cap overflow" not in reasons:
+                elif strong_test_overflow and "strong-test cap overflow" not in reasons:
                     reasons = reasons + ["strong-test cap overflow"]
 
         if tokens_used + tok > budget:
