@@ -1076,7 +1076,12 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
         candidate_precision_at_3 = _candidate_precision_at(scored_paths, expected_set, 3)
         candidate_precision_at_5 = _candidate_precision_at(scored_paths, expected_set, 5)
         scored_map = {
-            fi.path: {"rank": rank, "score": score, "reasons": reasons}
+            fi.path: {
+                "rank": rank,
+                "score": score,
+                "reasons": reasons,
+                "estimated_tokens": int(getattr(fi, "estimated_tokens", 0) or 0),
+            }
             for rank, (fi, score, reasons) in enumerate(ranked_scored, 1)
         }
         top_candidates = _top_candidate_diagnostics(
@@ -1190,6 +1195,11 @@ def _run_case(root: Path, case: BenchmarkCase) -> CaseResult:
             "expected_ranked_not_selected": sum(1 for miss in missed_expected if miss["rank"] is not None),
             "missed_expected_count": len(missed_expected),
             "replacement_pairs": _replacement_pair_diagnostics(plan.receipts, scored_map, selected_tokens),
+            "same_scope_replacement_opportunities": _same_scope_replacement_opportunities(
+                missed_expected=missed_expected,
+                selected_noise=selected_noise,
+                scored_map=scored_map,
+            ),
         }
     else:
         missed_expected = []
@@ -1501,6 +1511,129 @@ def _replacement_pair_diagnostics(
             "displaced_reasons": list(displaced.get("reasons", []) or [])[:4],
         })
     return rows[:20]
+
+
+def _same_scope_replacement_opportunities(
+    *,
+    missed_expected: list[dict[str, Any]],
+    selected_noise: list[dict[str, Any]],
+    scored_map: dict[str, dict[str, Any]],
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for miss in missed_expected:
+        missed_path = str(miss.get("path") or "")
+        missed_info = scored_map.get(missed_path) or {}
+        cap_diagnostic = miss.get("cap_block_diagnostic")
+        if isinstance(cap_diagnostic, dict):
+            missed_tokens = int(cap_diagnostic.get("candidate_tokens") or 0)
+        else:
+            missed_tokens = int(missed_info.get("estimated_tokens") or 0)
+        if not missed_path or missed_tokens <= 0 or miss.get("rank") is None:
+            continue
+        if not _diagnostic_replacement_status(str(miss.get("status") or "")):
+            continue
+        missed_scope = _diagnostic_scope(missed_path)
+        missed_reasons = list(miss.get("reasons") or [])
+        missed_evidence = _diagnostic_evidence_score(
+            path=missed_path,
+            score=float(miss.get("score") or 0.0),
+            reasons=missed_reasons,
+        )
+        for noise in selected_noise:
+            noise_path = str(noise.get("path") or "")
+            noise_tokens = int(noise.get("tokens") or 0)
+            if not noise_path or noise_tokens <= 0 or missed_tokens > noise_tokens:
+                continue
+            noise_scope = _diagnostic_scope(noise_path)
+            if not _diagnostic_related_scope(missed_scope, noise_scope):
+                continue
+            noise_reasons = list(noise.get("reasons") or [])
+            noise_evidence = _diagnostic_evidence_score(
+                path=noise_path,
+                score=float(noise.get("score") or 0.0),
+                reasons=noise_reasons,
+            )
+            evidence_gain = missed_evidence - noise_evidence
+            if evidence_gain < 25:
+                continue
+            rows.append({
+                "missed": missed_path,
+                "selected_noise": noise_path,
+                "scope": missed_scope,
+                "missed_rank": miss.get("rank"),
+                "noise_rank": noise.get("rank"),
+                "missed_score": miss.get("score"),
+                "noise_score": noise.get("score"),
+                "missed_tokens": missed_tokens,
+                "noise_tokens": noise_tokens,
+                "token_delta": missed_tokens - noise_tokens,
+                "missed_evidence": round(missed_evidence, 1),
+                "noise_evidence": round(noise_evidence, 1),
+                "evidence_gain": round(evidence_gain, 1),
+                "missed_reasons": missed_reasons[:4],
+                "noise_reasons": noise_reasons[:4],
+            })
+
+    return sorted(
+        rows,
+        key=lambda row: (
+            -float(row["evidence_gain"]),
+            int(row["token_delta"]),
+            int(row["missed_rank"] or 999999),
+            int(row["noise_rank"] or 999999),
+        ),
+    )[:limit]
+
+
+def _diagnostic_replacement_status(status: str) -> bool:
+    lowered = status.lower()
+    return any(term in lowered for term in ("budget", "cap reached", "compressed", "summarized", "stronger support"))
+
+
+def _diagnostic_scope(path: str) -> str:
+    normalized = path.lower().replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+    if not parts:
+        return ""
+    for marker in ("src", "lib", "app", "packages", "tests", "test", "integration"):
+        if marker not in parts:
+            continue
+        index = parts.index(marker)
+        if marker == "packages" and len(parts) > index + 2:
+            return "/".join(parts[:index + 3])
+        tail = parts[index + 1:-1]
+        depth = 2 if marker in {"src", "lib", "app"} else 1
+        return "/".join(parts[:index + 1] + tail[:depth])
+    if len(parts) > 2:
+        return "/".join(parts[:2])
+    return parts[0]
+
+
+def _diagnostic_related_scope(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if not left or not right:
+        return False
+    return left.startswith(f"{right}/") or right.startswith(f"{left}/")
+
+
+def _diagnostic_evidence_score(*, path: str, score: float, reasons: list[str]) -> float:
+    evidence = min(max(score, 0.0), 300.0) * 0.25
+    for reason in reasons:
+        lowered = reason.lower()
+        content_match = re.match(r"content keyword match \((\d+)\)", lowered)
+        if content_match:
+            evidence += min(int(content_match.group(1)), 6) * 18
+        if reason.startswith(_CAP_STRONG_REASON_PREFIXES):
+            evidence += 55
+        elif lowered.startswith(("filename keyword match", "symbol keyword match")):
+            evidence += 12
+        elif lowered.startswith(("recently modified", "high churn")):
+            evidence += 5
+    if _path_family(path) in {"examples", "fixtures", "generated", "docs"}:
+        evidence -= 25
+    return evidence
 
 
 def _replaceable_selected_noise(

@@ -63,6 +63,7 @@ from agentpack.commands.benchmark import (
     _low_budget_waste_summary,
     _write_results_jsonl,
     _replacement_pair_diagnostics,
+    _same_scope_replacement_opportunities,
 )
 
 
@@ -361,6 +362,87 @@ def test_replacement_pair_diagnostics_parse_marginal_receipts() -> None:
         "challenger_reasons": ["matched define: expected", "content keyword match (4)"],
         "displaced_reasons": ["filename keyword match"],
     }]
+
+
+def test_same_scope_replacement_opportunities_find_token_neutral_stronger_miss() -> None:
+    rows = _same_scope_replacement_opportunities(
+        missed_expected=[{
+            "path": "packages/vite/src/node/server/index.ts",
+            "status": "compressed context cap reached",
+            "rank": 12,
+            "score": 240.0,
+            "reasons": ["matched define: createServer", "content keyword match (4)"],
+            "cap_block_diagnostic": {"candidate_tokens": 150},
+        }],
+        selected_noise=[{
+            "path": "packages/vite/src/node/server/middleware.ts",
+            "tokens": 180,
+            "rank": 8,
+            "score": 90.0,
+            "reasons": ["filename keyword match"],
+        }],
+        scored_map={
+            "packages/vite/src/node/server/index.ts": {
+                "rank": 12,
+                "score": 240.0,
+                "reasons": ["matched define: createServer", "content keyword match (4)"],
+                "estimated_tokens": 999,
+            },
+        },
+    )
+
+    assert rows == [{
+        "missed": "packages/vite/src/node/server/index.ts",
+        "selected_noise": "packages/vite/src/node/server/middleware.ts",
+        "scope": "packages/vite/src/node/server",
+        "missed_rank": 12,
+        "noise_rank": 8,
+        "missed_score": 240.0,
+        "noise_score": 90.0,
+        "missed_tokens": 150,
+        "noise_tokens": 180,
+        "token_delta": -30,
+        "missed_evidence": 187.0,
+        "noise_evidence": 34.5,
+        "evidence_gain": 152.5,
+        "missed_reasons": ["matched define: createServer", "content keyword match (4)"],
+        "noise_reasons": ["filename keyword match"],
+    }]
+
+
+def test_same_scope_replacement_opportunities_ignore_unrelated_or_larger_miss() -> None:
+    rows = _same_scope_replacement_opportunities(
+        missed_expected=[{
+            "path": "src/auth/session.py",
+            "status": "compressed context cap reached",
+            "rank": 9,
+            "score": 250.0,
+            "reasons": ["matched define: verify_session", "content keyword match (5)"],
+        }],
+        selected_noise=[{
+            "path": "docs/session.md",
+            "tokens": 300,
+            "rank": 3,
+            "score": 50.0,
+            "reasons": ["filename keyword match"],
+        }, {
+            "path": "src/auth/cache.py",
+            "tokens": 100,
+            "rank": 4,
+            "score": 50.0,
+            "reasons": ["filename keyword match"],
+        }],
+        scored_map={
+            "src/auth/session.py": {
+                "rank": 9,
+                "score": 250.0,
+                "reasons": ["matched define: verify_session", "content keyword match (5)"],
+                "estimated_tokens": 160,
+            },
+        },
+    )
+
+    assert rows == []
 
 
 # ---------------------------------------------------------------------------
