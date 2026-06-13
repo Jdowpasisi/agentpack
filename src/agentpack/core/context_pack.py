@@ -1050,6 +1050,50 @@ def _can_overflow_same_playground_test(path: str, reasons: list[str], selected: 
     return any(_playground_root(sf.path) == playground for sf in selected)
 
 
+def _selected_test_scope_count(path: str, selected: list[SelectedFile]) -> int:
+    scope = _replacement_scope(path, [])
+    if scope is None:
+        return 0
+    return sum(1 for sf in selected if _is_test_path(sf.path) and _replacement_scope(sf.path, sf.reasons) == scope)
+
+
+def _can_overflow_strong_test_cap(
+    path: str,
+    reasons: list[str],
+    score: float,
+    token_cost: int,
+    selected: list[SelectedFile],
+) -> bool:
+    if not _is_test_path(path) or token_cost > 160 or score < 700:
+        return False
+    if _is_example_or_playground_path(path) or _package_root(path) == "packages/vite":
+        return False
+    if _selected_test_scope_count(path, selected) >= 2:
+        return False
+    if _content_keyword_hits(reasons) < 2 and not any(
+        reason.startswith((
+            "keyword phrase match:",
+            "matched call:",
+            "multi-token defines match",
+            "literal definition match:",
+        ))
+        for reason in reasons
+    ):
+        return False
+    return any(
+        reason.startswith((
+            "direct content evidence",
+            "keyword phrase match:",
+            "matched call:",
+            "matched define:",
+            "matched role keyword:",
+            "multi-token defines match",
+        ))
+        or reason == "explicit test task file"
+        for reason in reasons
+    )
+
+
 def _marginal_evidence_score(path: str, score: float, reasons: list[str], token_cost: int) -> float:
     """Score final-slot utility using evidence density, not raw rank alone."""
     evidence = min(score, 220.0) * 0.25
@@ -1218,6 +1262,7 @@ def select_files(
     weak_signal_used = 0
     paired_test_overflow_used = 0
     playground_test_overflow_used = 0
+    strong_test_overflow_used = 0
     primary_release_metadata_selected = False
     compressed_family_counts: dict[str, int] = {}
 
@@ -1404,33 +1449,46 @@ def select_files(
             receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context needs stronger support signal"))
             continue
 
+        paired_test_overflow = False
+        playground_test_overflow = False
+        strong_test_overflow = False
+
         if strict_summary_selection and compressed_context and not is_changed and mode == "balanced":
             family_cap = _compressed_context_family(fi.path, reasons)
             if family_cap is not None:
                 family, cap = family_cap
                 if compressed_family_counts.get(family, 0) >= cap:
-                    max_extra_tokens = min(120, max(0, budget - tokens_used))
-                    replacement_index = _find_marginal_replacement(
-                        selected,
-                        challenger_path=fi.path,
-                        challenger_score=score,
-                        challenger_reasons=reasons,
-                        challenger_tokens=tok,
-                        selected_token_costs=selected_token_costs,
-                        required_family=family,
-                        max_extra_tokens=max_extra_tokens,
+                    strong_test_overflow = (
+                        family == "tests"
+                        and strong_test_overflow_used < 2
+                        and mode == "balanced"
+                        and not changed_paths
+                        and _can_overflow_strong_test_cap(fi.path, reasons, score, tok, selected)
                     )
-                    if replacement_index is not None:
-                        displace_selected(replacement_index, fi.path)
+                    if strong_test_overflow:
+                        if "strong-test cap overflow" not in reasons:
+                            reasons = reasons + ["strong-test cap overflow"]
                     else:
-                        receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
-                        continue
-                if compressed_family_counts.get(family, 0) >= cap:
+                        max_extra_tokens = min(120, max(0, budget - tokens_used))
+                        replacement_index = _find_marginal_replacement(
+                            selected,
+                            challenger_path=fi.path,
+                            challenger_score=score,
+                            challenger_reasons=reasons,
+                            challenger_tokens=tok,
+                            selected_token_costs=selected_token_costs,
+                            required_family=family,
+                            max_extra_tokens=max_extra_tokens,
+                        )
+                        if replacement_index is not None:
+                            displace_selected(replacement_index, fi.path)
+                        else:
+                            receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
+                            continue
+                if compressed_family_counts.get(family, 0) >= cap and not strong_test_overflow:
                     receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
                     continue
 
-        paired_test_overflow = False
-        playground_test_overflow = False
         if compressed_context and max_summary_files > 0 and summaries_used >= max_summary_files:
             paired_test_overflow = (
                 paired_test_overflow_used < 1
@@ -1444,7 +1502,14 @@ def select_files(
                 and not changed_paths
                 and _can_overflow_same_playground_test(fi.path, reasons, selected)
             )
-            if not paired_test_overflow and not playground_test_overflow:
+            strong_test_overflow = (
+                strong_test_overflow
+                or strong_test_overflow_used < 2
+                and mode == "balanced"
+                and not changed_paths
+                and _can_overflow_strong_test_cap(fi.path, reasons, score, tok, selected)
+            )
+            if not paired_test_overflow and not playground_test_overflow and not strong_test_overflow:
                 max_extra_tokens = min(120, max(0, budget - tokens_used))
                 replacement_index = _find_marginal_replacement(
                     selected,
@@ -1461,9 +1526,12 @@ def select_files(
                     receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context cap reached"))
                     continue
             else:
-                reasons = reasons + [
-                    "same-package test overflow" if paired_test_overflow else "same-playground test overflow"
-                ]
+                if paired_test_overflow:
+                    reasons = reasons + ["same-package test overflow"]
+                elif playground_test_overflow:
+                    reasons = reasons + ["same-playground test overflow"]
+                elif "strong-test cap overflow" not in reasons:
+                    reasons = reasons + ["strong-test cap overflow"]
 
         if tokens_used + tok > budget:
             replacement_index = _find_marginal_replacement(
@@ -1517,6 +1585,8 @@ def select_files(
             paired_test_overflow_used += 1
         if playground_test_overflow:
             playground_test_overflow_used += 1
+        if strong_test_overflow:
+            strong_test_overflow_used += 1
         if weak_signal_only:
             weak_signal_used += 1
         if _is_primary_release_metadata(fi.path, reasons):

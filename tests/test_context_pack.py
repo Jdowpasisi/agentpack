@@ -1198,6 +1198,49 @@ def test_generic_parent_source_cannot_replace_specific_child_source():
     assert any(r.path == generic_parent.path and r.reason == "compressed context cap reached" for r in receipts)
 
 
+def test_strong_test_cap_overflow_adds_two_cheap_high_evidence_tests():
+    paths = [
+        "integration/injector/e2e/request-0.spec.ts",
+        "integration/injector/e2e/request-1.spec.ts",
+        "packages/core/test/injector/request-2.spec.ts",
+        "integration/graphql/e2e/request-3.spec.ts",
+        "integration/scopes/e2e/request-4.spec.ts",
+        "integration/scopes/e2e/request-5.spec.ts",
+        "integration/scopes/e2e/request-6.spec.ts",
+    ]
+    files = [_fi(path, tokens=80) for path in paths]
+    scored = [
+        (
+            fi,
+            900.0 - index,
+            [
+                "symbol keyword match",
+                "matched call: request",
+                "content keyword match (3)",
+                "explicit test task file",
+            ],
+        )
+        for index, fi in enumerate(files)
+    ]
+
+    selected, receipts = select_files(
+        files=files,
+        scored=scored,
+        changed_paths=set(),
+        summaries={fi.path: {"summary": f"Request scoped test {index}.", "symbols": []} for index, fi in enumerate(files)},
+        mode="balanced",
+        budget=5000,
+        max_file_tokens=4000,
+        max_summary_files=4,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == [fi.path for fi in files[:6]]
+    assert selected[4].reasons.count("strong-test cap overflow") == 1
+    assert selected[5].reasons.count("strong-test cap overflow") == 1
+    assert any(r.path == files[6].path and r.reason == "tests compressed context cap reached" for r in receipts)
+
+
 def test_direct_source_candidate_beats_smaller_playground_match():
     source = _fi("packages/vite/src/node/plugins/css.ts", tokens=900)
     playground = _fi("playground/css/lightningcss-plugins.js", tokens=50)
