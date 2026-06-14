@@ -320,7 +320,10 @@ def test_ci_init_writes_workflow_and_refuses_overwrite(tmp_path: Path, monkeypat
     assert json.loads(first.output)["written"] is True
     workflow = tmp_path / ".github" / "workflows" / "agentpack.yml"
     assert workflow.exists()
-    assert "python -m agentpack.cli loop-smoke --json" in workflow.read_text(encoding="utf-8")
+    workflow_text = workflow.read_text(encoding="utf-8")
+    assert "python -m agentpack.cli loop-smoke --json" in workflow_text
+    assert "fetch-depth: 0" in workflow_text
+    assert "python -m agentpack.cli release-check --profile auto" in workflow_text
     assert second.exit_code == 0, second.output
     assert json.loads(second.output)["written"] is False
 

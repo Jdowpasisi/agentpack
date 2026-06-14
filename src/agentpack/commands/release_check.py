@@ -145,9 +145,42 @@ def _pytest_args_for_profile(root: Path, profile: str) -> list[str]:
 
 
 def _changed_files(root: Path) -> list[str]:
+    ci_changed = _github_event_changed_files(root)
+    if ci_changed:
+        return ci_changed
     tracked = _git_lines(root, ["git", "diff", "--name-only", "HEAD", "--"])
     untracked = _git_lines(root, ["git", "ls-files", "--others", "--exclude-standard"])
     return sorted(set(tracked + untracked))
+
+
+def _github_event_changed_files(root: Path) -> list[str]:
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    if not event_path:
+        return []
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    base = ""
+    head = ""
+    if event_name == "push":
+        base = str(payload.get("before") or "")
+        head = str(payload.get("after") or os.environ.get("GITHUB_SHA") or "")
+    elif event_name == "pull_request":
+        pull_request = payload.get("pull_request")
+        if isinstance(pull_request, dict):
+            base_ref = pull_request.get("base")
+            head_ref = pull_request.get("head")
+            if isinstance(base_ref, dict) and isinstance(head_ref, dict):
+                base = str(base_ref.get("sha") or "")
+                head = str(head_ref.get("sha") or "")
+    if not base or not head or set(base) == {"0"}:
+        return []
+    return _git_lines(root, ["git", "diff", "--name-only", base, head, "--"])
 
 
 def _git_lines(root: Path, command: list[str]) -> list[str]:

@@ -61,14 +61,15 @@ The underlying release command wraps the public release gate:
 
 ```bash
 agentpack release-check
+agentpack release-check --profile auto
 agentpack release-check --skip-benchmark --json
 ```
 
-`release-check` verifies version/changelog sync, runs `pytest -q -m "not slow"`,
-runs npm wrapper tests, builds into a temporary directory, and runs
-`agentpack benchmark --release-gate`. It does not mutate tracked files. Use
-`--skip-benchmark` or `--skip-build` only while iterating locally, not as final
-release proof.
+`release-check` verifies version/changelog sync, runs tests, builds into a
+temporary directory, and runs `agentpack benchmark --release-gate` for full
+release gates. The default `--profile auto` keeps that full path for code
+changes, but uses the docs/plugin profile for docs, agent-rule, plugin, and
+native-integration-only diffs. It does not mutate tracked files.
 
 `make verify-wheel` is the packaged-CLI smoke: it builds the project, installs
 the latest wheel into a temporary venv, then runs

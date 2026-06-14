@@ -79,6 +79,8 @@ jobs:
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -86,5 +88,5 @@ jobs:
         with:
           node-version: "20"
       - run: python -m pip install -e ".[dev]" build
-      - run: python -m agentpack.cli release-check
+      - run: python -m agentpack.cli release-check --profile auto
 """

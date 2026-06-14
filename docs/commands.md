@@ -1449,8 +1449,11 @@ agentpack ci init --force
 agentpack ci init --json
 ```
 
-The workflow runs `dev-check` on pull requests and `release-check` on pushes to
-`main`. Existing workflows are not overwritten unless `--force` is present.
+The workflow runs `dev-check` on pull requests and
+`release-check --profile auto` on pushes to `main`. Auto keeps the full release
+gate for code changes, but uses the docs/plugin profile for docs, agent-rule,
+plugin, and native-integration-only diffs. Existing workflows are not
+overwritten unless `--force` is present.
 
 ---
 
