@@ -68,6 +68,16 @@ For the cross-host plugin/IDE shape, see [`Agent and IDE plugins`](agent-plugins
 
 Use `--agent` explicitly to override detection. `agentpack install` remains available when you only want to repair or reconfigure agent files without reinitializing project state.
 
+After upgrading an existing AgentPack install, refresh the detected host
+integration explicitly:
+
+```bash
+agentpack upgrade --agent auto
+```
+
+`auto` does not default to Codex. It detects the current IDE/agent from the
+environment and repo files, then refreshes only that integration.
+
 ### Claude Code
 
 ```bash
@@ -119,7 +129,10 @@ Configures:
 Optional plugin packaging lives in `.codex-plugin/plugin.json` and `skills/`.
 It adds `@agentpack-route`, `@agentpack-pack`, `@agentpack-refresh`, and
 `@agentpack-review` as thin Codex-facing skills that call the same local
-AgentPack CLI/MCP behavior. See [`Codex plugin`](codex-plugin.md).
+AgentPack CLI/MCP behavior. `agentpack init --agent codex`, `agentpack repair
+--agent codex`, and `agentpack upgrade --agent codex` install or refresh the
+local plugin package under Codex's plugin cache. See [`Codex
+plugin`](codex-plugin.md).
 
 ### Antigravity
 

@@ -18,6 +18,7 @@ def _repo(root):
 
 def test_migrate_repairs_exact_repo_path(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     repo = _repo(tmp_path / "repo")
     (repo / "AGENTS.md").write_text(
         "<!-- agentpack:start -->\n"
@@ -33,10 +34,12 @@ def test_migrate_repairs_exact_repo_path(tmp_path, monkeypatch) -> None:
     assert "agentpack guard --agent codex --repair-stale --refresh-context" in (
         repo / "AGENTS.md"
     ).read_text(encoding="utf-8")
+    assert list((tmp_path / "codex-home" / "plugins" / "cache" / "local" / "agentpack").glob("*/.codex-plugin/plugin.json"))
 
 
 def test_migrate_discover_repairs_nested_repo(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     repo = _repo(tmp_path / "workspace" / "nested")
     (repo / "AGENTS.md").write_text(
         "<!-- agentpack:start -->\n"
@@ -59,6 +62,7 @@ def test_migrate_discover_repairs_nested_repo(tmp_path, monkeypatch) -> None:
 
 def test_migrate_dry_run_does_not_write(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     repo = _repo(tmp_path / "repo")
     old_content = (
         "<!-- agentpack:start -->\n"
@@ -75,6 +79,7 @@ def test_migrate_dry_run_does_not_write(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     assert "Would repair codex integration" in result.output
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == old_content
+    assert not (tmp_path / "codex-home").exists()
 
 
 def test_migrate_refreshes_context(tmp_path, monkeypatch) -> None:

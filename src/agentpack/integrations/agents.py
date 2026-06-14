@@ -83,7 +83,11 @@ def install_agent_integration(
 
     if agent == "codex":
         installer = CodexInstaller()
-        results = {"AGENTS.md": installer.patch_agents_md(root)}
+        plugin_result = installer.install_codex_plugin()
+        results = {
+            "AGENTS.md": installer.patch_agents_md(root),
+            "~/.codex/plugins/cache/local/agentpack": next(iter(plugin_result.values())),
+        }
         if not global_install:
             results.update(installer.install_auto_repack(root))
         return results

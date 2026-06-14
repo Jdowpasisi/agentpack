@@ -288,6 +288,7 @@ def test_init_force_backs_up_existing_files(tmp_path, monkeypatch) -> None:
 )
 def test_init_installs_agent_integrations(tmp_path, monkeypatch, agent, expected_files, expected_git_hooks) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     (tmp_path / ".git" / "hooks").mkdir(parents=True)
     runner = CliRunner()
 
@@ -305,6 +306,9 @@ def test_init_installs_agent_integrations(tmp_path, monkeypatch, agent, expected
         assert mcp["mcpServers"]["agentpack"] == {"command": "agentpack", "args": ["mcp"]}
     if not expected_git_hooks:
         return
+    if agent == "codex":
+        plugin = tmp_path / "codex-home" / "plugins" / "cache" / "local" / "agentpack"
+        assert list(plugin.glob("*/.codex-plugin/plugin.json"))
     for event in ("post-commit", "post-merge", "post-checkout"):
         hook = tmp_path / ".git" / "hooks" / event
         assert hook.exists()
@@ -317,6 +321,7 @@ def test_init_installs_agent_integrations(tmp_path, monkeypatch, agent, expected
 def test_init_auto_installs_codex_integration_when_codex_env(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENAI_CODEX", "1")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     (tmp_path / ".git" / "hooks").mkdir(parents=True)
     runner = CliRunner()
 
@@ -325,4 +330,5 @@ def test_init_auto_installs_codex_integration_when_codex_env(tmp_path, monkeypat
     assert result.exit_code == 0, result.output
     assert "AGENTS.md" in result.output
     assert (tmp_path / "AGENTS.md").exists()
+    assert list((tmp_path / "codex-home" / "plugins" / "cache" / "local" / "agentpack").glob("*/.codex-plugin/plugin.json"))
     assert "agentpack:auto-repack" in (tmp_path / ".git" / "hooks" / "post-commit").read_text(encoding="utf-8")

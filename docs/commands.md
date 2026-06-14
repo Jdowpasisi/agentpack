@@ -7,7 +7,7 @@ Full command reference for the `agentpack` CLI. The root README keeps only the m
 Most users should start with the context path:
 
 ```bash
-agentpack init --agent codex
+agentpack init --agent auto
 agentpack route --task "describe the change"
 agentpack task set "describe the change"
 agentpack pack --task auto
@@ -19,6 +19,7 @@ Command map:
 |---|---|
 | `agentpack init` | Set up `.agentpack/` and install one agent integration for a repo |
 | `agentpack install` | Refresh or add an agent integration without changing project state |
+| `agentpack upgrade` | Refresh the auto-detected IDE/agent integration after package upgrade |
 | `agentpack repair` | Restore missing or drifted integration files |
 | `agentpack work` | Convenience wrapper for init, task, context refresh, and next steps |
 | `agentpack work --run` | Advanced optional proof harness around a configured external runner |
@@ -436,6 +437,23 @@ agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
 All installs are idempotent — safe to re-run, merge with existing config, never duplicate.
+
+---
+
+### `agentpack upgrade`
+
+Refresh the current repo's auto-detected IDE or agent integration after
+upgrading `agentpack-cli`.
+
+```bash
+agentpack upgrade                 # auto-detect the current IDE/agent
+agentpack upgrade --agent codex   # AGENTS.md + .codex/hooks.json + local plugin cache
+agentpack upgrade --agent cursor  # Cursor rules/hooks
+```
+
+`--agent auto` does not default to Codex. It uses the same host detection as
+`agentpack init`. The Codex plugin package is installed only when the resolved
+agent is `codex` or when `--agent codex` is passed explicitly.
 
 ---
 

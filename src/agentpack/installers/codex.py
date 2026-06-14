@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+from importlib import resources
 from pathlib import Path
 
+from agentpack import __version__
 from agentpack.integrations.git_hooks import install_git_hooks
 
 _AGENTPACK_BLOCK = """\
@@ -108,3 +112,61 @@ class CodexInstaller:
         hook_results = install_git_hooks(root, agent="auto")
         results.update({f"git:{k}": v for k, v in hook_results.items()})
         return results
+
+    def install_codex_plugin(self, *, codex_home: Path | None = None) -> dict[str, str]:
+        """Install AgentPack's thin Codex plugin package into the local Codex cache."""
+        source = _codex_plugin_source()
+        target = _codex_plugin_target(codex_home)
+        action = _copy_tree_if_changed(source, target)
+        return {str(target): action}
+
+
+def _codex_plugin_target(codex_home: Path | None = None) -> Path:
+    root = codex_home or Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser()
+    return root / "plugins" / "cache" / "local" / "agentpack" / __version__
+
+
+def _codex_plugin_source() -> Path:
+    checkout_source = Path(__file__).resolve().parents[3] / "src" / "agentpack" / "data" / "codex_plugin"
+    if checkout_source.exists():
+        return checkout_source
+    return Path(str(resources.files("agentpack").joinpath("data", "codex_plugin")))
+
+
+def _copy_tree_if_changed(source: Path, target: Path) -> str:
+    if not source.exists():
+        raise FileNotFoundError(f"AgentPack Codex plugin assets not found: {source}")
+    existed = target.exists()
+    changed = False
+    for source_file in sorted(path for path in source.rglob("*") if path.is_file()):
+        relative = source_file.relative_to(source)
+        target_file = target / relative
+        try:
+            current = target_file.read_bytes()
+        except OSError:
+            current = None
+        desired = source_file.read_bytes()
+        if current != desired:
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            target_file.write_bytes(desired)
+            changed = True
+    if existed:
+        _remove_stale_files(source, target)
+    elif not target.exists():
+        shutil.copytree(source, target)
+        changed = True
+    if not existed:
+        return "created"
+    return "updated" if changed else "unchanged"
+
+
+def _remove_stale_files(source: Path, target: Path) -> None:
+    expected = {path.relative_to(source) for path in source.rglob("*") if path.is_file()}
+    for target_file in sorted((path for path in target.rglob("*") if path.is_file()), reverse=True):
+        if target_file.relative_to(target) not in expected:
+            target_file.unlink()
+    for directory in sorted((path for path in target.rglob("*") if path.is_dir()), reverse=True):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass

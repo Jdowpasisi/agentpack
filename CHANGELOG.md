@@ -8,6 +8,10 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [Unreleased]
 
+### Added
+- Added `agentpack upgrade --agent auto` to refresh the detected IDE/agent integration after package upgrades.
+- Packaged AgentPack's Codex plugin assets inside the Python wheel so Codex setup can refresh the local plugin cache when Codex is detected or explicitly selected.
+
 ---
 
 ## [0.3.24] — 2026-06-14

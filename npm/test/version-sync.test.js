@@ -10,11 +10,23 @@ const launcher = require("../bin/agentpack.js");
 const repoRoot = path.join(__dirname, "..", "..");
 const pyproject = fs.readFileSync(path.join(repoRoot, "pyproject.toml"), "utf8");
 const initPy = fs.readFileSync(path.join(repoRoot, "src", "agentpack", "__init__.py"), "utf8");
+const codexPlugin = require(path.join(repoRoot, ".codex-plugin", "plugin.json"));
+const packagedCodexPlugin = require(path.join(
+  repoRoot,
+  "src",
+  "agentpack",
+  "data",
+  "codex_plugin",
+  ".codex-plugin",
+  "plugin.json"
+));
 
 const pyprojectVersion = pyproject.match(/^version = "([^"]+)"/m)?.[1];
 const initVersion = initPy.match(/__version__ = "([^"]+)"/)?.[1];
 
 assert.equal(packageJson.version, pyprojectVersion, "npm package version must match pyproject.toml");
 assert.equal(packageJson.version, initVersion, "npm package version must match src/agentpack/__init__.py");
+assert.equal(codexPlugin.version, packageJson.version, "Codex plugin version must match npm package version");
+assert.equal(packagedCodexPlugin.version, packageJson.version, "packaged Codex plugin version must match npm package version");
 assert.equal(launcher.PACKAGE_VERSION, packageJson.version, "launcher version must match npm package version");
 assert.equal(launcher.PYPI_PACKAGE, `agentpack-cli==${packageJson.version}`);

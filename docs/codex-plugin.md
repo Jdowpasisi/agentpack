@@ -37,10 +37,21 @@ agentpack --version
 Inside a project repo, initialize normal AgentPack files:
 
 ```bash
-agentpack init --agent codex
+agentpack init --agent auto
 ```
 
-This writes `AGENTS.md`, `.codex/hooks.json`, and git hooks for the repo. The plugin commands stay thin and call the same local engine.
+When auto-detection resolves to Codex, this writes `AGENTS.md`,
+`.codex/hooks.json`, git hooks, and a local Codex plugin package under
+`~/.codex/plugins/cache/local/agentpack/<version>/`. Auto-detection does not
+default to Codex; pass `--agent codex` only when you want to force Codex setup.
+
+For existing repos after upgrading AgentPack:
+
+```bash
+agentpack upgrade --agent auto
+```
+
+The plugin commands stay thin and call the same local engine.
 
 ## Codex Workflow
 

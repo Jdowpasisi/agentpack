@@ -24,6 +24,8 @@
 <p align="center">
   <code>local preflight</code>
   <code>ranked files</code>
+  <code>skill routing</code>
+  <code>warm cache</code>
   <code>tests + commands</code>
   <code>receipts</code>
   <code>no cloud index</code>
@@ -38,6 +40,7 @@ AgentPack does the repo-orientation pass first.
 ```text
 agentpack route --task "fix auth token expiry"
 -> files that probably matter
+-> skills and rules that fit the task
 -> tests that probably prove it
 -> rules, commands, warnings
 -> compact context before the agent edits
@@ -56,7 +59,9 @@ No cloud index. No embeddings. No model calls for scan/rank/pack. Just local rep
 
 It is not a repo dump. It is not a second brain. It is not a promise that your agent will be right.
 
-It is a preflight map: likely files, likely tests, repo rules, commands, warnings, and a compact pack your agent can inspect before touching code.
+It is a preflight map: likely files, likely tests, the right local skill or rule, commands, warnings, and a compact pack your agent can inspect before touching code.
+
+The first run builds local summaries and repo signals. Later runs reuse that cache, so agents do less repeat discovery and spend more of their budget on the actual change.
 
 ## Quick Start
 
@@ -100,6 +105,7 @@ agentpack route --task "fix billing webhook retry handling"
 ```
 
 AgentPack returns likely files, tests, rules, commands, and warnings without changing source files.
+It also recommends matching skills or agent rules when the task points at a known workflow, framework, language, or repo convention.
 
 Build context pack next:
 
@@ -109,13 +115,16 @@ agentpack pack --task auto
 ```
 
 AgentPack writes local context under `.agentpack/`, including selected files, omitted-file receipts, freshness checks, and token stats.
+It reuses cached file summaries and snapshot metadata so repeated packs do not start from zero.
 
 ## What AgentPack Gives Your Agent
 
 - ranked files for current task
+- skill and rule routing for current task
 - likely tests and commands
 - repo rules and agent instructions
 - compact context pack under budget
+- cached summaries for faster repeated orientation
 - omitted-file receipts for review
 - freshness warnings when task or git state changes
 - local benchmark data when selected context misses real changed files
@@ -184,7 +193,8 @@ See [`docs/agent-plugins.md`](docs/agent-plugins.md) and [`docs/codex-plugin.md`
 | Repo dumpers | Dump selected or all files | AgentPack ranks files by task |
 | Coding agents | Edit code | AgentPack prepares context before editing |
 | IDE search | Finds files on demand | AgentPack pre-routes before agent starts |
-| Skills/rules | Change agent behavior | AgentPack changes the context the agent sees |
+| Skills/rules | Change agent behavior | AgentPack routes the matching skill or rule for the task |
+| Cache warmers | Speed repeated scans | AgentPack reuses summaries and snapshots inside the context workflow |
 
 ## When To Use It
 
@@ -196,6 +206,8 @@ Use AgentPack when:
 - CI or PR review needs reproducible context
 - agents waste tool calls opening irrelevant files
 - tasks often miss tests, config, generated rules, or repo conventions
+- teams have useful skills/rules but agents do not reliably pick the right one
+- repeated agent sessions keep rediscovering the same repo structure
 
 Do not use AgentPack when:
 
@@ -207,9 +219,9 @@ Do not use AgentPack when:
 
 ## How It Works
 
-AgentPack scans repo locally, combines filename, git, config, dependency, summary, and benchmark signals, ranks likely files for task, then renders a compact context pack.
+AgentPack scans repo locally, builds and reuses file summaries, indexes local skills and rules, combines filename, git, config, dependency, summary, and benchmark signals, ranks likely files for task, then renders a compact context pack.
 
-It can expose same workflow through CLI, markdown files, MCP tools, hooks, and CI.
+It can expose the same workflow through CLI, markdown files, MCP tools, hooks, plugins, and CI.
 
 Deep dive: [`docs/architecture.md`](docs/architecture.md), [`docs/how-agentpack-works.md`](docs/how-agentpack-works.md), and [`docs/commands.md`](docs/commands.md).
 

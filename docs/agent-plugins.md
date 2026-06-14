@@ -11,7 +11,7 @@ AgentPack remains a local context engine, not a coding agent.
 | Host | Current path | What it does |
 |---|---|---|
 | Codex | `.codex-plugin/` and `skills/` | Adds `@agentpack-*` commands for local routing, packing, refresh, and review |
-| Codex repo setup | `agentpack init --agent codex` | Writes `AGENTS.md`, `.codex/hooks.json`, and git hooks |
+| Codex repo setup | `agentpack init --agent auto` or `agentpack init --agent codex` | Auto-detects Codex or explicitly writes `AGENTS.md`, `.codex/hooks.json`, git hooks, and the local plugin cache package |
 | Claude Code | `agentpack init --agent claude` | Writes `CLAUDE.md`, Claude hooks, and MCP config |
 | Cursor | `.cursorrules`, `.cursor/rules/agentpack.mdc`, and `native-integrations/cursor-extension/` | Portable Cursor rules, repo installer, VS Code task, git hooks, and extension skeleton |
 | Windsurf | `.windsurf/rules/agentpack.md` plus `native-integrations/windsurf-extension/` | Portable Windsurf rule, repo installer, VS Code task, git hooks, and extension skeleton |
@@ -43,12 +43,14 @@ Use these local commands from any agent or IDE:
 agentpack route --task "<task>"
 agentpack task set "<task>"
 agentpack pack --task auto
+agentpack upgrade --agent auto
 agentpack guard --agent <agent> --repair-stale --refresh-context
 agentpack benchmark capture --since main --task "<task>"
 agentpack benchmark --misses
 ```
 
 Use `<agent>` values such as `codex`, `claude`, `cursor`, `windsurf`, `antigravity`, or `auto`.
+`auto` detects the active host and does not default to Codex.
 
 ## Codex Plugin
 
