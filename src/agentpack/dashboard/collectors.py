@@ -653,6 +653,7 @@ def _loop_summary(root: Path) -> LoopSummary:
     state = load_loop_state(root)
     if state is None:
         return LoopSummary()
+    metrics = _loop_metrics(root)
     return LoopSummary(
         exists=True,
         status=state.status,
@@ -663,8 +664,30 @@ def _loop_summary(root: Path) -> LoopSummary:
         last_runner_status=_result_status(state.last_runner),
         last_verification_status=_result_status(state.last_verification),
         blocked_reason=state.blocked_reason,
+        failure_class=state.failure_class,
+        risk_level=state.risk_review.level,
+        changed_files=state.last_diff.files_changed[:20],
+        diagnosis_file=".agentpack/loop_diagnosis.md" if (root / ".agentpack" / "loop_diagnosis.md").exists() else "",
+        handoff_file=state.handoff_file,
+        acceptance_file=state.acceptance_file,
+        rollback_patch=state.rollback_patch,
+        runs=metrics["runs"],
+        blocked_runs=metrics["blocked"],
+        ready_runs=metrics["ready_to_finish"],
+        avg_iterations=metrics["avg_iterations"],
         next_action=_loop_next_action(state.status, state.task, state.runner, bool(state.verification_commands)),
     )
+
+
+def _loop_metrics(root: Path) -> dict[str, Any]:
+    rows = _load_jsonl(root / ".agentpack" / "loop_metrics.jsonl")
+    total_iterations = sum(_as_int(row.get("iterations"), 0) for row in rows)
+    return {
+        "runs": len(rows),
+        "blocked": sum(1 for row in rows if row.get("outcome") == "blocked"),
+        "ready_to_finish": sum(1 for row in rows if row.get("outcome") == "ready_to_finish"),
+        "avg_iterations": round(total_iterations / len(rows), 2) if rows else 0.0,
+    }
 
 
 def _suggested_actions(

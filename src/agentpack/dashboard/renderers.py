@@ -471,21 +471,27 @@ def _loop_panel(snapshot: DashboardSnapshot) -> str:
     if not snapshot.loop.exists:
         return """
   <section id="loop" class="section">
-    <div class="section-header"><h2>Ralph Loop</h2><small>Improvement loop state</small></div>
+    <div class="section-header"><h2>Guarded Loop</h2><small>Optional proof harness state</small></div>
     <div class="section-body"><p class="empty-state">No Ralph Loop state found.</p></div>
   </section>"""
     return f"""
   <section id="loop" class="section">
-    <div class="section-header"><h2>Ralph Loop</h2><small>Improvement loop state</small></div>
+    <div class="section-header"><h2>Guarded Loop</h2><small>Optional proof harness state</small></div>
     <div class="section-body info-card loop-card">
       <div class="grid">
       <div class="metric"><strong>Status</strong><span>{_e(snapshot.loop.status)}</span></div>
       <div class="metric"><strong>Iteration</strong><span>{snapshot.loop.iteration}/{snapshot.loop.max_iterations}</span></div>
       <div class="metric"><strong>Runner</strong><span>{_e(snapshot.loop.last_runner_status or "not run")}</span></div>
       <div class="metric"><strong>Verification</strong><span>{_e(snapshot.loop.last_verification_status or "not run")}</span></div>
+      <div class="metric"><strong>Risk</strong><span>{_e(snapshot.loop.risk_level or "unknown")}</span></div>
+      <div class="metric"><strong>Failure</strong><span>{_e(snapshot.loop.failure_class or "none")}</span></div>
+      <div class="metric"><strong>Runs</strong><span>{snapshot.loop.runs}</span></div>
+      <div class="metric"><strong>Avg Iterations</strong><span>{snapshot.loop.avg_iterations}</span></div>
     </div>
     <p><strong>Task:</strong> {_e(snapshot.loop.task)}</p>
     <p><strong>Blocked reason:</strong> {_e(snapshot.loop.blocked_reason or "none")}</p>
+    <p><strong>Changed files:</strong> {_e(", ".join(snapshot.loop.changed_files[:8]) or "none")}</p>
+    <p><strong>Artifacts:</strong> {_e(", ".join(item for item in [snapshot.loop.diagnosis_file, snapshot.loop.handoff_file, snapshot.loop.acceptance_file, snapshot.loop.rollback_patch] if item) or "none")}</p>
     <p><strong>Next:</strong> <code>{_e(snapshot.loop.next_action)}</code></p>
     </div>
   </section>"""

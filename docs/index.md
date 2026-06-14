@@ -31,4 +31,4 @@ Use these docs when you want local/offline repo analysis, MCP-first routing, CI-
 
 - [AgentPack vs Repomix](agentpack-vs-repomix.md)
 - [AgentPack vs Augment Context Engine](agentpack-vs-augment-context-engine.md)
-- [AgentPack runtime loop](runtime-loop.md)
+- [Optional guarded loop](runtime-loop.md)

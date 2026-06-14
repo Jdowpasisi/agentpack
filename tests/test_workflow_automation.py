@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -69,6 +70,29 @@ def test_work_run_dry_run_writes_loop_state_without_runner_execution(tmp_path: P
     assert payload["passed"] is True
     assert payload["loop_plan"]["runner"] == "python -c 'raise SystemExit(9)'"
     assert load_loop_state(tmp_path).task == "fix auth"
+
+
+def test_work_run_resolves_runner_adapter(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n", encoding="utf-8")
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr("agentpack.commands.workflow_cmd.subprocess.run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr("agentpack.commands.workflow_cmd.resolve_runner_adapter", lambda adapter, root: "echo adapter")
+
+    result = CliRunner().invoke(
+        app,
+        ["work", "fix auth", "--run", "--dry-run", "--runner-adapter", "claude", "--verify", "python -c 'print(1)'", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["loop_plan"]["runner"] == "echo adapter"
 
 
 def test_work_run_requires_runner(tmp_path: Path, monkeypatch) -> None:
@@ -183,6 +207,8 @@ def test_finish_marks_ready_loop_done(tmp_path: Path, monkeypatch) -> None:
     state = initialize_loop(tmp_path, "fix auth", LoopConfig(runner="agent", verification_commands=["pytest -q"], require_clean_tree=False))
     state.status = "ready_to_finish"
     state.last_verification = LoopCommandResult(command="pytest -q", returncode=0, output_excerpt="passed")
+    state.acceptance_file = ".agentpack/loop_acceptance.md"
+    state.last_diff.changed = True
     save_loop_state(tmp_path, state)
 
     class Result:
@@ -195,11 +221,92 @@ def test_finish_marks_ready_loop_done(tmp_path: Path, monkeypatch) -> None:
 
     result = CliRunner().invoke(
         app,
-        ["finish", "--task", "fix auth", "--skip-checks", "--skip-diagnosis", "--skip-benchmark-capture", "--json"],
+        [
+            "finish",
+            "--task",
+            "fix auth",
+            "--skip-checks",
+            "--skip-diagnosis",
+            "--skip-benchmark-capture",
+            "--allow-empty-capture",
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.output
     assert load_loop_state(tmp_path).status == "done"
+
+
+def test_finish_blocks_ready_loop_with_empty_diff_without_allow_empty(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n[loop]\nrequire_clean_tree = false\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "task.md").write_text("fix auth\n", encoding="utf-8")
+    state = initialize_loop(tmp_path, "fix auth", LoopConfig(runner="agent", verification_commands=["pytest -q"], require_clean_tree=False))
+    state.status = "ready_to_finish"
+    state.last_verification = LoopCommandResult(command="pytest -q", returncode=0, output_excerpt="passed")
+    state.acceptance_file = ".agentpack/loop_acceptance.md"
+    save_loop_state(tmp_path, state)
+    monkeypatch.setattr("agentpack.commands.workflow_cmd._context_is_fresh", lambda *args, **kwargs: (True, "fresh"))
+
+    result = CliRunner().invoke(
+        app,
+        ["finish", "--task", "fix auth", "--skip-checks", "--skip-diagnosis", "--skip-benchmark-capture", "--json"],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["loop_blockers"][0]["kind"] == "empty_loop_diff"
+
+
+def test_loop_smoke_uses_deterministic_runner(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(app, ["loop-smoke", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["passed"] is True
+
+
+def test_loop_metrics_outputs_summary(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "loop_metrics.jsonl").write_text(
+        json.dumps({"outcome": "ready_to_finish", "iterations": 2}) + "\n"
+        + json.dumps({"outcome": "blocked", "iterations": 1, "failure_class": "test_assertion"}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["loop-metrics", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["runs"] == 2
+    assert payload["ready_to_finish"] == 1
+    assert payload["blocked"] == 1
+
+
+def test_loop_rollback_reverses_current_tracked_diff(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "add", "app.py"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=test@example.com", "-c", "user.name=Test User", "commit", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    (tmp_path / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["loop-rollback", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["applied"] is True
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
 def test_ci_init_writes_workflow_and_refuses_overwrite(tmp_path: Path, monkeypatch) -> None:
@@ -211,7 +318,9 @@ def test_ci_init_writes_workflow_and_refuses_overwrite(tmp_path: Path, monkeypat
 
     assert first.exit_code == 0, first.output
     assert json.loads(first.output)["written"] is True
-    assert (tmp_path / ".github" / "workflows" / "agentpack.yml").exists()
+    workflow = tmp_path / ".github" / "workflows" / "agentpack.yml"
+    assert workflow.exists()
+    assert "python -m agentpack.cli loop-smoke --json" in workflow.read_text(encoding="utf-8")
     assert second.exit_code == 0, second.output
     assert json.loads(second.output)["written"] is False
 

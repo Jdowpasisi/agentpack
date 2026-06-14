@@ -61,6 +61,38 @@ patch_claude_md = true
 output = ".agentpack/context.md"
 ```
 
+Loop automation is local and opt-in per runner:
+
+```toml
+[loop]
+enabled = true
+runner = ""
+runner_adapter = ""
+runner_prompt_output = ".agentpack/loop_runner_prompt.md"
+max_iterations = 10
+verification_commands = []
+acceptance_checks = []
+require_verification = true
+require_progress_update = true
+require_clean_tree = true
+runner_timeout_seconds = 600
+verification_timeout_seconds = 600
+max_repeated_failures = 3
+risk_sensitive_globs = []
+risk_high_file_count = 20
+```
+
+`runner` is intentionally empty by default. Set it to a local command such as
+`claude < .agentpack/context.claude.md`, then set `verification_commands` to the
+smallest commands that prove the task. During `agentpack work --run`, AgentPack
+captures loop phases, runner JSON contracts, dirty-diff snapshots, verification
+results, risk reviews, rollback patches, acceptance summaries, handoff notes,
+and failure diagnoses under `.agentpack/`. `runner_adapter` may be `claude`,
+`codex`, or `cursor`; the adapter only resolves a local command when the
+matching executable is present. `acceptance_checks` asks the runner to report
+semantic pass/fail evidence in its final JSON. `risk_sensitive_globs` and
+`risk_high_file_count` tune the high-risk finish gate for a repo.
+
 ---
 
 ## Configurable scoring weights

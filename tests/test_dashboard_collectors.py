@@ -173,6 +173,16 @@ def test_project_dashboard_collects_loop_state(tmp_path) -> None:
     state = initialize_loop(tmp_path, "fix auth", LoopConfig(runner="agent", verification_commands=["pytest -q"]))
     state.status = "ready_to_finish"
     state.last_verification = LoopCommandResult(command="pytest -q", returncode=0, output_excerpt="passed")
+    state.failure_class = "test_assertion"
+    state.risk_review.level = "medium"
+    state.last_diff.files_changed = ["src/auth.py"]
+    state.acceptance_file = ".agentpack/loop_acceptance.md"
+    state.handoff_file = ".agentpack/loop_handoff.md"
+    (tmp_path / ".agentpack" / "loop_diagnosis.md").write_text("diagnosis\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "loop_metrics.jsonl").write_text(
+        json.dumps({"outcome": "ready_to_finish", "iterations": 2}) + "\n",
+        encoding="utf-8",
+    )
     save_loop_state(tmp_path, state)
 
     snapshot = build_project_dashboard_snapshot(tmp_path)
@@ -180,6 +190,14 @@ def test_project_dashboard_collects_loop_state(tmp_path) -> None:
     assert snapshot.loop.exists is True
     assert snapshot.loop.status == "ready_to_finish"
     assert snapshot.loop.last_verification_status == "passed"
+    assert snapshot.loop.failure_class == "test_assertion"
+    assert snapshot.loop.risk_level == "medium"
+    assert snapshot.loop.changed_files == ["src/auth.py"]
+    assert snapshot.loop.diagnosis_file == ".agentpack/loop_diagnosis.md"
+    assert snapshot.loop.acceptance_file == ".agentpack/loop_acceptance.md"
+    assert snapshot.loop.runs == 1
+    assert snapshot.loop.ready_runs == 1
+    assert snapshot.loop.avg_iterations == 2
     assert snapshot.loop.next_action == "agentpack finish --since main"
 
 

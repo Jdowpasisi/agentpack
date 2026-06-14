@@ -22,7 +22,7 @@ Command map:
 | `agentpack install` | Refresh or add an agent integration without changing project state |
 | `agentpack repair` | Restore missing or drifted integration files |
 | `agentpack work` | Initialize if needed, write a task, refresh context, and show next steps |
-| `agentpack work --run` | Run the configured Ralph Loop generic runner with verification |
+| `agentpack work --run` | Optional proof harness: run a configured external runner with verification |
 | `agentpack start` | Write a task and run the default guard/refresh workflow |
 | `agentpack finish` | Run finish checks, capture benchmark evidence, and mark state done |
 | `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons from task context and git changes |
@@ -309,22 +309,25 @@ Also installs the detected agent integration:
 
 ### `agentpack work --run`
 
-Run the Ralph Loop protocol with a generic local runner after preparing fresh
-context.
+Run the optional guarded loop with a generic local runner after preparing fresh
+context. This is a proof harness around existing agents, not AgentPack's default
+workflow and not an autonomous coding product.
 
 ```bash
 agentpack work "fix auth token expiry" --run --runner "claude < .agentpack/context.claude.md" --verify "pytest -q"
 agentpack work "fix auth token expiry" --run --dry-run --runner "python scripts/agent.py" --verify "pytest -q"
 ```
 
-New initialized repos include `[loop]` config enabled by default. The runner is
-empty by default and must be set in `.agentpack/config.toml` or passed with
-`--runner`; AgentPack never guesses which coding agent to launch.
+New initialized repos include `[loop]` config so teams can opt in without extra
+schema work. The runner is empty by default and must be set in
+`.agentpack/config.toml` or passed with `--runner`; AgentPack never guesses which
+coding agent to launch.
 
 ```toml
 [loop]
 enabled = true
 runner = "claude < .agentpack/context.claude.md"
+runner_adapter = ""
 max_iterations = 10
 verification_commands = ["pytest -q"]
 require_verification = true
@@ -337,6 +340,85 @@ verification commands, records progress in `.agentpack/progress.md`, and writes
 structured events to `.agentpack/loop_events.jsonl`. When verification passes,
 the loop stops at `ready_to_finish`; `agentpack finish` then enforces the final
 completion checks. AgentPack does not auto-push or run destructive git commands.
+
+Runner output can stay plain text, but AgentPack will read a JSON object from
+the last output line when present:
+
+```json
+{"status":"changed","summary":"patched auth expiry","files_changed":["src/auth.py"],"blocker":""}
+```
+
+Supported statuses are `changed`, `no_change`, and `blocked`. A blocked or
+no-change contract stops the loop with a diagnosis instead of burning
+iterations.
+
+The loop records phase history for `prepare_context`, `run_agent`,
+`collect_diff`, `run_verification`, `diagnose_failure`,
+`decide_continue_or_block`, and `finish_gate`. It also captures a dirty-diff
+snapshot after each runner pass. If verification keeps failing and the diff does
+not change, the loop blocks early and writes `.agentpack/loop_diagnosis.md`.
+Blocked loops also write `.agentpack/loop_handoff.md`; passing loops write
+`.agentpack/loop_acceptance.md`; each run writes `.agentpack/loop_risk_review.md`
+and rollback patches under `.agentpack/loop_rollback/` when there was a dirty
+baseline before an iteration.
+
+Use `--runner-adapter claude|codex|cursor` when you want AgentPack to resolve a
+known local runner command. Adapters are intentionally conservative: if the
+matching executable is missing, AgentPack fails instead of guessing.
+
+Compatibility matrix:
+
+| Adapter | Local executable | Command shape | Notes |
+|---|---|---|---|
+| `claude` | `claude` | `claude --print --permission-mode acceptEdits "$(cat .agentpack/loop_runner_prompt.md)"` | Requires local Claude CLI auth and trusted temp repo. |
+| `codex` | `codex` | `codex exec --ignore-user-config --sandbox workspace-write "$(cat .agentpack/loop_runner_prompt.md)"` | Requires local Codex CLI auth; ignores user config drift for reproducibility. |
+| `cursor` | `cursor-agent` | `cursor-agent --print --force "$(cat .agentpack/loop_runner_prompt.md)"` | Requires Cursor agent CLI auth. |
+| custom | any shell command | value passed to `--runner` | Best for deterministic scripts and CI smoke tests. |
+
+---
+
+### `agentpack loop-smoke`
+
+Run a guarded-loop smoke test in a temporary fixture repo.
+
+```bash
+agentpack loop-smoke
+agentpack loop-smoke --runner "my-agent-command"
+agentpack loop-smoke --runner-adapter claude --json
+```
+
+Without `--runner`, AgentPack uses a deterministic local runner so CI can prove
+the loop mechanics. With `--runner` or `--runner-adapter`, the same fixture tests
+whether a real local runner can edit code and satisfy verification.
+
+---
+
+### `agentpack loop-rollback`
+
+Restore the tracked worktree to the last recorded loop baseline or reverse the
+current tracked diff when no baseline patch exists.
+
+```bash
+agentpack loop-rollback
+agentpack loop-rollback --iteration 2
+agentpack loop-rollback --json
+```
+
+Rollback is patch-based and only covers tracked git diff content.
+
+---
+
+### `agentpack loop-metrics`
+
+Summarize historical loop outcomes from `.agentpack/loop_metrics.jsonl`.
+
+```bash
+agentpack loop-metrics
+agentpack loop-metrics --json
+```
+
+The dashboard also shows run count, ready count, blocked count, and average
+iterations.
 
 ---
 
@@ -460,6 +542,7 @@ agentpack finish --since main
 agentpack finish --since HEAD~1 --task "fix auth session bug"
 agentpack finish --thread codex-local --archive-thread
 agentpack finish --skip-checks --skip-benchmark-capture
+agentpack finish --allow-high-risk
 agentpack finish --json
 ```
 
@@ -467,6 +550,24 @@ By default, `finish` writes a selection diagnosis, optionally captures a
 benchmark case when `--since` is supplied, runs `dev-check`, and marks task
 state `done`. With `--thread` it writes scoped state; with `--archive-thread` it
 also appends a done row to the thread index.
+
+When a Ralph Loop state applies, `finish` also requires a passing loop
+verification and a post-run source diff. Dirty files that existed before loop
+initialization do not satisfy this gate. Use `--allow-empty-capture` only for
+intentional no-op work.
+
+`finish` also blocks high-risk loop diffs until a reviewer inspects
+`.agentpack/loop_risk_review.md`; pass `--allow-high-risk` only after that
+review.
+
+Runner examples:
+
+```bash
+agentpack work "fix auth" --run --runner-adapter claude --verify "pytest -q"
+agentpack work "fix auth" --run --runner-adapter codex --verify "pytest -q"
+agentpack work "fix auth" --run --runner "python scripts/local_agent.py" --verify "pytest -q"
+agentpack work "fix auth" --run --acceptance "login works" --acceptance "expired token is rejected" --verify "pytest -q"
+```
 
 ---
 

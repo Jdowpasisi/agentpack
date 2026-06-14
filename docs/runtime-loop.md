@@ -10,6 +10,7 @@ features around that router without becoming a provider proxy.
 | Record learning feedback | `agentpack learn feedback helpful|not-helpful` |
 | Track local token and retrieval activity | `agentpack perf --history N` and `agentpack stats` |
 | Launch an agent after context refresh | `agentpack wrap` |
+| Run an optional guarded proof harness around an external agent | `agentpack work --run` and `agentpack finish` |
 | Summarize noisy logs without losing failures | `agentpack compress-output --kind pytest|git-diff|rg|ls` |
 | Inspect recent local task memory | `agentpack memory` |
 
@@ -46,3 +47,25 @@ AgentPack does not proxy LLM traffic, rewrite provider requests, or replace raw
 logs as source of truth. Retrieval uses the latest local pack registry, supports
 symbol-level block IDs when the latest pack contains symbols, and refuses stale
 full-file reads unless explicitly allowed.
+
+`agentpack work --run` is optional. It is a guarded proof harness around an
+external coding agent, not the main AgentPack workflow and not a fully
+autonomous coding agent. AgentPack owns context refresh, phase tracking, diff snapshots,
+verification gates, repeated-failure detection, risk review, rollback patches,
+acceptance evidence, handoff notes, progress files, and finish blockers. The
+configured runner still owns code generation. Runner commands may emit a final
+JSON line with `status`, `summary`, `files_changed`, and `blocker`; AgentPack
+uses that contract to stop cleanly on `blocked` or `no_change`.
+
+Loop diagnostics live in `.agentpack/loop_diagnosis.md`. Handoffs live in
+`.agentpack/loop_handoff.md`, acceptance evidence in
+`.agentpack/loop_acceptance.md`, risk notes in `.agentpack/loop_risk_review.md`,
+and rollback patches in `.agentpack/loop_rollback/`. Use these files, plus
+`.agentpack/loop_events.jsonl` and `.agentpack/loop_failures.jsonl`, to inspect
+why a loop stopped before rerunning the agent.
+
+Every loop writes `.agentpack/loop_runner_prompt.md` for provider-safe runner
+instructions: read context, keep edits scoped, avoid commits/pushes/destructive
+commands, run no hidden approval flow, and emit the final JSON contract.
+Historical outcomes are appended to `.agentpack/loop_metrics.jsonl`; inspect
+them with `agentpack loop-metrics` or the dashboard.

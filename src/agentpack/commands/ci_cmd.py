@@ -64,6 +64,16 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: python -m agentpack.cli dev-check
 
+  loop-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m agentpack.cli loop-smoke --json
+
   release-gate:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'

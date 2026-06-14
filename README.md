@@ -30,19 +30,20 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.22).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.23).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
 > **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
-## What's New in 0.3.22
+## What's New in 0.3.23
 
-`0.3.22` is a benchmark recall release. It promotes maintenance-context
-recovery to the current expanded public-suite baseline: **66.0% recall / 51.1%
-token precision** across 108 scored public cases.
-`0.3.21` established the prior honest baseline at **57.0% recall / 50.6% token precision**. The new result clears the 65% recall target while keeping token
-precision above the 51% release floor; remaining risk is config/build recall and NestJS token precision. Result: [`benchmarks/results/2026-06-13-public.md`](benchmarks/results/2026-06-13-public.md).
+`0.3.23` is a guarded-loop hardening release. It keeps AgentPack's core promise
+focused on local context and workflow evidence while making `agentpack work --run`
+an optional proof harness around existing agents. The loop now has known runner
+adapters, smoke checks, phase/diff/risk/acceptance artifacts, rollback patches,
+metrics, and stricter finish gates. The prior expanded public-suite baseline
+remains **66.0% recall / 51.1% token precision** across 108 scored public cases.
 
 ## Core Workflow
 
@@ -198,7 +199,7 @@ agentpack status
 agentpack finish --since main
 ```
 
-Use `agentpack quickstart --task "..." --write` when you want AgentPack to print the next commands and write the task file for you. Use `agentpack start "..." --pack-only` when you want only a fresh pack and not the guard path.
+Use `agentpack quickstart --task "..." --write` when you want AgentPack to print the next commands and write the task file for you. Use `agentpack start "..." --pack-only` when you want only a fresh pack and not the guard path. Optional guardrail: `agentpack work --run` is a proof harness around existing agents, not AgentPack's default workflow or an autonomous coding agent.
 
 ### Learn from AI-assisted work
 

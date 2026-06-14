@@ -10,6 +10,22 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.23] — 2026-06-14
+
+### Added
+- Added guarded-loop runner adapters for Claude, Codex, and Cursor plus `agentpack loop-smoke` for deterministic and real-agent smoke checks.
+- Added loop phase tracking, runner JSON contracts, diff snapshots, acceptance evidence, risk reviews, rollback patches, handoff notes, and loop metrics.
+
+### Changed
+- Repositioned Ralph Loop as an optional proof harness around existing agents, keeping AgentPack's default workflow focused on local context and workflow evidence.
+- Updated the dashboard and docs to use "Guarded Loop" / optional-loop language instead of presenting the loop as the core product path.
+
+### Fixed
+- Run loop runners from the fixture or repo root and write an explicit runner prompt contract before invoking adapter commands.
+- Block repeated no-progress verification failures with diagnosis artifacts instead of burning all loop iterations.
+
+---
+
 ## [0.3.22] — 2026-06-13
 
 ### Added

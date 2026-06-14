@@ -76,8 +76,11 @@ class LearningConfig(BaseModel):
 class LoopConfig(BaseModel):
     enabled: bool = True
     runner: str = ""
+    runner_adapter: str = ""
+    runner_prompt_output: str = ".agentpack/loop_runner_prompt.md"
     max_iterations: int = 10
     verification_commands: list[str] = Field(default_factory=list)
+    acceptance_checks: list[str] = Field(default_factory=list)
     require_verification: bool = True
     require_progress_update: bool = True
     require_clean_tree: bool = True
@@ -86,6 +89,8 @@ class LoopConfig(BaseModel):
     runner_timeout_seconds: int = 600
     verification_timeout_seconds: int = 600
     max_repeated_failures: int = 3
+    risk_sensitive_globs: list[str] = Field(default_factory=list)
+    risk_high_file_count: int = 20
 
 
 class RuntimeConfig(BaseModel):

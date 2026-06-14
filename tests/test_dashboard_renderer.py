@@ -51,7 +51,7 @@ def test_render_dashboard_html_contains_core_sections() -> None:
     assert "src/auth.py" in html
     assert "auth-review" in html
     assert "selection_recall" in html
-    assert "Ralph Loop" in html
+    assert "Guarded Loop" in html
     assert "agentpack finish --since main" in html
     assert "agentpack pack --task auto" in html
     assert 'class="topbar"' in html

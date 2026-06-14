@@ -133,6 +133,17 @@ class LoopSummary(BaseModel):
     last_runner_status: str = ""
     last_verification_status: str = ""
     blocked_reason: str = ""
+    failure_class: str = ""
+    risk_level: str = ""
+    changed_files: list[str] = Field(default_factory=list)
+    diagnosis_file: str = ""
+    handoff_file: str = ""
+    acceptance_file: str = ""
+    rollback_patch: str = ""
+    runs: int = 0
+    blocked_runs: int = 0
+    ready_runs: int = 0
+    avg_iterations: float = 0.0
     next_action: str = ""
 
 
