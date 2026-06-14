@@ -50,7 +50,7 @@ nav:
   - Evidence:
       - Benchmarking: benchmarking.md
       - Benchmark learnings: benchmark-learnings.md
-      - Visibility audit: visibility-audit-2026-06-12.md
+      - Agent behavior before and after: examples/agent-behavior-before-after.md
   - Trust:
       - Privacy: privacy.md
       - Threat model: threat-model.md

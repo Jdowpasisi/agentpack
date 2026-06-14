@@ -31,7 +31,7 @@ This is the first local checkpoint in this cycle that clears the 65% recall bar
 while keeping token precision above 51%. The precision margin is real but thin,
 so release notes should report the exact benchmark command and result artifact
 rather than only the rounded headline. The persistent result note is
-[`benchmarks/results/2026-06-13-public.md`](../benchmarks/results/2026-06-13-public.md).
+[`benchmarks/results/2026-06-13-public.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/results/2026-06-13-public.md).
 
 ## 2026-06-13 Release-Target Experiment Log
 

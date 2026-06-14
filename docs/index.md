@@ -13,7 +13,6 @@ Use these docs when you want local/offline repo analysis, MCP-first routing, CI-
 - [How AgentPack works](how-agentpack-works.md)
 - [Benchmarking](benchmarking.md)
 - [Benchmark learnings](benchmark-learnings.md)
-- [Benchmark improvement problem statement](benchmark-improvement-problem-statement.md)
 - [AgentPack for AI agents](agentpack-for-ai-agents.md)
 - [Privacy](privacy.md)
 - [Threat model](threat-model.md)
