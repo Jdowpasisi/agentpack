@@ -107,7 +107,7 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 - **Windows**: supported with PowerShell plus Git for Windows. AgentPack installs cross-platform Git hook launchers and a PowerShell profile hook for opted-in repos. `cmd.exe` is not a first-class workflow yet.
 - **Monorepos**: workspace-aware ranking supports npm/pnpm, Cargo, and `go.work` layouts. `--workspace` creates filtered per-workspace outputs. Package dependency hints currently come from npm/pnpm `package.json`; Cargo/Go workspace membership is detected, but package-manager dependency edges for Cargo/Go are not yet modeled.
 - **Multi-thread coordination**: thread mode warns about overlapping active threads but does not enforce locks, merge ownership, or branch policy. Use one branch/worktree per active agent when edits may collide.
-- **Public benchmark evidence**: `benchmarks/public-repos.toml` is a curated public-commit suite. The v0.3.20 published table is `benchmarks/results/2026-06-11-public.md`; older 0.3.12 tables are historical only. Treat every table as scoped evidence for those cases, not a leaderboard or broad success claim. The synthetic sample-fixture suite is useful for regression smoke, but it is not currently a release quality gate.
+- **Public benchmark evidence**: `benchmarks/public-repos.toml` is a curated public-commit suite. The current public evidence table is `benchmarks/results/2026-06-14-public.md` (`66.0%` recall, `51.1%` token precision over `108` scored public cases). Older dated tables are historical only. Treat every table as scoped evidence for those cases, not a leaderboard or broad success claim. The synthetic sample-fixture suite is useful for regression smoke, but it is not currently a release quality gate.
 - **Symbol extraction**: Python (AST, full) and JavaScript/TypeScript (regex, arrow functions + classes) are well-supported. Go, Rust, Java, Kotlin have import graph traversal but no symbol extraction — they fall back to file-level summaries.
 - **Selection recall**: ranking is heuristic. It can miss files when task language differs from code language, when repos have unusual architecture, or when important files are only connected at runtime.
 - **Pack registry retrieval**: retrieval expands content from the latest local pack registry. If a file changed after packing, AgentPack refuses full retrieval unless explicitly allowed. Symbol blocks exist only when the latest pack captured symbols. It is not a long-term content archive.
@@ -126,7 +126,7 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 Post-0.3 release focus: broader real-repo proof, npm publish reliability, and continued ranking precision.
 
 - Expand the public real-repo suite beyond the current curated Pallets smoke set.
-- Keep recall gains measured with `--prove-targets`; target 65%+ recall, 50%+ token precision, and task packs within their configured budget for the next benchmark release.
+- Keep recall gains measured with `--prove-targets`; target 65%+ recall, 51%+ token precision, and task packs within their configured budget for the next benchmark release.
 - Extend second-pass expansion with framework route/service/schema pairs once benchmark misses prove the pattern.
 - Make npm publishing reliable by adding `NPM_TOKEN` and rerunning the npm release workflow.
 - Keep integration contracts stable across Claude, Cursor, Windsurf, Codex, Antigravity, and Generic before any 1.0 work.

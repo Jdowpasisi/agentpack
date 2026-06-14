@@ -162,14 +162,19 @@ Configures:
 
 ### AgentPack's Own CI
 
-agentpack uses two workflows:
+agentpack ships multiple release-related workflows:
 
-- **`ci.yml`** — runs tests (Python 3.10-3.14) + ruff lint + 80% coverage gate on every push and PR to `main`
-- **`publish.yml`** — runs on every `v*` tag push; requires tag from a `release/*` branch and a CHANGELOG.md entry for the version before building and publishing to PyPI (trusted publishing)
+- **`ci.yml`** — runs on push and pull requests to `main`.
+  - `test`: matrix tests on Python 3.10–3.14 (`pytest ... --cov`) and `ruff check src/ tests/`.
+  - `npm-wrapper`: npm wrapper tests plus a dry-run package check.
+  - `agent-integration-matrix`: integration checks for supported agents.
+- **`agentpack-pr.yml`** — generates and uploads `.agentpack/context.claude.md` for PR review artifacts in `.github/workflows/agentpack-pr.yml`.
+- **`publish.yml`** — validates release tag provenance/version/changelog then builds and publishes to PyPI with trusted publishing.
+- **`publish-npm.yml`** — publishes the npm package on `v*` tags after the same release checks.
 
 ### Add context packing to your repo
 
-Add to `.github/workflows/agentpack-context.yml`:
+Use `.github/workflows/agentpack-pr.yml` as the in-repo PR example and adapt the commands to match your policy:
 
 ```yaml
 name: AgentPack context pack
