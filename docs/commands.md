@@ -4,14 +4,13 @@ Full command reference for the `agentpack` CLI. The root README keeps only the m
 
 ## Commands
 
-Most users only need four commands:
+Most users should start with the context path:
 
 ```bash
 agentpack init --agent codex
-agentpack work "describe the change"
-agentpack next --fix-all-safe
-agentpack watch
-agentpack doctor --agent all
+agentpack route --task "describe the change"
+agentpack task set "describe the change"
+agentpack pack --task auto
 ```
 
 Command map:
@@ -21,8 +20,8 @@ Command map:
 | `agentpack init` | Set up `.agentpack/` and install one agent integration for a repo |
 | `agentpack install` | Refresh or add an agent integration without changing project state |
 | `agentpack repair` | Restore missing or drifted integration files |
-| `agentpack work` | Initialize if needed, write a task, refresh context, and show next steps |
-| `agentpack work --run` | Optional proof harness: run a configured external runner with verification |
+| `agentpack work` | Convenience wrapper for init, task, context refresh, and next steps |
+| `agentpack work --run` | Advanced optional proof harness around a configured external runner |
 | `agentpack start` | Write a task and run the default guard/refresh workflow |
 | `agentpack finish` | Run finish checks, capture benchmark evidence, and mark state done |
 | `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons from task context and git changes |
@@ -310,8 +309,9 @@ Also installs the detected agent integration:
 ### `agentpack work --run`
 
 Run the optional guarded loop with a generic local runner after preparing fresh
-context. This is a proof harness around existing agents, not AgentPack's default
-workflow and not an autonomous coding product.
+context. Keep this as an advanced verification path, not the main quickstart.
+It is a proof harness around existing agents, not AgentPack's default workflow
+and not an autonomous coding product.
 
 ```bash
 agentpack work "fix auth token expiry" --run --runner "claude < .agentpack/context.claude.md" --verify "pytest -q"

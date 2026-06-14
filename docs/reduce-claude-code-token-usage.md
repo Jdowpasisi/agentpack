@@ -34,7 +34,8 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 Then use a full pack when you want a markdown context artifact:
 
 ```bash
-agentpack work "fix auth token expiry"
+agentpack task set "fix auth token expiry"
+agentpack pack --task auto
 ```
 
 ## Current benchmark framing

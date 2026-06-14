@@ -10,7 +10,7 @@
 
 **Local context engine for AI coding agents.**
 
-AgentPack ranks relevant repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools, CI jobs, and markdown-based LLM workflows.
+Before your agent starts coding, AgentPack gives it the 5-20 files most likely to matter. It ranks repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools, CI jobs, and markdown-based LLM workflows.
 
 It runs local/offline repo analysis, compresses selected files into a token budget, and keeps context fresh through CLI commands, MCP tools, hooks, and agent integrations. Use it when an AI coding agent needs a ranked starting map instead of burning tool calls rediscovering your repo.
 
@@ -31,6 +31,8 @@ pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 ![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
 
 > **Status: alpha (v0.3.23).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+>
+> **When not to use it:** small repos, one-shot read-only questions, or interactive IDE agents that already find files cheaply may not benefit much.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
 >
@@ -90,9 +92,21 @@ ranked but cut by budget, or absent from scan.
 - **Benchmark**: expected-file recall, token precision, miss diagnostics, public commit suites, and E2E A/B reports.
 - **Local**: no cloud indexing, embeddings, or API calls for scan, summarize, rank, pack, stats, or benchmark.
 
+## AgentPack vs Native Agent Search
+
+Native agent search is still useful. AgentPack is useful when you want a repeatable local map before the session starts.
+
+| Native agent search | AgentPack |
+|---|---|
+| Discovers files during the session | Pre-ranks files before the session |
+| Spends model/tool calls on exploration | Runs a deterministic local scan |
+| May repeat the same orientation work | Reuses cached repo summaries |
+| Hard to measure file-selection quality | Captures benchmark misses and recall |
+| Best for interactive exploration | Best for CI, batch tasks, large repos, and repeat work |
+
 ## Benchmark Proof
 
-Current local release-candidate table: expanded public-suite historical commits
+Current v0.3.23 release baseline: expanded public-suite historical commits
 across Python, TypeScript, Go, Java, and monorepo repos, scored against files
 actually changed by each commit.
 
@@ -102,11 +116,9 @@ actually changed by each commit.
 | Avg recall | 66.0% |
 | Avg token precision | 51.1% |
 | Pack p50 | 315 tokens |
-| Pack p95 | 1,150 tokens |
+| Pack p95 | 1,137 tokens |
 
-Full local table: [`benchmarks/results/2026-06-13-public.md`](benchmarks/results/2026-06-13-public.md). This is scoped benchmark evidence, not a universal quality claim.
-The latest published v0.3.20 table remains available at
-[`benchmarks/results/2026-06-11-public.md`](benchmarks/results/2026-06-11-public.md).
+Full local table: [`benchmarks/results/2026-06-14-public.md`](benchmarks/results/2026-06-14-public.md). This is scoped benchmark evidence, not a universal quality claim.
 Reproduce the expanded public suite:
 
 ```bash
@@ -117,7 +129,7 @@ Benchmark methodology lives under [`benchmarks/results/v0.3.20/`](benchmarks/res
 
 ### Release Benchmark Gate
 
-The current local release-candidate result clears the target: **66.0% recall**
+The current v0.3.23 release result clears the target: **66.0% recall**
 and **51.1% token precision**. The target should continue to be measured on the
 same 100+ public historical-commit suite, with per-language slices published so
 aggregate gains are not hiding TypeScript, Go, Java, or monorepo regressions.
@@ -185,7 +197,9 @@ npx @vishal2612200/agentpack pack
 ```bash
 cd your-repo
 agentpack init --yes
-agentpack work "fix auth token expiry"
+agentpack route --task "fix auth token expiry"
+agentpack task set "fix auth token expiry"
+agentpack pack --task auto
 ```
 
 Then read `.agentpack/context.md` or the agent-specific context file listed in the output. AgentPack also integrates with MCP so agents can call tools directly instead of reading markdown artifacts.
@@ -199,7 +213,7 @@ agentpack status
 agentpack finish --since main
 ```
 
-Use `agentpack quickstart --task "..." --write` when you want AgentPack to print the next commands and write the task file for you. Use `agentpack start "..." --pack-only` when you want only a fresh pack and not the guard path. Optional guardrail: `agentpack work --run` is a proof harness around existing agents, not AgentPack's default workflow or an autonomous coding agent.
+Use `agentpack quickstart --task "..." --write` when you want AgentPack to print the next commands and write the task file for you. Use `agentpack work "..."` as a convenience wrapper for init/task/pack/next. Optional guardrail: `agentpack work --run` is an advanced proof harness around existing agents, not AgentPack's default workflow or an autonomous coding agent.
 
 ### Learn from AI-assisted work
 
@@ -209,23 +223,11 @@ Generate local post-task learning artifacts from `.agentpack/task.md` and git ch
 agentpack learn
 agentpack learn --today
 agentpack learn --since main
-agentpack learn --json
-agentpack learn --llm-prompt --pr-comment
-agentpack learn --provider-preview
-agentpack learn --provider-command "python scripts/learn_provider.py"
 agentpack learn --dashboard --team-export
 agentpack learn --skills
-agentpack learn --drills
-agentpack learn --ci
-agentpack learn --feedback helpful --feedback-target "skill:CLI design" --feedback-note "Useful review prompts"
 ```
 
-AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates a local skill memory in `.agentpack/skills-progress.json`, writes ranked `.agentpack/agent-lessons.md` for future coding agents, and can emit `.agentpack/learning.prompt.md`, `.agentpack/pr-learning-comment.md`, `.agentpack/learning-dashboard.html`, or `.agentpack/team-lessons.md`. Learn is local-first by default: `--provider-preview` shows the bounded payload for optional external refinement without making a network call, `--provider-command` runs only the local command you provide, and feedback stays in `.agentpack/learning-feedback.jsonl`.
-
-Use `--dashboard` when a developer wants an IDE-friendly review surface. Use
-`--team-export` when the useful lesson should be shared without publishing a
-personal skill history. Use `--ci` to fail a workflow when the generated
-learning is too generic or lacks changed-file evidence.
+AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates local skill memory, and writes ranked `.agentpack/agent-lessons.md` for future coding agents. Learn is local-first by default; optional provider refinement requires an explicit local command.
 
 ## Agent Setup
 
@@ -417,12 +419,9 @@ AgentPack writes local artifacts under `.agentpack/`:
 | `.agentpack/daily-summary.md` | local daily learning rollup from `agentpack learn --today` |
 | `.agentpack/skills-progress.json` | local skill evidence map from task work |
 | `.agentpack/agent-lessons.md` | compact repo-specific lessons injected into future packs |
-| `.agentpack/learning.prompt.md` | optional source-backed prompt for external LLM refinement |
-| `.agentpack/pr-learning-comment.md` | optional PR-comment-ready learning summary |
 | `.agentpack/learning-dashboard.html` | optional static dashboard from `agentpack learn --dashboard` |
 | `.agentpack/dashboard.html` | local project dashboard from `agentpack dashboard` |
 | `.agentpack/team-lessons.md` | optional shared lesson export from `agentpack learn --team-export` |
-| `.agentpack/learning-feedback.jsonl` | optional local helpful/not-helpful feedback records |
 | `.agentpack/pack_metadata.json` | freshness and pack metadata |
 | `.agentpack/cache/` | offline file summaries keyed by hash |
 | `.agentpack/snapshots/` | repo snapshot hashes |

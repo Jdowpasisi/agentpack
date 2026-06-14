@@ -20,7 +20,9 @@ This writes Cursor rules plus a VS Code task for refreshing AgentPack context. R
 ## Task-focused context
 
 ```bash
-agentpack work "fix auth token expiry"
+agentpack route --task "fix auth token expiry"
+agentpack task set "fix auth token expiry"
+agentpack pack --task auto
 ```
 
 AgentPack ranks files from task terms, symbols, imports, related tests, configs, git changes, repo history, and offline summaries. It then emits compact views such as `full`, `diff`, `symbols`, `skeleton`, or `summary` depending on relevance and token budget.

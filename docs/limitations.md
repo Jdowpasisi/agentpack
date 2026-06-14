@@ -65,6 +65,14 @@ These tools have native file access via tool calls. Claude reads exactly the fil
 
 AgentPack's value here is different: `agentpack init --agent <x>` configures your agent to read or inject a ranked context pack and auto-repack when the repo changes. On large repos where tool-call exploration piles up across turns, this front-loads the cost once instead of paying per-turn.
 
+| Native agent search | AgentPack |
+|---|---|
+| Discovers files during the session | Pre-ranks files before the session |
+| Uses model/tool calls to explore | Uses deterministic local repo analysis |
+| May repeat orientation across turns | Reuses cached summaries and pack metadata |
+| Hard to measure selection misses | Reports omitted files, misses, recall, and token precision |
+| Best for interactive exploration | Best for CI, batch tasks, large repos, and repeated workflows |
+
 ### Where AgentPack Wins
 
 | Scenario | repomix | gitingest | code2prompt | aider | agentpack |
@@ -87,6 +95,7 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 
 - **Interactive sessions on small repos**: if your whole repo is <20k tokens, a simple repo dump may be enough
 - **One-shot public repo questions**: gitingest's "replace hub with ingest" is faster for quick read-only exploration
+- **Native IDE flows that already find files cheaply**: AgentPack helps most when exploration cost repeats or needs to be measured
 - **Guaranteed source-of-truth selection**: AgentPack ranks likely files; it can miss task-critical files. Use `agentpack benchmark --misses`, `agentpack explain`, and normal `rg`/agent file reads for correctness.
 - **Deep semantic understanding**: keyword/concept scoring, imports, symbols, and path roles help, but they are not an LLM-level code understanding system
 - **Public proof without real cases**: bundled fixtures are smoke tests. Strong claims need historical tasks from real repos and published results.
