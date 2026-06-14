@@ -29,6 +29,7 @@ def test_dev_check_json_orchestrates_stages(tmp_path: Path, monkeypatch) -> None
     payload = json.loads(result.output)
     assert payload["passed"] is True
     assert [stage["name"] for stage in payload["stages"]] == ["docs-check", "ruff", "pytest", "npm-version-sync", "npm-launcher"]
+    assert any(call[1:] == ["-m", "pytest", "-q", "-m", "not slow"] for call in calls)
     assert calls
 
 

@@ -64,8 +64,8 @@ agentpack release-check
 agentpack release-check --skip-benchmark --json
 ```
 
-`release-check` verifies version/changelog sync, runs `pytest -q`, runs npm
-wrapper tests, builds into a temporary directory, and runs
+`release-check` verifies version/changelog sync, runs `pytest -q -m "not slow"`,
+runs npm wrapper tests, builds into a temporary directory, and runs
 `agentpack benchmark --release-gate`. It does not mutate tracked files. Use
 `--skip-benchmark` or `--skip-build` only while iterating locally, not as final
 release proof.

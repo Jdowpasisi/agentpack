@@ -1387,7 +1387,7 @@ agentpack dev-check
 agentpack dev-check --json
 ```
 
-Stages cover docs link checks, `ruff`, `pytest`, and npm wrapper/version tests.
+Stages cover docs link checks, `ruff`, `pytest -q -m "not slow"`, and npm wrapper/version tests.
 The command prints each rerun command and exits non-zero on the first failed
 stage set.
 

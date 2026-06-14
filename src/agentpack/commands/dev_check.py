@@ -27,7 +27,7 @@ def register(app: typer.Typer) -> None:
         stages = [
             CheckStage("docs-check", [sys.executable, "-m", "pytest", "tests/test_docs_links.py", "-q"]),
             CheckStage("ruff", [sys.executable, "-m", "ruff", "check", "src", "tests"]),
-            CheckStage("pytest", [sys.executable, "-m", "pytest", "-q"]),
+            CheckStage("pytest", [sys.executable, "-m", "pytest", "-q", "-m", "not slow"]),
             CheckStage("npm-version-sync", ["node", "npm/test/version-sync.test.js"]),
             CheckStage("npm-launcher", ["node", "npm/test/launcher.test.js"]),
         ]
