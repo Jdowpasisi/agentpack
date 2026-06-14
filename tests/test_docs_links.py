@@ -12,6 +12,8 @@ DOCS = [
     ROOT / "docs/commands.md",
     ROOT / "docs/configuration.md",
     ROOT / "docs/integrations.md",
+    ROOT / "docs/agent-plugins.md",
+    ROOT / "docs/codex-plugin.md",
     ROOT / "docs/benchmarking.md",
     ROOT / "docs/development.md",
     ROOT / "docs/limitations.md",

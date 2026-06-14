@@ -5,11 +5,12 @@ SHELL := /bin/bash
 PYTHON ?= python
 AGENTPACK ?= PYTHONPATH=src $(PYTHON) -m agentpack.cli
 
-.PHONY: help context context-thread test lint npm-test docs-check build benchmark benchmark-publish release-fast release verify-wheel clean-build
+.PHONY: help context context-thread test lint npm-test docs-check build benchmark benchmark-publish release-docs release-fast release verify-wheel clean-build
 
 help: ## Show available developer commands.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nAgentPack developer commands:\n\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\nExamples:\n"
+	@printf "  make release-docs       # docs/plugin-only release gate\n"
 	@printf "  make release-fast       # quick local gate while iterating\n"
 	@printf "  make release            # full release-check, including benchmark gate\n"
 	@printf "  make verify-wheel       # build wheel, install in temp venv, run release benchmark\n"
@@ -50,6 +51,9 @@ benchmark-publish: ## Run public benchmark gate and write benchmarks/results/*-p
 
 release-fast: ## Fast local release gate: changelog, version sync, pytest, npm tests.
 	$(AGENTPACK) release-check --skip-benchmark --skip-build
+
+release-docs: ## Fast docs/plugin release gate: focused tests, no build, no benchmark.
+	$(AGENTPACK) release-check --profile docs
 
 release: ## Full release gate: changelog, version sync, pytest, npm tests, build, benchmark.
 	$(AGENTPACK) release-check

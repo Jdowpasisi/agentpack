@@ -44,6 +44,114 @@ def test_release_check_json_orchestrates_stages(tmp_path, monkeypatch) -> None:
     assert pytest_call == ["python", "-m", "pytest", "tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"] or pytest_call[1:] == ["-m", "pytest", "tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"]
 
 
+def test_release_check_docs_profile_skips_build_benchmark_and_uses_focused_tests(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [1.2.3] — 2026-05-26\n", encoding="utf-8")
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    for name in ("test_docs_links.py", "test_codex_plugin.py", "test_native_integrations.py"):
+        (tests_dir / name).write_text("def test_placeholder():\n    assert True\n", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        calls.append([str(part) for part in command])
+        return Result()
+
+    monkeypatch.setattr("agentpack.commands.release_check.subprocess.run", fake_run)
+
+    result = CliRunner().invoke(app, ["release-check", "--profile", "docs", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["profile"] == "docs"
+    assert [stage["name"] for stage in payload["stages"]] == [
+        "changelog",
+        "version-sync",
+        "pytest-plugin-deps",
+        "ruff",
+        "pytest",
+    ]
+    assert not any("benchmark" in " ".join(call) for call in calls)
+    assert not any("build" in call for call in calls)
+    pytest_call = next(call for call in calls if "pytest" in call)
+    assert "tests/test_docs_links.py" in pytest_call
+    assert "tests/test_codex_plugin.py" in pytest_call
+    assert "tests/test_native_integrations.py" in pytest_call
+    assert "--cov" not in pytest_call
+
+
+def test_release_check_auto_uses_docs_profile_for_docs_plugin_only_diff(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [1.2.3] — 2026-05-26\n", encoding="utf-8")
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_docs_links.py").write_text("def test_placeholder():\n    assert True\n", encoding="utf-8")
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str = ""):
+            self.stdout = stdout
+
+    def fake_run(command, **kwargs):
+        parts = [str(part) for part in command]
+        if parts[:4] == ["git", "diff", "--name-only", "HEAD"]:
+            return Result("README.md\n.codex-plugin/plugin.json\ndocs/codex-plugin.md\n")
+        if parts[:3] == ["git", "ls-files", "--others"]:
+            return Result("skills/agentpack.md\n")
+        return Result()
+
+    monkeypatch.setattr("agentpack.commands.release_check.subprocess.run", fake_run)
+
+    result = CliRunner().invoke(app, ["release-check", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["profile"] == "docs"
+    assert "benchmark-release-gate" not in {stage["name"] for stage in payload["stages"]}
+    assert "build" not in {stage["name"] for stage in payload["stages"]}
+
+
+def test_release_check_auto_keeps_full_profile_for_source_diff(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [1.2.3] — 2026-05-26\n", encoding="utf-8")
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str = ""):
+            self.stdout = stdout
+
+    def fake_run(command, **kwargs):
+        parts = [str(part) for part in command]
+        if parts[:4] == ["git", "diff", "--name-only", "HEAD"]:
+            return Result("src/agentpack/commands/release_check.py\n")
+        if parts[:3] == ["git", "ls-files", "--others"]:
+            return Result()
+        return Result()
+
+    monkeypatch.setattr("agentpack.commands.release_check.subprocess.run", fake_run)
+
+    result = CliRunner().invoke(app, ["release-check", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["profile"] == "full"
+    assert "benchmark-release-gate" in {stage["name"] for stage in payload["stages"]}
+    assert "build" in {stage["name"] for stage in payload["stages"]}
+
+
 def test_release_check_fails_missing_changelog_entry(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")

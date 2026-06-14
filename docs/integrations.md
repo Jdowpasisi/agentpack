@@ -1,6 +1,6 @@
 # Integrations
 
-AgentPack can be used directly from the CLI, as an MCP server, or through generated instructions and hooks for common coding agents.
+AgentPack can be used directly from the CLI, as an MCP server, through generated instructions and hooks, or through thin plugin/IDE integration layers for common coding agents.
 
 ## MCP-First Workflow
 
@@ -44,7 +44,7 @@ about same-worktree, same-branch file overlap. Without `--thread`, global
 | Agent | Automation level | Method |
 |---|---|---|
 | Claude Code (hook) | Highest | `init` writes `CLAUDE.md`, `.claude/settings.json` hooks, and `.mcp.json` |
-| Codex | Medium | `init` writes `AGENTS.md`, `.codex/hooks.json` + git hooks |
+| Codex | Medium | `init` writes `AGENTS.md`, `.codex/hooks.json` + git hooks; optional thin plugin in [`docs/codex-plugin.md`](codex-plugin.md) |
 | Cursor | Medium | `init` writes `.cursorrules`, `.cursor/rules/agentpack.mdc`, VS Code task + git hooks |
 | Windsurf | Medium | `init` writes `.windsurfrules`, VS Code task + git hooks |
 | Antigravity | Medium | `init` writes `GEMINI.md`, VS Code task + git hooks |
@@ -56,6 +56,9 @@ about same-worktree, same-branch file overlap. Without `--thread`, global
 - Claude wrapper (`agentpack claude`) is the most deterministic integration.
 - If the task changes drastically mid-session, Claude hooks update `.agentpack/task.md` and block once for fresh hints; plain repo edits still use background repack to keep prompts fast.
 - AgentPack-selected files are ranked starting points, not absolute truth.
+- Plugin and IDE surfaces are distribution layers. They call AgentPack CLI/MCP behavior and do not reimplement context ranking.
+
+For the cross-host plugin/IDE shape, see [`Agent and IDE plugins`](agent-plugins.md).
 
 ---
 
@@ -112,6 +115,11 @@ Configures:
 - `AGENTS.md` — tells Codex to write current task, repack, and read the context pack before each task
 - `.codex/hooks.json` — Codex app lifecycle hooks for prompt-time AgentPack refresh hints
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
+
+Optional plugin packaging lives in `.codex-plugin/plugin.json` and `skills/`.
+It adds `@agentpack-route`, `@agentpack-pack`, `@agentpack-refresh`, and
+`@agentpack-review` as thin Codex-facing skills that call the same local
+AgentPack CLI/MCP behavior. See [`Codex plugin`](codex-plugin.md).
 
 ### Antigravity
 

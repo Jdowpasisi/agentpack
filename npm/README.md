@@ -5,9 +5,9 @@
 [![PyPI core](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
 [![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
 
-**Local context engine for AI coding agents.**
+**Your agent starts cold. AgentPack hands it the map.**
 
-AgentPack ranks relevant repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools, CI jobs, and markdown-based LLM workflows.
+AgentPack ranks relevant repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Copilot, Cline, Kiro, OpenCode, MCP tools, CI jobs, and markdown-based LLM workflows.
 
 It analyzes your repo locally, compresses selected context into a token budget, and gives coding agents a ranked starting map before they spend tool calls rediscovering routes, services, tests, configs, and repo rules.
 
@@ -25,7 +25,7 @@ npx @vishal2612200/agentpack route --task "fix auth token expiry"
 
 ![AgentPack route demo](https://raw.githubusercontent.com/vishal2612200/agentpack/main/docs/assets/agentpack-route-demo.svg)
 
-> **Status: alpha (v0.3.23).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
+> **Status: alpha (v0.3.24).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
 >
 > **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows.
 >
@@ -33,10 +33,10 @@ npx @vishal2612200/agentpack route --task "fix auth token expiry"
 
 ## Latest Update
 
-`0.3.23` is a guarded-loop hardening release. It keeps AgentPack's default path
-focused on local context while making `agentpack work --run` an optional proof
-harness around existing agents with runner adapters, smoke checks, evidence
-artifacts, and stricter finish gates.
+`0.3.24` adds thin plugin and IDE distribution surfaces for Codex, Cursor,
+Windsurf, Copilot, Cline, Kiro, OpenCode, and generic agent workflows. It also
+adds a faster docs/plugin release-check profile that skips build and public
+benchmark runs for docs-only releases.
 
 ```bash
 npx @vishal2612200/agentpack learn --dashboard --team-export

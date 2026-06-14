@@ -46,6 +46,11 @@ def register(app: typer.Typer) -> None:
     def release_check(
         skip_benchmark: bool = typer.Option(False, "--skip-benchmark", help="Skip public benchmark release gate."),
         skip_build: bool = typer.Option(False, "--skip-build", help="Skip wheel/sdist build."),
+        profile: str = typer.Option(
+            "auto",
+            "--profile",
+            help="Release profile: auto, full, fast, or docs. auto uses docs profile only for docs/plugin-only diffs.",
+        ),
         tag: str | None = typer.Option(None, "--tag", help="Verify a release tag such as v1.2.3 matches package versions."),
         check_release_branch: bool = typer.Option(False, "--check-release-branch", help="Require HEAD to be present on an origin/release/* branch."),
         check_registry: bool = typer.Option(False, "--check-registry", help="Fail if this version already exists on PyPI or npm."),
@@ -56,6 +61,13 @@ def register(app: typer.Typer) -> None:
         """Run release readiness checks without mutating tracked files."""
         root = _root()
         stages: list[StageResult] = []
+        release_profile = _resolve_release_profile(root, profile, skip_build=skip_build, skip_benchmark=skip_benchmark)
+        if release_profile == "docs":
+            skip_build = True
+            skip_benchmark = True
+        elif release_profile == "fast":
+            skip_build = True
+            skip_benchmark = True
         expected_version = _version_from_tag(tag) if tag else None
         stages.append(_check_changelog(root, expected_version=expected_version))
         stages.append(_run_stage(root, "version-sync", ["node", "npm/test/version-sync.test.js"]))
@@ -69,16 +81,12 @@ def register(app: typer.Typer) -> None:
             stages.append(_check_npm_version_available(root))
         stages.append(_check_pytest_plugin_dependencies(root))
         stages.append(_run_stage(root, "ruff", [sys.executable, "-m", "ruff", "check", "src", "tests"]))
+        pytest_args = _pytest_args_for_profile(root, release_profile)
         with tempfile.TemporaryDirectory(prefix="agentpack-coverage-") as coverage_dir:
-            stages.append(
-                _run_stage(
-                    root,
-                    "pytest",
-                    [sys.executable, "-m", "pytest", "tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"],
-                    env={"COVERAGE_FILE": str(Path(coverage_dir) / ".coverage")},
-                )
-            )
-        stages.append(_run_stage(root, "npm-launcher-tests", ["node", "npm/test/launcher.test.js"]))
+            pytest_env = {"COVERAGE_FILE": str(Path(coverage_dir) / ".coverage")} if release_profile != "docs" else None
+            stages.append(_run_stage(root, "pytest", [sys.executable, "-m", "pytest", *pytest_args], env=pytest_env))
+        if release_profile != "docs":
+            stages.append(_run_stage(root, "npm-launcher-tests", ["node", "npm/test/launcher.test.js"]))
         if not skip_build:
             with tempfile.TemporaryDirectory(prefix="agentpack-build-") as out_dir:
                 stages.append(_run_stage(root, "build", [sys.executable, "-m", "build", "--outdir", out_dir]))
@@ -87,7 +95,13 @@ def register(app: typer.Typer) -> None:
 
         failed = [stage for stage in stages if stage.status != "passed"]
         if json_output:
-            typer.echo(json.dumps({"passed": not failed, "stages": [stage.as_dict() for stage in stages]}, indent=2, sort_keys=True))
+            typer.echo(
+                json.dumps(
+                    {"passed": not failed, "profile": release_profile, "stages": [stage.as_dict() for stage in stages]},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
         else:
             for stage in stages:
                 marker = "[green]✓[/]" if stage.status == "passed" else "[red]✗[/]"
@@ -100,6 +114,77 @@ def register(app: typer.Typer) -> None:
                     console.print(f"  rerun: [bold]{stage.command}[/]")
         if failed:
             raise typer.Exit(1)
+
+
+_DOCS_TESTS = [
+    "tests/test_docs_links.py",
+    "tests/test_codex_plugin.py",
+    "tests/test_native_integrations.py",
+]
+
+
+def _resolve_release_profile(root: Path, profile: str, *, skip_build: bool, skip_benchmark: bool) -> str:
+    normalized = profile.strip().lower()
+    if normalized not in {"auto", "full", "fast", "docs"}:
+        raise typer.BadParameter("profile must be one of: auto, full, fast, docs")
+    if normalized != "auto":
+        return normalized
+    if skip_build and skip_benchmark:
+        return "full"
+    changed = _changed_files(root)
+    if changed and all(_is_docs_or_plugin_path(path) for path in changed):
+        return "docs"
+    return "full"
+
+
+def _pytest_args_for_profile(root: Path, profile: str) -> list[str]:
+    if profile == "docs":
+        existing = [path for path in _DOCS_TESTS if (root / path).exists()]
+        return [*existing, "-q"] if existing else ["tests/test_docs_links.py", "-q"]
+    return ["tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"]
+
+
+def _changed_files(root: Path) -> list[str]:
+    tracked = _git_lines(root, ["git", "diff", "--name-only", "HEAD", "--"])
+    untracked = _git_lines(root, ["git", "ls-files", "--others", "--exclude-standard"])
+    return sorted(set(tracked + untracked))
+
+
+def _git_lines(root: Path, command: list[str]) -> list[str]:
+    result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _is_docs_or_plugin_path(path: str) -> bool:
+    if path in {
+        "README.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "mkdocs.yml",
+        "llms.txt",
+        "llms-full.txt",
+        ".cursorrules",
+        ".github/copilot-instructions.md",
+    }:
+        return True
+    prefixes = (
+        "docs/",
+        "benchmarks/results/",
+        ".codex-plugin/",
+        "skills/",
+        "agent-rules/",
+        ".cursor/",
+        ".windsurf/",
+        ".clinerules/",
+        ".kiro/",
+        ".opencode/",
+        "native-integrations/",
+    )
+    if path.startswith(prefixes):
+        return True
+    return path in set(_DOCS_TESTS)
 
 
 def _load_pyproject(root: Path) -> dict[str, Any]:

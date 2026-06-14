@@ -1,170 +1,231 @@
 # AgentPack
 
-[![PyPI version](https://img.shields.io/pypi/v/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/agentpack-cli?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/agentpack-cli)
-[![npm version](https://img.shields.io/npm/v/@vishal2612200/agentpack.svg)](https://www.npmjs.com/package/@vishal2612200/agentpack)
-[![npm downloads](https://img.shields.io/npm/dm/@vishal2612200/agentpack.svg)](https://www.npmjs.com/package/@vishal2612200/agentpack)
-[![Python versions](https://img.shields.io/pypi/pyversions/agentpack-cli.svg)](https://pypi.org/project/agentpack-cli/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg)](https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml)
+<p align="center">
+  <img src="docs/assets/agentpack-symbol.png" alt="AgentPack symbol: a compact map pack for coding agents" width="180">
+</p>
 
-**Local context engine for AI coding agents.**
+<p align="center">
+  <strong>Your agent starts cold. AgentPack hands it the map.</strong>
+</p>
 
-Before your agent starts coding, AgentPack gives it the 5-20 files most likely to matter. It ranks repository files and builds compact task-focused context packs for Claude Code, Codex, Cursor, Windsurf, Antigravity, MCP tools, CI jobs, and markdown-based LLM workflows.
+<p align="center">
+  <em>Ranked repo context for Codex, Claude Code, Cursor, Windsurf, Copilot, Cline, Kiro, OpenCode, MCP, CI, and markdown workflows.</em>
+</p>
 
-It runs local/offline repo analysis, compresses selected files into a token budget, and keeps context fresh through CLI commands, MCP tools, hooks, and agent integrations. Use it when an AI coding agent needs a ranked starting map instead of burning tool calls rediscovering your repo.
+<p align="center">
+  <a href="https://pypi.org/project/agentpack-cli/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/agentpack-cli.svg"></a>
+  <a href="https://www.npmjs.com/package/@vishal2612200/agentpack"><img alt="npm version" src="https://img.shields.io/npm/v/@vishal2612200/agentpack.svg"></a>
+  <a href="https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vishal2612200/agentpack/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://opensource.org/licenses/MIT"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+</p>
 
-AgentPack is a context preparation tool, not a coding agent.
+<p align="center">
+  <code>local preflight</code>
+  <code>ranked files</code>
+  <code>tests + commands</code>
+  <code>receipts</code>
+  <code>no cloud index</code>
+</p>
 
-One workflow matters:
+---
+
+You know the pattern. You ask an agent to fix one bug. It `rg`s half the repo, opens the wrong files, misses the test, then rediscovers the architecture you already had.
+
+AgentPack does the repo-orientation pass first.
 
 ```text
-route -> pack -> agent acts -> benchmark captures miss
-```
-
-First route the task to likely files, tests, rules, and skills:
-
-```bash
-pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
-```
-
-![AgentPack route demo](docs/assets/agentpack-route-demo.svg)
-
-> **Status: alpha (v0.3.23).** Works, tested, and used in real sessions. Python and JavaScript/TypeScript are the best-supported languages. Current benchmarks are useful regression checks, not broad proof that AgentPack improves coding-agent success. API may change before 1.0.
->
-> **When not to use it:** small repos, one-shot read-only questions, or interactive IDE agents that already find files cheaply may not benefit much.
->
-> **Platform note:** macOS, Linux, and Windows are supported. Windows support targets PowerShell plus Git for Windows. `cmd.exe` and bare Git setups are not a supported path yet.
->
-> **Name note:** PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and the command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
-
-## What's New in 0.3.23
-
-`0.3.23` is a guarded-loop hardening release. It keeps AgentPack's core promise
-focused on local context and workflow evidence while making `agentpack work --run`
-an optional proof harness around existing agents. The loop now has known runner
-adapters, smoke checks, phase/diff/risk/acceptance artifacts, rollback patches,
-metrics, and stricter finish gates. The prior expanded public-suite baseline
-remains **66.0% recall / 51.1% token precision** across 108 scored public cases.
-
-## Core Workflow
-
-### 1. Route
-
-Use the read-only router when you want quick orientation without writing files:
-
-```bash
 agentpack route --task "fix auth token expiry"
+-> files that probably matter
+-> tests that probably prove it
+-> rules, commands, warnings
+-> compact context before the agent edits
 ```
 
-### 2. Pack
+AgentPack is not another coding agent. It is the local context engine you put in front of the agents you already use.
 
-```bash
-agentpack task set "fix auth token expiry"
-agentpack pack --task auto
+## The Pitch
+
+```text
+Without AgentPack: agent explores first, edits later.
+With AgentPack:    agent starts near the right files.
 ```
 
-AgentPack writes `.agentpack/context.md` with selected files, omitted-file
-receipts, task freshness, token stats, and suggested checks.
+No cloud index. No embeddings. No model calls for scan/rank/pack. Just local repo analysis, ranked context, and receipts for what got included or skipped.
 
-### 3. Agent Acts
+It is not a repo dump. It is not a second brain. It is not a promise that your agent will be right.
 
-Point the agent at the pack or use MCP tools. Agent still verifies code before
-editing; AgentPack is map, not correctness proof.
+It is a preflight map: likely files, likely tests, repo rules, commands, warnings, and a compact pack your agent can inspect before touching code.
 
-### 4. Benchmark Captures Miss
-
-After a task, capture the files that actually changed:
-
-```bash
-agentpack benchmark capture --since main --task "fix auth token expiry"
-agentpack benchmark --misses
-```
-
-Miss diagnostics show whether a required file was ignored, scored too low,
-ranked but cut by budget, or absent from scan.
-
-## Features
-
-- **Route**: read-only task map with relevant files, tests, rules, skills, commands, and warnings.
-- **Pack**: budgeted context with `full`, `diff`, `symbols`, `skeleton`, or `summary` file views.
-- **Act**: CLI, markdown, MCP, and agent integrations for Claude Code, Codex, Cursor, Windsurf, Antigravity, and generic agents.
-- **Benchmark**: expected-file recall, token precision, miss diagnostics, public commit suites, and E2E A/B reports.
-- **Local**: no cloud indexing, embeddings, or API calls for scan, summarize, rank, pack, stats, or benchmark.
-
-## AgentPack vs Native Agent Search
-
-Native agent search is still useful. AgentPack is useful when you want a repeatable local map before the session starts.
-
-| Native agent search | AgentPack |
-|---|---|
-| Discovers files during the session | Pre-ranks files before the session |
-| Spends model/tool calls on exploration | Runs a deterministic local scan |
-| May repeat the same orientation work | Reuses cached repo summaries |
-| Hard to measure file-selection quality | Captures benchmark misses and recall |
-| Best for interactive exploration | Best for CI, batch tasks, large repos, and repeat work |
-
-## Benchmark Proof
-
-Current v0.3.23 release baseline: expanded public-suite historical commits
-across Python, TypeScript, Go, Java, and monorepo repos, scored against files
-actually changed by each commit.
-
-| Metric | Result |
-|---|---:|
-| Scored cases | 108 |
-| Avg recall | 66.0% |
-| Avg token precision | 51.1% |
-| Pack p50 | 315 tokens |
-| Pack p95 | 1,137 tokens |
-
-Full local table: [`benchmarks/results/2026-06-14-public.md`](benchmarks/results/2026-06-14-public.md). This is scoped benchmark evidence, not a universal quality claim.
-Reproduce the expanded public suite:
-
-```bash
-agentpack benchmark --public-suite --reproduce v0.3.20
-```
-
-Benchmark methodology lives under [`benchmarks/results/v0.3.20/`](benchmarks/results/v0.3.20/methodology.md).
-
-### Release Benchmark Gate
-
-The current v0.3.23 release result clears the target: **66.0% recall**
-and **51.1% token precision**. The target should continue to be measured on the
-same 100+ public historical-commit suite, with per-language slices published so
-aggregate gains are not hiding TypeScript, Go, Java, or monorepo regressions.
-
-Decision gate for the next public table:
-
-- full-suite recall is at least 65.0%
-- full-suite token precision is at least 51.0%
-- no major language or task slice loses more than 2 recall points
-- Vite/TypeScript, Gin/Go, Click/Python, and NestJS monorepo misses are reported separately
-- any AgentPack-vs-no-AgentPack A/B claim includes task success, tool calls,
-  token cost, and time-to-first-correct-file
-
-## Trust
-
-AgentPack is MIT licensed, local-first, and uses PyPI Trusted Publishing plus
-npm provenance for release artifacts. See [`SECURITY.md`](SECURITY.md),
-[`docs/privacy.md`](docs/privacy.md), [`docs/threat-model.md`](docs/threat-model.md),
-and [`docs/data-flow.md`](docs/data-flow.md).
-
-## Use Cases
-
-Start with the [docs index](docs/index.md), or jump to guides for
-[Claude Code](docs/claude-code-context-engine.md), [MCP](docs/mcp-context-engine.md),
-[Cursor](docs/cursor-context-packing.md), [token usage](docs/reduce-claude-code-token-usage.md),
-[AI coding agent context](docs/ai-coding-agent-context.md), and [how AgentPack works](docs/how-agentpack-works.md).
-
-## Install
+## Quick Start
 
 ```bash
 pipx install agentpack-cli
 agentpack --version
 ```
 
-Requires Python 3.10+ and is tested on Python 3.10-3.14. The PyPI package is `agentpack-cli`; the command is `agentpack`. Use `pipx` for normal installs because many macOS/Linux Python distributions block global `pip install` with PEP 668's `externally-managed-environment` error. If you prefer `pip`, install inside a virtual environment.
+Inside your repo:
+
+```bash
+agentpack init --yes
+agentpack route --task "fix auth token expiry"
+agentpack task set "fix auth token expiry"
+agentpack pack --task auto
+```
+
+Then give `.agentpack/context.md` to your agent, or let MCP-capable agents call AgentPack tools directly.
+
+For one-shot use without installing:
+
+```bash
+pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
+```
+
+For JavaScript/TypeScript projects, npm wrapper is available:
+
+```bash
+npx @vishal2612200/agentpack --version
+npx @vishal2612200/agentpack init --yes
+npx @vishal2612200/agentpack task set "fix auth token expiry"
+npx @vishal2612200/agentpack pack --task auto
+```
+
+## Quick Demo
+
+Route task first:
+
+```bash
+agentpack route --task "fix billing webhook retry handling"
+```
+
+AgentPack returns likely files, tests, rules, commands, and warnings without changing source files.
+
+Build context pack next:
+
+```bash
+agentpack task set "fix billing webhook retry handling"
+agentpack pack --task auto
+```
+
+AgentPack writes local context under `.agentpack/`, including selected files, omitted-file receipts, freshness checks, and token stats.
+
+## What AgentPack Gives Your Agent
+
+- ranked files for current task
+- likely tests and commands
+- repo rules and agent instructions
+- compact context pack under budget
+- omitted-file receipts for review
+- freshness warnings when task or git state changes
+- local benchmark data when selected context misses real changed files
+
+## Proof So Far
+
+AgentPack's current public benchmark checks one narrow thing: whether selected context overlaps with files actually changed in historical commits.
+
+Current scoped result:
+
+| Signal | Result | Developer meaning |
+|---|---:|---|
+| Public commit cases | 108 | real historical file-selection checks |
+| Average recall | 66.0% | did AgentPack include files that mattered? |
+| Token precision | 51.1% | how much of pack was useful instead of noise? |
+| Pack p50 | 315 tokens | typical compact starting context |
+| Pack p95 | 1,137 tokens | larger but still bounded starting context |
+
+Source: [`benchmarks/results/2026-06-14-public.md`](benchmarks/results/2026-06-14-public.md). Benchmark guide: [`docs/benchmarking.md`](docs/benchmarking.md).
+
+This is useful but not magic. It says AgentPack often gets meaningful files into a small pack. It does not claim every agent finishes faster or writes better code. Agent success A/B benchmarks should report task success, tool calls, token cost, and time-to-first-correct-file.
+
+## What We Want To Prove Next
+
+AgentPack should eventually show:
+
+- fewer agent file reads
+- fewer tool calls
+- faster first correct file
+- lower total context cost
+- equal or better task success
+
+## Works With
+
+- Codex
+- Claude Code
+- Cursor
+- Windsurf
+- Antigravity
+- MCP tools
+- CI and PR review workflows
+- generic markdown-based LLM workflows
+
+See [`docs/integrations.md`](docs/integrations.md) and [`docs/mcp-context-engine.md`](docs/mcp-context-engine.md).
+
+### Agent And IDE Plugins
+
+AgentPack can be used through thin plugin and IDE integration layers so agents start with ranked repo context. Codex has a packaged plugin skeleton; Cursor, Windsurf, Copilot, Cline, Kiro, OpenCode, Claude Code, Antigravity, and generic agents use the same local CLI/MCP engine through portable rules, hooks, and native integration stubs.
+
+Inside Codex:
+
+```text
+@agentpack-route fix auth token expiry
+@agentpack-pack fix auth token expiry
+@agentpack-review
+```
+
+The plugin calls the local AgentPack engine. It does not upload code and does not turn AgentPack into a coding agent.
+
+See [`docs/agent-plugins.md`](docs/agent-plugins.md) and [`docs/codex-plugin.md`](docs/codex-plugin.md).
+
+## How AgentPack Compares
+
+| Tool type | What it does | AgentPack difference |
+|---|---|---|
+| Repo dumpers | Dump selected or all files | AgentPack ranks files by task |
+| Coding agents | Edit code | AgentPack prepares context before editing |
+| IDE search | Finds files on demand | AgentPack pre-routes before agent starts |
+| Skills/rules | Change agent behavior | AgentPack changes the context the agent sees |
+
+## When To Use It
+
+Use AgentPack when:
+
+- repo is large or split across multiple packages
+- monorepo structure makes file discovery expensive
+- agents repeat same discovery work across tasks
+- CI or PR review needs reproducible context
+- agents waste tool calls opening irrelevant files
+- tasks often miss tests, config, generated rules, or repo conventions
+
+Do not use AgentPack when:
+
+- repo is tiny
+- question is one-shot and read-only
+- you already know exact files to edit
+- you need autonomous coding, not context preparation
+- native IDE search is already enough for task
+
+## How It Works
+
+AgentPack scans repo locally, combines filename, git, config, dependency, summary, and benchmark signals, ranks likely files for task, then renders a compact context pack.
+
+It can expose same workflow through CLI, markdown files, MCP tools, hooks, and CI.
+
+Deep dive: [`docs/architecture.md`](docs/architecture.md), [`docs/how-agentpack-works.md`](docs/how-agentpack-works.md), and [`docs/commands.md`](docs/commands.md).
+
+## Trust And Privacy
+
+- local-first by default
+- no cloud indexing
+- no embeddings or API calls for scan, rank, pack, stats, or benchmark
+- generated files live under `.agentpack/`
+- review packs before sharing them outside your machine
+
+Details: [`docs/privacy.md`](docs/privacy.md), [`docs/threat-model.md`](docs/threat-model.md), [`docs/data-flow.md`](docs/data-flow.md), and [`SECURITY.md`](SECURITY.md).
+
+## Install Notes
+
+Requires Python 3.10+ and is tested on Python 3.10-3.14. PyPI package is `agentpack-cli`; command is `agentpack`.
+
+Use `pipx` for normal installs because many macOS/Linux Python distributions block global `pip install` with PEP 668's `externally-managed-environment` error.
 
 Install `pipx` first if needed:
 
@@ -184,315 +245,28 @@ sudo pacman -S python-pipx
 pipx ensurepath
 ```
 
-For JavaScript/TypeScript projects you can use the npm wrapper:
+## Docs
 
-```bash
-npx @vishal2612200/agentpack --version
-npx @vishal2612200/agentpack init --yes
-npx @vishal2612200/agentpack pack
-```
+- [`docs/index.md`](docs/index.md): docs home
+- [`docs/architecture.md`](docs/architecture.md): pipeline, data flow, package layout, and rendered-budget accounting
+- [`docs/commands.md`](docs/commands.md): full CLI command reference
+- [`docs/configuration.md`](docs/configuration.md): config, scoring weights, `.agentignore`, and git integration
+- [`docs/integrations.md`](docs/integrations.md): agent setup, MCP workflow, hooks, and native integration status
+- [`docs/agent-plugins.md`](docs/agent-plugins.md): plugin and IDE distribution layer
+- [`docs/codex-plugin.md`](docs/codex-plugin.md): thin Codex plugin commands and local workflow
+- [`docs/mcp-context-engine.md`](docs/mcp-context-engine.md): MCP tools and context workflow
+- [`docs/benchmarking.md`](docs/benchmarking.md): quality bar, release gate, and public artifacts
+- [`docs/limitations.md`](docs/limitations.md): project scope, known limits, and roadmap
 
-## Quickstart
+## Status
 
-```bash
-cd your-repo
-agentpack init --yes
-agentpack route --task "fix auth token expiry"
-agentpack task set "fix auth token expiry"
-agentpack pack --task auto
-```
+Alpha: `0.3.24`.
 
-Then read `.agentpack/context.md` or the agent-specific context file listed in the output. AgentPack also integrates with MCP so agents can call tools directly instead of reading markdown artifacts.
+Works, tested, and used in real sessions. Python and JavaScript/TypeScript have strongest support. APIs may change before 1.0.
 
-A good explicit workflow is:
+Platform support targets macOS, Linux, and Windows PowerShell with Git for Windows. `cmd.exe` and bare Git setups are not supported yet.
 
-```bash
-agentpack task set "fix billing webhook retry handling in app/api/billing/route.ts" --guard
-agentpack next --fix-all-safe
-agentpack status
-agentpack finish --since main
-```
-
-Use `agentpack quickstart --task "..." --write` when you want AgentPack to print the next commands and write the task file for you. Use `agentpack work "..."` as a convenience wrapper for init/task/pack/next. Optional guardrail: `agentpack work --run` is an advanced proof harness around existing agents, not AgentPack's default workflow or an autonomous coding agent.
-
-### Learn from AI-assisted work
-
-Generate local post-task learning artifacts from `.agentpack/task.md` and git changes:
-
-```bash
-agentpack learn
-agentpack learn --today
-agentpack learn --since main
-agentpack learn --dashboard --team-export
-agentpack learn --skills
-```
-
-AgentPack writes developer notes to `.agentpack/learning.md` or `.agentpack/daily-summary.md`, updates local skill memory, and writes ranked `.agentpack/agent-lessons.md` for future coding agents. Learn is local-first by default; optional provider refinement requires an explicit local command.
-
-## Agent Setup
-
-AgentPack can install repo-local instructions and hooks for the coding agent you use. The installer is idempotent and merges with existing config where possible.
-
-```bash
-agentpack init --agent claude
-agentpack init --agent codex
-agentpack init --agent cursor
-agentpack init --agent windsurf
-agentpack init --agent antigravity
-agentpack init --agent generic
-```
-
-What each integration writes:
-
-| Agent | Files |
-|---|---|
-| Claude Code | `CLAUDE.md`, `.claude/settings.json`, `.mcp.json` |
-| Codex | `AGENTS.md`, `.codex/hooks.json`, git hooks |
-| Cursor | `.cursorrules`, `.cursor/rules/agentpack.mdc`, `.vscode/tasks.json`, git hooks |
-| Windsurf | `.windsurfrules`, `.vscode/tasks.json`, git hooks |
-| Antigravity | `GEMINI.md`, `.vscode/tasks.json`, git hooks |
-| Generic | no agent-specific files; use `context.md` directly |
-
-MCP-capable agents should prefer AgentPack MCP tools over reading markdown files directly. The markdown context files remain useful for manual review, CI, non-MCP agents, and logs.
-
-Generated instructions keep thread mode explicit. They recommend `AGENTPACK_THREAD_ID=<stable-id> agentpack ... --thread auto` when you want scoped state, but plain installed hooks continue using global `.agentpack/task.md` and `.agentpack/context.md`.
-
-## Configuration Snapshot
-
-`agentpack init` creates `.agentpack/config.toml`. Most projects can use the defaults:
-
-```toml
-[context]
-default_mode = "balanced"
-default_budget = 40000
-
-[context_lite]
-budget = 8000
-
-[agents.generic]
-output = ".agentpack/context.md"
-```
-
-Use `agentpack pack --mode lite` when you want a cheap ranked map before deeper file reads. Use the default `balanced` mode for normal agent work and benchmark claims. Use `deep` when the task needs broader docs and source context.
-
-Use `.agentignore` to remove generated output, vendored code, large exports, or files that repeatedly appear as ranking noise. AgentPack imports obvious generated/noisy entries from gitignore sources during init, but repository-specific outputs should still be added by hand.
-
-Use scoring weights only after measuring a real miss:
-
-```bash
-agentpack benchmark --misses
-agentpack explain --file path/to/missed_file.py
-agentpack diagnose-selection
-agentpack ignore suggest
-```
-
-Configuration detail: [`docs/configuration.md`](docs/configuration.md).
-
-## Common Workflows
-
-### Debug Selection
-
-```bash
-agentpack explain --task auto
-agentpack explain --file src/auth/session.py
-agentpack explain --omitted
-agentpack stats
-agentpack diagnose-selection
-```
-
-### MCP-First Agent Flow
-
-1. Call `start_task(task)` when a new task begins. AgentPack writes `.agentpack/task.md`, packs context, and returns ranked markdown.
-2. Call `get_context()` when you need the latest pack. It blocks for one refresh if `.agentpack/task.md` or the repo snapshot changed since the last pack.
-3. Use `route_task(task)` for a lightweight route: relevant files, rules, skills, commands, and safety warnings without writing a full context file.
-
-### Multiple Agent Threads
-
-Plain `agentpack pack`, `agentpack status`, and `agentpack guard` keep legacy global behavior and ignore ambient host thread env vars. Use thread mode only when you explicitly ask for it:
-
-```bash
-agentpack pack --thread codex-local
-AGENTPACK_THREAD_ID=codex-local agentpack pack --thread auto
-agentpack threads --active
-agentpack state show --thread codex-local
-```
-
-Thread mode writes under `.agentpack/threads/<id>/` and appends `.agentpack/thread_index.jsonl`. Same-worktree, same-branch overlap is warning-only; separate worktrees or branches remain the safest workflow for concurrent edits.
-
-### Release Validation
-
-```bash
-agentpack dev-check
-agentpack release-check
-agentpack verify-wheel
-agentpack release prepare
-agentpack ci init
-```
-
-The Makefile remains maintainer convenience, but the CLI commands above are the
-package-user source of truth. `agentpack benchmark --release-gate` runs the
-public proof path: public repos, proved target files, misses, and public table
-output. `--sample-fixtures` remains a regression smoke path, not the release
-gate.
-
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `agentpack init --yes` | Create local config and ignore files |
-| `agentpack work "task"` | Initialize if needed, start task, refresh context, show next steps |
-| `agentpack start "task"` | Write task and run the guard/refresh workflow |
-| `agentpack finish --since main` | Diagnose, capture benchmark case, run checks, mark done |
-| `agentpack learn` | Generate developer learning notes, skill memory, feedback-aware drills, and future-agent lessons |
-| `agentpack task show|set|clear` | Manage global or thread-scoped task files |
-| `agentpack pack` | Generate a ranked context pack for `.agentpack/task.md` |
-| `agentpack next --fix-all-safe` | Ask AgentPack what command or safe repair should happen next |
-| `agentpack guard --repair-stale --refresh-context` | Check freshness, repair stale rules, refresh context |
-| `agentpack status` | Show context freshness and git/task state |
-| `agentpack stats` | Show pack size, token savings, and top files |
-| `agentpack dashboard` | Local HTML control plane for context, skills, learning, and benchmark quality |
-| `agentpack explain --task auto` | Debug selected and omitted files |
-| `agentpack diagnose-selection` | Turn latest pack/benchmark signals into concrete tuning actions |
-| `agentpack ignore suggest|apply` | Suggest or apply `.agentignore` improvements |
-| `agentpack route --task "..."` | Get lightweight task routing without a full context file |
-| `agentpack threads [--active] [--conflicts]` | Inspect thread-scoped context state |
-| `agentpack state show|set|done` | Read or update execution state files |
-| `agentpack benchmark capture --since <ref>` | Add a benchmark case from changed files |
-| `agentpack benchmark --release-gate` | Run public benchmark evidence path |
-| `agentpack dev-check` | Run docs, lint, pytest, and npm wrapper checks |
-| `agentpack verify-wheel` | Install built wheel in a temp venv and run benchmark gate |
-| `agentpack release-check` | Run version, changelog, tests, build, and benchmark checks |
-| `agentpack release prepare` | Run full release prep, public table, and wheel verification |
-| `agentpack ci init` | Generate a GitHub Actions workflow for AgentPack checks |
-
-Full command reference: [`docs/commands.md`](docs/commands.md).
-
-## Make Shortcuts
-
-Run `make help` for the current list. The main targets are:
-
-| Target | Wraps |
-|---|---|
-| `make test` | `pytest -q` |
-| `make lint` | `python -m ruff check src tests` |
-| `make npm-test` | npm wrapper/version tests |
-| `make docs-check` | README/docs link smoke + `git diff --check` |
-| `make benchmark` | `agentpack benchmark --release-gate --no-public-table` |
-| `make benchmark-publish` | `agentpack benchmark --release-gate` |
-| `make release-fast` | `agentpack release-check --skip-benchmark --skip-build` |
-| `make release` | `agentpack release-check` |
-| `make verify-wheel` | build wheel, install in temp venv, run benchmark gate |
-
-`make context` uses legacy global context. For scoped context, run:
-
-```bash
-THREAD=codex-local make context-thread
-AGENTPACK_THREAD_ID=codex-local make context-thread
-```
-
-## What A Pack Contains
-
-Rendered packs are meant to be readable by humans and directly useful to agents. A typical pack includes:
-
-- freshness metadata with task source, generated time, git branch, SHA, and snapshot hash
-- execution state with task status, checklist counts, git dirty/ahead/behind counts, and Docker/Compose availability
-- concurrent-context warnings when another active thread overlaps files on the same branch and worktree
-- token stats and largest token consumers
-- semantic repo map grouped by subsystem
-- selected-file table with include mode and reason
-- compressed context receipts showing why files were included or excluded
-- file context in `full`, `diff`, `symbols`, `skeleton`, or `summary` mode
-
-The pack is a starting map. Agents should still verify the selected files against actual code before editing.
-
-## Local Files
-
-AgentPack writes local artifacts under `.agentpack/`:
-
-| Path | Purpose |
-|---|---|
-| `.agentpack/task.md` | current global task summary |
-| `.agentpack/task_state.md` | optional global execution state |
-| `.agentpack/context.md` | generic/Codex/Cursor/Windsurf fallback context |
-| `.agentpack/context.claude.md` | Claude-flavored fallback context |
-| `.agentpack/learning.md` | local post-task developer learning notes |
-| `.agentpack/daily-summary.md` | local daily learning rollup from `agentpack learn --today` |
-| `.agentpack/skills-progress.json` | local skill evidence map from task work |
-| `.agentpack/agent-lessons.md` | compact repo-specific lessons injected into future packs |
-| `.agentpack/learning-dashboard.html` | optional static dashboard from `agentpack learn --dashboard` |
-| `.agentpack/dashboard.html` | local project dashboard from `agentpack dashboard` |
-| `.agentpack/team-lessons.md` | optional shared lesson export from `agentpack learn --team-export` |
-| `.agentpack/pack_metadata.json` | freshness and pack metadata |
-| `.agentpack/cache/` | offline file summaries keyed by hash |
-| `.agentpack/snapshots/` | repo snapshot hashes |
-| `.agentpack/thread_index.jsonl` | append-only thread activity index |
-| `.agentpack/threads/<id>/` | scoped task, state, context, and metadata for explicit thread mode |
-
-Generated context, cache, snapshots, and thread state are local operational files. The root `.agentpack/config.toml` and `.agentignore` are usually worth committing; generated context artifacts usually are not.
-
-## Troubleshooting
-
-If AgentPack selects too much:
-
-```bash
-agentpack diagnose-selection
-agentpack stats
-agentpack explain --omitted
-agentpack explain --budget-plan
-agentpack ignore suggest
-```
-
-If a required file is missing:
-
-```bash
-agentpack explain --file path/to/file.py
-agentpack benchmark --misses
-agentpack benchmark capture --since HEAD~1 --task "describe the task"
-```
-
-If context looks stale:
-
-```bash
-agentpack status --deep
-agentpack guard --agent auto --repair-stale --refresh-context
-```
-
-If multiple agents are editing the same project:
-
-```bash
-agentpack threads --active
-agentpack threads --conflicts
-agentpack state show --thread codex-local
-```
-
-If package release checks fail:
-
-```bash
-agentpack release-check --json
-agentpack release-check --skip-benchmark
-```
-
-Use the skip flags only for local iteration. The final release proof should include the build and public benchmark gate.
-
-## Documentation
-
-- [`docs/architecture.md`](docs/architecture.md): pipeline, data flow, package layout, thread/execution state, rendered-budget accounting.
-- [`docs/commands.md`](docs/commands.md): full CLI command reference.
-- [`docs/configuration.md`](docs/configuration.md): config, scoring weights, `.agentignore`, and git integration.
-- [`docs/integrations.md`](docs/integrations.md): agent setup, MCP workflow, hooks, and native integration status.
-- [`docs/benchmarking.md`](docs/benchmarking.md): quality bar, release gate, sample fixtures, and public artifacts.
-- [`docs/development.md`](docs/development.md): local development, release checklist, naming/ranking, and contribution notes.
-- [`docs/limitations.md`](docs/limitations.md): project scope, honest token framing, known limitations, and roadmap.
-
-## Limitations
-
-- AgentPack prepares context; it does not edit code, run tests for the agent, or prove correctness.
-- Ranking is deterministic and local, but it can still miss files. Use `agentpack explain`, `agentpack benchmark --misses`, and normal code review.
-- Thread coordination is warning-based, not locking-based. It helps agents notice collisions but does not enforce ownership.
-- Language support is strongest for Python and JavaScript/TypeScript. Other languages still benefit from filenames, git signals, and summaries.
-- Token estimates are approximate, even with rendered-budget accounting. Treat them as operational guidance, not provider billing truth.
-
-More detail: [`docs/limitations.md`](docs/limitations.md).
+Name note: PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
 
 ## License
 

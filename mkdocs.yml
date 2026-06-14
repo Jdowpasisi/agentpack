@@ -32,25 +32,28 @@ extra_javascript:
 
 nav:
   - Home: index.md
-  - Start:
+  - Get started:
       - Commands: commands.md
       - Configuration: configuration.md
-      - Integrations: integrations.md
       - How AgentPack works: how-agentpack-works.md
-      - AgentPack for AI agents: agentpack-for-ai-agents.md
-  - Search-intent guides:
-      - AI coding agent context packing: ai-coding-agent-context.md
-      - Claude Code context engine: claude-code-context-engine.md
+  - Agents and IDEs:
+      - Overview: integrations.md
+      - Plugin and IDE distribution: agent-plugins.md
+      - Codex plugin: codex-plugin.md
+      - Claude Code: claude-code-context-engine.md
+      - Cursor: cursor-context-packing.md
       - MCP context engine: mcp-context-engine.md
-      - Cursor context packing: cursor-context-packing.md
+      - AgentPack for AI agents: agentpack-for-ai-agents.md
+  - Guides:
+      - AI coding agent context packing: ai-coding-agent-context.md
       - Reduce Claude Code token usage: reduce-claude-code-token-usage.md
+      - Agent behavior before and after: examples/agent-behavior-before-after.md
   - Comparisons:
       - AgentPack vs Repomix: agentpack-vs-repomix.md
       - AgentPack vs Augment Context Engine: agentpack-vs-augment-context-engine.md
   - Evidence:
       - Benchmarking: benchmarking.md
       - Benchmark learnings: benchmark-learnings.md
-      - Agent behavior before and after: examples/agent-behavior-before-after.md
   - Trust:
       - Privacy: privacy.md
       - Threat model: threat-model.md

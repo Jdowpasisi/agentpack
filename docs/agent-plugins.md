@@ -1,0 +1,96 @@
+# Agent And IDE Plugins
+
+AgentPack plugins make coding agents start with the right files.
+
+This layer is intentionally thin. Plugins, IDE extensions, and agent rules should call the existing local AgentPack CLI or MCP tools. The layer does not reimplement ranking, scanning, packing, MCP, or benchmarking.
+
+AgentPack remains a local context engine, not a coding agent.
+
+## Current Distribution Paths
+
+| Host | Current path | What it does |
+|---|---|---|
+| Codex | `.codex-plugin/` and `skills/` | Adds `@agentpack-*` commands for local routing, packing, refresh, and review |
+| Codex repo setup | `agentpack init --agent codex` | Writes `AGENTS.md`, `.codex/hooks.json`, and git hooks |
+| Claude Code | `agentpack init --agent claude` | Writes `CLAUDE.md`, Claude hooks, and MCP config |
+| Cursor | `.cursorrules`, `.cursor/rules/agentpack.mdc`, and `native-integrations/cursor-extension/` | Portable Cursor rules, repo installer, VS Code task, git hooks, and extension skeleton |
+| Windsurf | `.windsurf/rules/agentpack.md` plus `native-integrations/windsurf-extension/` | Portable Windsurf rule, repo installer, VS Code task, git hooks, and extension skeleton |
+| GitHub Copilot | `.github/copilot-instructions.md` | Portable Copilot instruction file |
+| Cline | `.clinerules/agentpack.md` | Portable Cline rule file |
+| Kiro | `.kiro/steering/agentpack.md` | Portable Kiro steering file |
+| OpenCode | `.opencode/agentpack.md` | Portable OpenCode rule file |
+| Antigravity | `agentpack init --agent antigravity` | Writes `GEMINI.md`, VS Code task, git hooks, and generated skill guidance |
+| Generic agents | `agentpack init --agent generic` | Uses `.agentpack/context.md` directly |
+
+## Shared Plugin Contract
+
+Every host integration should follow the same flow:
+
+1. Understand the user task.
+2. Route first when read-only context is enough.
+3. Pack only when full context is needed.
+4. Read `.agentpack/context.md` or use MCP context tools.
+5. Treat selected files as a map, not proof.
+6. Use normal repo search when output looks incomplete.
+7. Run relevant checks after editing.
+8. Suggest benchmark capture after completed edits.
+
+## Host Commands
+
+Use these local commands from any agent or IDE:
+
+```bash
+agentpack route --task "<task>"
+agentpack task set "<task>"
+agentpack pack --task auto
+agentpack guard --agent <agent> --repair-stale --refresh-context
+agentpack benchmark capture --since main --task "<task>"
+agentpack benchmark --misses
+```
+
+Use `<agent>` values such as `codex`, `claude`, `cursor`, `windsurf`, `antigravity`, or `auto`.
+
+## Codex Plugin
+
+Codex is the first concrete plugin package in this repo:
+
+```text
+.codex-plugin/plugin.json
+skills/
+```
+
+See [`codex-plugin.md`](codex-plugin.md).
+
+## Cursor And Windsurf
+
+Cursor and Windsurf already have installable repo rules through `agentpack init`, plus native extension skeletons under:
+
+```text
+native-integrations/cursor-extension/
+native-integrations/windsurf-extension/
+```
+
+Those skeletons stay `guarded`, not `enforced`, until host APIs can guarantee activation before edits and block edits when `agentpack guard` fails.
+
+See [`native-integrations/README.md`](https://github.com/vishal2612200/agentpack/blob/main/native-integrations/README.md).
+
+## Portable Rule Files
+
+Like Ponytail's portability pattern, AgentPack keeps tiny host-native rule files in the repo so users can copy the one their IDE understands:
+
+```text
+agent-rules/agentpack.md
+.cursor/rules/agentpack.mdc
+.cursorrules
+.windsurf/rules/agentpack.md
+.github/copilot-instructions.md
+.clinerules/agentpack.md
+.kiro/steering/agentpack.md
+.opencode/agentpack.md
+```
+
+These files all say the same thing: route or pack first when repo context is unclear, then verify with normal code search and tests.
+
+## Boundary
+
+Do not add remote service dependencies, hidden file mutations, LLM API calls, or autonomous agent behavior to plugin layers. Distribution surfaces should make AgentPack easier to invoke from existing developer workflows.

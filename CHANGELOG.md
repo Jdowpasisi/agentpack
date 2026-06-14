@@ -10,6 +10,19 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ---
 
+## [0.3.24] — 2026-06-14
+
+### Added
+- Added thin AgentPack plugin/rule distribution surfaces for Codex, Cursor, Windsurf, Copilot, Cline, Kiro, OpenCode, and generic agent workflows.
+- Added a sharper product README story and AgentPack symbol around the local preflight map for existing coding agents.
+- Added `release-check --profile docs` and `make release-docs` for docs/plugin-only releases without package build or public benchmark runs.
+
+### Changed
+- Reorganized docs navigation around getting started, agents and IDEs, guides, evidence, trust, and development.
+- Kept benchmark claims scoped as file-selection evidence instead of broad agent-success claims.
+
+---
+
 ## [0.3.23] — 2026-06-14
 
 ### Added

@@ -1353,6 +1353,7 @@ Run the local release gate without mutating tracked files.
 agentpack release-check
 agentpack release-check --skip-benchmark
 agentpack release-check --skip-build
+agentpack release-check --profile docs
 agentpack release-check --json
 ```
 
@@ -1365,6 +1366,19 @@ Stages:
 - `python -m build` into a temporary directory
 - `agentpack benchmark --release-gate`
 
+Profiles:
+
+- `--profile auto` is the default. It uses the faster docs profile when the
+  current diff only touches docs, plugin/rule files, benchmark result markdown,
+  or docs/plugin validation tests. Clean release checkouts still run the full
+  profile.
+- `--profile docs` runs the docs/plugin validation path and skips package build
+  plus public benchmark gate.
+- `--profile fast` runs normal tests but skips package build plus public
+  benchmark gate.
+- `--profile full` always keeps the full release shape unless explicit skip
+  flags are passed.
+
 The command exits non-zero if any stage fails and prints exact rerun commands.
 Use `--json` for CI wrappers that need stable machine-readable stage results.
 
@@ -1372,6 +1386,7 @@ For local development, the root `Makefile` wraps this command:
 
 ```bash
 make release-fast   # release-check --skip-benchmark --skip-build
+make release-docs   # release-check --profile docs
 make release        # full release-check
 make verify-wheel   # build + install wheel in temp venv + benchmark gate
 ```
