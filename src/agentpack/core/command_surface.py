@@ -113,7 +113,7 @@ def _commands_from_help(text: str) -> list[str]:
     commands: set[str] = set()
     known = set(available_cli_commands())
     for line in text.splitlines():
-        stripped = line.strip()
+        stripped = line.strip().strip("│").strip()
         if not stripped:
             continue
         first = stripped.split()[0].strip("`")

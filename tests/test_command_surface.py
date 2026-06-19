@@ -6,7 +6,7 @@ from pathlib import Path
 import typer.main
 
 from agentpack.cli import app
-from agentpack.core.command_surface import available_cli_commands, missing_commands, refresh_command_args, refresh_commands
+from agentpack.core.command_surface import _commands_from_help, available_cli_commands, missing_commands, refresh_command_args, refresh_commands
 from agentpack.installers.antigravity import _gemini_block
 from agentpack.installers.claude import _agentpack_block as claude_block
 from agentpack.installers.codex import _agentpack_block as codex_block
@@ -30,6 +30,20 @@ def test_available_cli_commands_match_typer_registry() -> None:
 
     assert set(available_cli_commands()) == set(click_cmd.commands)
     assert "pack" in available_cli_commands()
+
+
+def test_commands_from_help_handles_rich_table_rows() -> None:
+    help_text = """
+│ global-install       Install global shell/git automation                    │
+│ global-repair-hooks  Repair global git template hooks                       │
+│ guard                Executable pre-edit gate                               │
+"""
+
+    commands = _commands_from_help(help_text)
+
+    assert "global-install" in commands
+    assert "global-repair-hooks" in commands
+    assert "guard" in commands
 
 
 def test_generated_agent_rules_reference_available_commands() -> None:
