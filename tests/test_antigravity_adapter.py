@@ -9,6 +9,7 @@ class TestAntigravityAdapter:
         assert action == "created"
         content = (tmp_path / "GEMINI.md").read_text()
         assert "skills:" in content
+        assert "agentpack_readiness()" in content
         assert "agentpack_get_context()" in content
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent antigravity --repair-stale --refresh-context" in content

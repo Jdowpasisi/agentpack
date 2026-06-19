@@ -91,7 +91,18 @@ def save_pack_metadata(
         "concurrent_context": concurrent_context or {},
     }
     if freshness:
-        for key in ("git_sha", "git_branch", "task_source", "changed_files_source", "task_class"):
+        for key in (
+            "agentpack_version",
+            "source_command",
+            "cwd",
+            "git_root",
+            "worktree_path",
+            "git_sha",
+            "git_branch",
+            "task_source",
+            "changed_files_source",
+            "task_class",
+        ):
             if key in freshness:
                 meta[key] = freshness[key]
     path = metadata_path or _metadata_path(root)

@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from agentpack.core.command_surface import refresh_commands
 from agentpack.installers.antigravity import AntigravityInstaller
 from agentpack.installers.claude import ClaudeInstaller
 from agentpack.installers.codex import CodexInstaller
@@ -159,13 +160,13 @@ def _current_rule_file(root: Path, agent: str, rel: str, fix: str) -> AgentCheck
         content = path.read_text(encoding="utf-8")
     except OSError:
         return AgentCheck(agent, rel, False, "unreadable", fix)
+    commands = refresh_commands(agent)
     required = (
         "agentpack",
         "MCP is the active path",
         "agentpack_get_context",
         "agentpack:freshness",
-        "agentpack guard",
-        "--repair-stale",
+        commands.primary,
     )
     missing = [needle for needle in required if needle.lower() not in content.lower()]
     if not missing:
@@ -189,16 +190,17 @@ def _current_vscode_tasks(root: Path, agent: str, fix: str) -> AgentCheck:
         content = path.read_text(encoding="utf-8")
     except OSError:
         return AgentCheck(agent, ".vscode/tasks.json", False, "unreadable", fix)
-    required = ("agentpack", "agentpack guard", "--repair-stale", "--refresh-context")
-    missing = [needle for needle in required if needle.lower() not in content.lower()]
-    if not missing:
-        return AgentCheck(agent, ".vscode/tasks.json", True, "current AgentPack guard task present")
+    refresh_options = {refresh_commands(agent).primary, refresh_commands("auto").primary}
+    has_refresh = any(command.lower() in content.lower() for command in refresh_options)
+    missing = [needle for needle in ("agentpack",) if needle.lower() not in content.lower()]
+    if not missing and has_refresh:
+        return AgentCheck(agent, ".vscode/tasks.json", True, "current AgentPack refresh task present")
     if "agentpack" in content.lower():
         return AgentCheck(
             agent,
             ".vscode/tasks.json",
             False,
-            "stale AgentPack tasks; missing executable guard command",
+            "stale AgentPack tasks; missing executable refresh command",
             fix,
         )
     return AgentCheck(agent, ".vscode/tasks.json", False, "present but AgentPack tasks missing", fix)
@@ -276,7 +278,7 @@ def _current_claude_md(root: Path) -> AgentCheck:
         content = path.read_text(encoding="utf-8")
     except OSError:
         return AgentCheck("claude", "CLAUDE.md", False, "unreadable", "agentpack repair --agent claude")
-    required = ("agentpack", "Prefer MCP", "mcp__agentpack__get_context", "agentpack guard", "--repair-stale")
+    required = ("agentpack", "Prefer MCP", "mcp__agentpack__readiness", "mcp__agentpack__get_context", "agentpack pack")
     missing = [needle for needle in required if needle.lower() not in content.lower()]
     if not missing:
         return AgentCheck("claude", "CLAUDE.md", True, "current MCP-first AgentPack block present")
@@ -285,7 +287,7 @@ def _current_claude_md(root: Path) -> AgentCheck:
             "claude",
             "CLAUDE.md",
             False,
-            "stale AgentPack block; missing MCP-first guard guidance",
+            "stale AgentPack block; missing MCP-first readiness guidance",
             "agentpack repair --agent claude",
         )
     return AgentCheck("claude", "CLAUDE.md", False, "present but AgentPack block missing", "agentpack repair --agent claude")

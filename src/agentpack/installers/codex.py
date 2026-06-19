@@ -8,24 +8,34 @@ from importlib import resources
 from pathlib import Path
 
 from agentpack import __version__
+from agentpack.core.command_surface import fallback_agent_guidance, refresh_commands
 from agentpack.integrations.git_hooks import install_git_hooks
 
-_AGENTPACK_BLOCK = """\
+def _agentpack_block() -> str:
+    commands = refresh_commands("codex")
+    stale_refresh = "rerun the guard command" if commands.used_guard else "rerun the refresh command"
+    thread_line = (
+        "\nFor multiple agent threads in one repo, keep legacy global mode unless a thread is explicit. "
+        f"Use `{commands.thread_auto}` to write/read `.agentpack/threads/<id>/...` and get overlap warnings."
+        if commands.thread_auto
+        else ""
+    )
+    return f"""\
 <!-- agentpack:start -->
 ## AgentPack Context
 
 At the start of every coding task:
 
 1. Write a one-line task summary to `.agentpack/task.md` (overwrite the whole file).
-2. Run `agentpack guard --agent codex --repair-stale --refresh-context`. This is the executable pre-edit gate for non-MCP paths.
-3. Prefer AgentPack MCP if available. MCP is the active path. Call `agentpack_route_task(task="<task>")` first to get files, rules, skills, commands, and safety warnings.
+2. Run `{commands.primary}`.
+3. Prefer AgentPack MCP if available. MCP is the active path. Call `agentpack_readiness()` to prove live tool exposure, then `agentpack_route_task(task="<task>")` to get files, rules, skills, commands, and safety warnings.
 4. Call `agentpack_pack_context(task="<task>")` only when full packed context is needed, or `agentpack_get_context()` for existing task context.
-5. If MCP is unavailable, read `.agentpack/context.md`. Treat it as a fallback artifact; if its `agentpack:freshness` block says `refresh_required: true` or the task does not match, rerun the guard command before using selected files.
+5. If MCP is unavailable, read `.agentpack/context.md`. Treat it as a fallback artifact; if its `agentpack:freshness` block says `refresh_required: true` or the task does not match, {stale_refresh} before using selected files.
 6. Use selected files as starting points, but verify with actual code before editing.
 
-When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the guard command before editing.
+When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the refresh command before editing.
 
-For multiple agent threads in one repo, keep legacy global mode unless a thread is explicit. Use `AGENTPACK_THREAD_ID=<stable-id> agentpack guard --agent codex --repair-stale --refresh-context --thread auto` to write/read `.agentpack/threads/<id>/...` and get overlap warnings.
+{fallback_agent_guidance()}{thread_line}
 <!-- agentpack:end -->"""
 
 _BLOCK_RE = re.compile(
@@ -54,18 +64,18 @@ class CodexInstaller:
         agents_md = root / "AGENTS.md"
 
         if not agents_md.exists():
-            agents_md.write_text(f"{_AGENTPACK_BLOCK}\n")
+            agents_md.write_text(f"{_agentpack_block()}\n")
             return "created"
 
         content = agents_md.read_text()
         if _BLOCK_RE.search(content):
-            new_content = _BLOCK_RE.sub(_AGENTPACK_BLOCK, content)
+            new_content = _BLOCK_RE.sub(_agentpack_block(), content)
             if new_content != content:
                 agents_md.write_text(new_content)
                 return "updated"
             return "unchanged"
 
-        agents_md.write_text(content.rstrip() + "\n\n" + _AGENTPACK_BLOCK + "\n")
+        agents_md.write_text(content.rstrip() + "\n\n" + _agentpack_block() + "\n")
         return "appended"
 
     def patch_codex_hooks(self, root: Path) -> str:

@@ -2106,6 +2106,11 @@ def test_render_includes_freshness_metadata():
             "generated_at": "2026-05-13T00:00:00+00:00",
             "git_branch": "codex/example",
             "git_sha": "abc123",
+            "agentpack_version": "0.test",
+            "source_command": "agentpack pack --agent claude --task auto",
+            "cwd": "/repo",
+            "git_root": "/repo",
+            "worktree_path": "/repo",
             "task_source": "task.md",
             "changed_files_source": "git working tree",
             "workspace_roots": ["apps/dashboard", "packages/core"],
@@ -2156,8 +2161,11 @@ def test_render_includes_freshness_metadata():
     assert freshness["fallback_context"] == "markdown"
     assert freshness["snapshot_root_hash"] == "root123"
     assert freshness["refresh_required"] is False
-    assert freshness["guard_command"] == "agentpack guard --agent auto --repair-stale --refresh-context"
+    assert freshness["cli_refresh_command"].startswith("agentpack ")
+    assert freshness["agentpack_version"] == "0.test"
+    assert freshness["git_root"] == "/repo"
     assert "**Generated:** 2026-05-13T00:00:00+00:00" in rendered
+    assert "**Source command:** agentpack pack --agent claude --task auto" in rendered
     assert "**Task source:** task.md" in rendered
     assert "**Workspaces:** apps/dashboard, packages/core" in rendered
     assert "Refresh recommended" in rendered

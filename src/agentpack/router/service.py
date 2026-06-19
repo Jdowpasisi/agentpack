@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
+import shutil
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
+from agentpack.core import git
 from agentpack.application.pack_service import PackPlanner, PackRequest
 from agentpack.core.config import load_config
 from agentpack.router.discovery import discover_inventory, inventory_for_route
@@ -19,6 +24,15 @@ from agentpack.router.prompt_builder import build_agent_prompt
 from agentpack.router.scoring import score_skills
 
 _TEST_TERMS = ("test", "tests", "pytest", "flaky", "fixture", "mock", "failing", "fail", "debug")
+_NOISY_PATH_PREFIXES = (".agentpack/", ".agent/", ".codex/", ".cursor/", ".vscode/", ".github/workflows/")
+_NOISY_PATHS = {".gitignore", ".agentignore", "AGENTS.md", "CLAUDE.md", "GEMINI.md"}
+
+
+@dataclass(frozen=True)
+class TaskModeDecision:
+    mode: str
+    confidence: float
+    signals: list[str]
 
 
 class RouteService:
@@ -31,6 +45,8 @@ class RouteService:
 
     def route_task(self, root: Path, task: str) -> RouteResult:
         task = _normalize_task(task)
+        mode_decision = classify_task_mode(task)
+        task_mode = mode_decision.mode
         cfg = load_config(root)
         plan = PackPlanner().plan(PackRequest(
             root=root,
@@ -42,7 +58,15 @@ class RouteService:
             refresh=False,
             task_source="route",
         ))
-        selected_files = [_selected_file_dict(item) for item in plan.selected[:20]]
+        pr_paths = _github_pr_paths(root, task) if task_mode == "pr_review" else set()
+        selected_files = _route_selected_files(
+            root,
+            task_mode,
+            task,
+            [_selected_file_dict(item) for item in plan.selected],
+            plan.all_changed,
+            pr_paths,
+        )
         selected_paths = [item["path"] for item in selected_files]
 
         inventory = self.inventory(root)
@@ -60,14 +84,21 @@ class RouteService:
         baseline_skills, selected_skills = _split_baseline_skills(selected_skills)
         applied_rules = _apply_rules(inventory, selected_paths)
         commands = _suggest_commands(task, selected_paths)
+        checklist = _evidence_checklist(task_mode)
+        notes = _routing_notes(task_mode, pr_paths)
 
         result = RouteResult(
             task=task,
+            task_mode=task_mode,
+            task_mode_confidence=mode_decision.confidence,
+            task_mode_signals=mode_decision.signals,
             selected_files=selected_files,
             selected_skills=selected_skills,
             baseline_skills=baseline_skills,
             applied_rules=applied_rules,
             suggested_commands=commands,
+            evidence_checklist=checklist,
+            routing_notes=notes,
             safety_warnings=safety_warnings,
         )
         result.agent_prompt = build_agent_prompt(result)
@@ -129,6 +160,213 @@ def _selected_file_dict(item) -> dict:
         "include_mode": item.include_mode,
         "reasons": item.reasons,
     }
+
+
+def detect_task_mode(task: str) -> str:
+    return classify_task_mode(task).mode
+
+
+def classify_task_mode(task: str) -> TaskModeDecision:
+    lower = task.lower()
+    signals: list[str] = []
+    if _has_any(lower, ("pr ", "pull request", "review", "diff", "review comment"), signals, "pr-review"):
+        return TaskModeDecision("pr_review", _confidence(signals), signals)
+    if _has_any(lower, ("log", "cloudwatch", "queue", "sqs", "db row", "postgres", "dashboard", "customer.io", "event pipeline", "runtime", "prod", "production"), signals, "runtime"):
+        return TaskModeDecision("runtime_debugging", _confidence(signals), signals)
+    if _has_any(lower, ("mcp", "doctor", "readiness", "integration", "install", "tool exposure", "available tools"), signals, "integration-readiness"):
+        return TaskModeDecision("integration_readiness", _confidence(signals), signals)
+    if _looks_small_direct(lower):
+        signals.append("small/direct wording")
+        return TaskModeDecision("small_direct_edit", _confidence(signals), signals)
+    if _has_any(lower, ("release", "changelog", "benchmark", "publish"), signals, "release-docs"):
+        return TaskModeDecision("release_docs", _confidence(signals), signals)
+    return TaskModeDecision("broad_feature", 0.35, ["fallback"])
+
+
+def _has_any(lower: str, terms: tuple[str, ...], signals: list[str], label: str) -> bool:
+    matched = [term.strip() for term in terms if term in lower]
+    if matched:
+        signals.extend(f"{label}: {term}" for term in matched[:4])
+        return True
+    return False
+
+
+def _confidence(signals: list[str]) -> float:
+    if len(signals) >= 3:
+        return 0.92
+    if len(signals) == 2:
+        return 0.82
+    if signals:
+        return 0.68
+    return 0.35
+
+
+def _looks_small_direct(lower: str) -> bool:
+    if any(term in lower for term in ("small", "quick", "typo", "copy", "css", "style", "button", "label", "frontend", "docs")):
+        return True
+    words = [word for word in lower.replace("/", " ").replace(".", " ").split() if word]
+    return len(words) <= 8 and any(term in lower for term in ("fix", "update", "rename", "remove", "add"))
+
+
+def _route_selected_files(
+    root: Path,
+    task_mode: str,
+    task: str,
+    selected_files: list[dict],
+    changed_paths: set[str],
+    pr_paths: set[str] | None = None,
+) -> list[dict]:
+    pr_paths = pr_paths or set()
+    diff_paths = _diff_paths(root) if task_mode == "pr_review" else set()
+    priority_paths = changed_paths | diff_paths | pr_paths
+    existing = {item["path"] for item in selected_files}
+    for item in selected_files:
+        if item["path"] in pr_paths:
+            item["score"] = max(float(item.get("score") or 0), 1000.0)
+            reasons = list(item.get("reasons") or [])
+            if "GitHub PR file" not in reasons:
+                item["reasons"] = ["GitHub PR file", *reasons]
+    for path in sorted(pr_paths):
+        if path not in existing and (root / path).exists() and _keep_route_path(task_mode, task, path, priority_paths):
+            selected_files.append(
+                {
+                    "path": path,
+                    "score": 1000.0,
+                    "include_mode": "summary",
+                    "reasons": ["GitHub PR file"],
+                }
+            )
+            existing.add(path)
+    filtered = [
+        item for item in selected_files
+        if _keep_route_path(task_mode, task, item["path"], priority_paths)
+    ]
+    if not filtered:
+        filtered = selected_files
+    if task_mode == "pr_review":
+        filtered = sorted(
+            filtered,
+            key=lambda item: (
+                item["path"] in priority_paths,
+                _is_source_or_test(item["path"]),
+                item.get("score", 0),
+            ),
+            reverse=True,
+        )
+    elif task_mode == "small_direct_edit":
+        filtered = sorted(
+            filtered,
+            key=lambda item: (
+                _task_mentions_path(task, item["path"]),
+                item["path"] in changed_paths,
+                not _is_noisy_path(item["path"]),
+                item.get("score", 0),
+            ),
+            reverse=True,
+        )
+    return filtered[:20]
+
+
+def _is_noisy_path(path: str) -> bool:
+    return path in _NOISY_PATHS or any(path.startswith(prefix) for prefix in _NOISY_PATH_PREFIXES)
+
+
+def _keep_route_path(task_mode: str, task: str, path: str, priority_paths: set[str]) -> bool:
+    if not _is_noisy_path(path) or _task_mentions_path(task, path):
+        return True
+    if task_mode == "pr_review" and path in priority_paths and _is_review_diff_exception(path):
+        return True
+    return False
+
+
+def _is_review_diff_exception(path: str) -> bool:
+    return path.startswith(".github/workflows/")
+
+
+def _task_mentions_path(task: str, path: str) -> bool:
+    lower = task.lower()
+    path_lc = path.lower()
+    return path_lc in lower or Path(path_lc).name in lower
+
+
+def _is_source_or_test(path: str) -> bool:
+    return (
+        path.startswith(("src/", "lib/", "app/", "backend/", "frontend/", "tests/"))
+        or "/tests/" in path
+        or path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rb", ".java"))
+    )
+
+
+def _diff_paths(root: Path) -> set[str]:
+    if not git.is_git_repo(root):
+        return set()
+    return git.changed_files(root)
+
+
+def _github_pr_paths(root: Path, task: str) -> set[str]:
+    if shutil.which("gh") is None:
+        return set()
+    pr_number = _pr_number(task)
+    cmd = ["gh", "pr", "view"]
+    if pr_number:
+        cmd.append(pr_number)
+    cmd += ["--json", "files", "--jq", ".files[].path"]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=4,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _pr_number(task: str) -> str | None:
+    match = re.search(r"(?:pr|pull request)\s*#?\s*(\d+)", task, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _routing_notes(task_mode: str, pr_paths: set[str] | None = None) -> list[str]:
+    if task_mode == "small_direct_edit":
+        return ["Small/direct task: prefer targeted `rg`, target-file inspection, and focused validation over full context packing."]
+    if task_mode == "pr_review":
+        source = "GitHub PR files, local changed files, and diff files" if pr_paths else "local changed files and diff files"
+        return [f"PR/review task: {source} outrank generic config or generated metadata."]
+    if task_mode in {"runtime_debugging", "integration_readiness"}:
+        return ["Repo context is only a map; verify live/runtime/tool state before concluding."]
+    if task_mode == "release_docs":
+        return ["Release/docs task: keep claims tied to existing benchmark scope; avoid outcome claims without E2E evidence."]
+    return ["Broad feature task: use ranked files as starting map, then verify data flow in code."]
+
+
+def _evidence_checklist(task_mode: str) -> list[str]:
+    if task_mode in {"runtime_debugging", "integration_readiness"}:
+        return [
+            "inspect runtime/tool evidence for the exact failing session",
+            "identify source flow and ownership boundary",
+            "inspect mapper, sink, processor, or adapter path",
+            "run targeted tests or replay checks",
+            "verify external system state after the fix",
+        ]
+    if task_mode == "pr_review":
+        return [
+            "inspect PR diff and changed files first",
+            "check source flow touched by the diff",
+            "run or identify targeted validation",
+            "separate blocking issues from suggestions",
+        ]
+    if task_mode == "small_direct_edit":
+        return [
+            "inspect named target file or nearest match with `rg`",
+            "make the smallest edit",
+            "run focused lint/test/build check if available",
+        ]
+    return []
 
 
 def _strip_skill_bodies(items: list[SelectedSkill]) -> list[SelectedSkill]:

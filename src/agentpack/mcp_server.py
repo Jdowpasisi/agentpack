@@ -14,6 +14,7 @@ Or register in Claude Code settings:
     }
 
 Tools exposed:
+    readiness          — prove live MCP exposure and report server/CLI/tool status
     start_task          — write task.md and return a fresh context pack
     pack_context        — generate/refresh a context pack for a task
     route_task          — read-only route: files + rules + skills + commands
@@ -33,7 +34,9 @@ import json
 import sys
 from pathlib import Path
 
+from agentpack import __version__
 from agentpack.core import git
+from agentpack.core.command_surface import available_cli_commands, refresh_commands
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.task_freshness import read_task_md, task_freshness, write_task_md
 from agentpack.core.thread_context import resolve_thread_option, thread_paths
@@ -47,6 +50,50 @@ def _repo_root() -> Path:
         if (parent / ".agentpack").exists():
             return parent
     return cwd
+
+
+MCP_TOOL_NAMES = (
+    "readiness",
+    "start_task",
+    "pack_context",
+    "route_task",
+    "get_skills",
+    "get_skill",
+    "explain_route",
+    "get_context",
+    "refresh",
+    "explain_file",
+    "get_related_files",
+    "get_delta_context",
+    "retrieve_context",
+    "compress_output",
+    "get_stats",
+)
+
+
+def _readiness_impl(root: Path) -> str:
+    metadata = load_pack_metadata(root) or {}
+    freshness = metadata.get("freshness") or {}
+    payload = {
+        "ok": True,
+        "proof": "This response proves the current host can call AgentPack MCP tools.",
+        "agentpack_version": __version__,
+        "repo_root": str(root),
+        "git_branch": git.current_branch(root) if git.is_git_repo(root) else None,
+        "git_sha": git.current_sha(root) if git.is_git_repo(root) else None,
+        "mcp_server": "agentpack",
+        "mcp_tools": list(MCP_TOOL_NAMES),
+        "cli_commands": list(available_cli_commands()),
+        "refresh_command": refresh_commands("auto").primary,
+        "latest_context": {
+            "task": metadata.get("task"),
+            "generated_at": metadata.get("generated_at"),
+            "agentpack_version": freshness.get("agentpack_version"),
+            "source_command": freshness.get("source_command"),
+            "worktree_path": freshness.get("worktree_path"),
+        },
+    }
+    return json.dumps(payload, indent=2, sort_keys=True)
 
 
 def _truncate_to_budget(text: str, max_tokens: int = 20000) -> str:
@@ -526,6 +573,15 @@ def serve() -> None:
         sys.exit(1)
 
     mcp = FastMCP("agentpack")
+
+    @mcp.tool()
+    def readiness() -> str:
+        """Prove this host exposes AgentPack MCP tools and report server/CLI status.
+
+        If an agent can call this tool and read the response, live MCP exposure is confirmed.
+        CLI doctor can only verify registration/config; this tool verifies the active host path.
+        """
+        return _readiness_impl(_repo_root())
 
     @mcp.tool()
     def start_task(task: str, mode: str = "balanced", budget: int = 0, max_tokens: int = 20000, thread_id: str = "") -> str:

@@ -17,6 +17,7 @@ from agentpack.analysis.ranking import suggest_task_rewrite
 from agentpack.application.pack_service import PackRequest, PackService, PackResult
 from agentpack.commands._shared import console, _root, _file_hash, _now_iso
 from agentpack.core.changed_paths import record_changed_paths
+from agentpack.core.command_surface import refresh_commands
 from agentpack.core.modes import MODE_HELP, invalid_mode_message, is_requested_mode
 from agentpack.integrations.agents import check_agent_integration, install_agent_integration
 from agentpack.session.state import TASK_FILE, load_session, save_session, log_activity
@@ -314,7 +315,7 @@ def _agent_integration_warnings(result: PackResult) -> list[str]:
     if not failing:
         return []
     return [
-        f"Agent integration needs repair ({agent}); run `agentpack guard --agent {agent} --repair-stale --refresh-context`."
+        f"Agent integration needs repair ({agent}); run `{refresh_commands(agent).repair}`."
     ]
 
 
@@ -337,7 +338,7 @@ def _auto_repair_stale_agent_rules(agent: str) -> None:
     except Exception as exc:
         console.print(
             f"[yellow]Stale AgentPack integration detected for {agent}; "
-            f"run `agentpack guard --agent {agent} --repair-stale --refresh-context`. ({exc})[/]"
+            f"run `{refresh_commands(agent).repair}`. ({exc})[/]"
         )
 
 

@@ -16,6 +16,7 @@ class TestCursorAdapter:
         content = (tmp_path / ".cursorrules").read_text()
         assert "agentpack:rule:start" in content
         assert "task.md" in content
+        assert "agentpack_readiness()" in content
         assert "agentpack_get_context()" in content
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent cursor --repair-stale --refresh-context" in content
@@ -59,6 +60,7 @@ class TestCursorAdapter:
         content = mdc.read_text()
         assert "alwaysApply: true" in content
         assert "task.md" in content
+        assert "agentpack_readiness()" in content
         assert "agentpack_get_context()" in content
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent cursor --repair-stale --refresh-context" in content
@@ -90,6 +92,7 @@ class TestWindsurfAdapter:
         content = (tmp_path / ".windsurfrules").read_text()
         assert "agentpack:rule:start" in content
         assert "task.md" in content
+        assert "agentpack_readiness()" in content
         assert "agentpack_get_context()" in content
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent windsurf --repair-stale --refresh-context" in content

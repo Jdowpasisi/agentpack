@@ -117,7 +117,7 @@ _*`--agent generic` outputs standard markdown. Claude adapter has richer instruc
 - **Secret redaction**: covers AWS keys, GitHub tokens, OpenAI/Anthropic keys, JWTs, and private key blocks. Not a substitute for a dedicated secrets scanner on sensitive repos.
 - **Token estimates**: uses tiktoken `cl100k_base` — approximate, not exact for Claude's billing.
 - **Large repos (>5k files)**: global auto-bootstrap is skipped for repos over 5,000 files to avoid hangs. Run `agentpack init` explicitly in large codebases.
-- **Native hard enforcement**: tracked skeletons exist under `native-integrations/`, but all hosts remain `guarded` until their native APIs can guarantee mandatory pre-edit/pre-tool execution and block failed guard checks.
+- **Native hard enforcement**: tracked skeletons exist under `native-integrations/`, but all hosts remain `advisory` until their native APIs can guarantee mandatory pre-edit/pre-tool execution and block failed readiness checks.
 
 ---
 

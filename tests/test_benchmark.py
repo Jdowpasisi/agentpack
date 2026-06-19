@@ -1718,6 +1718,7 @@ def test_run_e2e_case_fails_when_protected_file_changes(tmp_path: Path) -> None:
     assert result.estimated_total_cost_usd > 0
     assert result.agent_tool_calls >= 0
     assert result.time_to_first_expected_file_s is None
+    assert result.agentpack_noise == []
 
 
 def test_e2e_hybrid_prompt_combines_grep_and_lite(tmp_path: Path) -> None:
@@ -1756,6 +1757,7 @@ def test_e2e_ab_metrics_reports_saved_tool_tokens_cost_time_and_success(tmp_path
             "time_to_first_expected_file_s": 10,
             "expected_files_touched": ["src/app.py"],
             "missing_expected_edits": [],
+            "agentpack_noise": ["unexpected README"],
         },
     ]
 
@@ -1766,8 +1768,10 @@ def test_e2e_ab_metrics_reports_saved_tool_tokens_cost_time_and_success(tmp_path
     assert metrics["deltas"]["tool_calls_saved"] == pytest.approx(6.0)
     assert metrics["deltas"]["token_cost_saved_usd"] == pytest.approx(0.01)
     assert metrics["deltas"]["time_to_first_correct_file_saved_s"] == pytest.approx(30.0)
+    assert metrics["treatment"]["noise_rate"] == pytest.approx(1.0)
     assert "tool calls" in markdown
     assert "time to first correct file" in markdown
+    assert "AgentPack noise cases" in markdown
 
 
 def test_e2e_agentpack_lite_prompt_uses_compact_map(tmp_path: Path) -> None:

@@ -195,22 +195,22 @@ If results look noisy, tighten task text first, then add repo-specific generated
 
 ```bash
 agentpack status
-agentpack guard --agent auto --repair-stale --refresh-context
-agentpack migrate --path ~/src --discover --agent all
 agentpack doctor --agent all
+agentpack pack --agent auto --task auto
+agentpack migrate --path ~/src --discover --agent all
 agentpack explain --file path/to/file.py
 agentpack benchmark --sample-fixtures --misses
 agentpack global-repair-hooks
 agentpack repair --agent all
 ```
 
-`agentpack guard` is the executable pre-edit gate for non-MCP agents. It checks stale context, stale task metadata, repo snapshot drift, and stale installed rule files; with `--repair-stale --refresh-context`, it repairs and refreshes before returning success. `agentpack pack` also self-heals stale AgentPack rule blocks for older installs that still call `pack`.
+`agentpack doctor` reports the installed version, available CLI commands, MCP registration, stale context, and exact repair or upgrade command. Generated agent rules use the available command surface; older installs fall back to `agentpack pack --task auto` instead of referencing commands they do not support.
 
 `agentpack migrate --discover` scans existing repo folders and applies the same integration repair across many repos after an upgrade.
 
 `agentpack global-repair-hooks` refreshes `~/.git-templates/hooks/`, reasserts `git config --global init.templateDir`, and repairs the current repo's `.git/hooks/` so older copied hooks switch over to the safe `GitAutoRepack` runner.
 
-Native host enforcement skeletons and blocked-status stubs live in `native-integrations/` in the source repo. They are marked `guarded`, not `enforced`, until host APIs expose mandatory pre-edit/pre-tool hooks.
+Native host enforcement skeletons and blocked-status stubs live in `native-integrations/` in the source repo. They are marked `advisory`, not `enforced`, until host APIs expose mandatory pre-edit/pre-tool hooks.
 
 ## Optional watch and MCP workflows
 

@@ -938,6 +938,7 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 
 | Tool | Description |
 |---|---|
+| `readiness()` | Prove the current host can call AgentPack MCP tools; returns server, version, tool list, CLI command surface, and latest context provenance. |
 | `route_task(task)` | Read-only task router. Returns relevant files, applied rules, recommended skills, suggested commands, safety warnings, and an agent prompt as JSON. |
 | `get_skills()` | Return discovered skill/rule inventory as JSON. |
 | `get_skill(name_or_path)` | Return one skill's raw `SKILL.md` content after `route_task` recommends it. |
@@ -950,6 +951,8 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 | `get_related_files(path, depth)` | Return import-graph neighbours and related tests for a file. |
 | `get_delta_context(max_files)` | Return the latest selected-file delta plus top current selected files. Useful for cheap prompt-time refresh checks. |
 | `get_stats()` | Return latest pack stats, savings, selection quality, excluded files, and benchmark-style signals. |
+
+**Live MCP exposure:** CLI `doctor` can verify MCP registration/config. To prove the current agent host actually exposes AgentPack tools, call `readiness()` from that host. If it returns JSON, live exposure is confirmed.
 
 **Staleness detection:** `get_context()` compares the current task file, snapshot hash, and git state against the latest pack metadata. If `.agentpack/task.md` or the repo snapshot changed, it blocks for a fresh pack and prepends:
 
@@ -968,13 +971,12 @@ Static markdown cannot refresh itself, so rendered packs include a machine-reada
   "fallback_context": "markdown",
   "refresh_required": false,
   "mcp_refresh_tool": "agentpack_get_context",
-  "cli_refresh_command": "agentpack pack --task auto",
-  "guard_command": "agentpack guard --agent auto --repair-stale --refresh-context"
+  "cli_refresh_command": "agentpack pack --task auto"
 }
 -->
 ```
 
-Claude prompt hooks also block once on clear task switches so first-turn hints are fresh. Non-MCP rule files and VS Code folder-open tasks use `agentpack guard --repair-stale --refresh-context` as the executable fallback. To prefer lower latency over first-turn freshness, set `blocking_task_refresh = false` under `[hooks]` in `.agentpack/config.toml`.
+Claude prompt hooks also block once on clear task switches so first-turn hints are fresh. Non-MCP rule files and VS Code folder-open tasks use the installed command surface for refresh/readiness. To prefer lower latency over first-turn freshness, set `blocking_task_refresh = false` under `[hooks]` in `.agentpack/config.toml`.
 
 **Smart truncation:** `start_task()` and `pack_context()` keep headers intact and trim file content blocks to fit the token budget, appending a note about how many files were omitted.
 

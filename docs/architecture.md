@@ -312,7 +312,7 @@ src/agentpack/
 - **Adapters render; installers configure**: `adapters/` knows how to write a context file for an agent. `installers/` knows how to configure the agent's tool (CLAUDE.md, .cursorrules, settings.json). They are separate concerns and separate classes.
 - **Agent integration contract is shared**: `integrations/agents.py` defines install, audit, and repair behavior for Claude, Cursor, Windsurf, Codex, Antigravity, and Generic. `install`, `repair`, `doctor --agent all`, and release verification use the same contract.
 - **MCP is the interactive path**: `start_task(thread_id=...)` writes global or scoped task state and returns a fresh pack, while `get_context(thread_id=...)` auto-refreshes stale task or repo-snapshot context and `get_delta_context()`, `explain_file()`, and `get_related_files()` let agents pull follow-up context on demand.
-- **Native enforcement status is explicit**: `native-integrations/status.json` tracks host skeletons and blockers. Entries stay `guarded`, not `enforced`, until a host exposes mandatory pre-edit/pre-tool hooks that can block failed guard checks.
+- **Native enforcement status is explicit**: `native-integrations/status.json` tracks host skeletons and blockers. Entries stay `advisory`, not `enforced`, until a host exposes mandatory pre-edit/pre-tool hooks that can block failed readiness checks.
 
 ---
 

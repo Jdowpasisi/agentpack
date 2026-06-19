@@ -12,6 +12,7 @@ from agentpack.commands.doctor import (
     _source_checkout_warning,
     _thread_conflict_findings,
 )
+from agentpack.core.command_surface import installed_cli_status, refresh_commands
 from agentpack.core.thread_context import append_thread_index, build_thread_index_row
 
 
@@ -150,3 +151,12 @@ def test_doctor_thread_conflict_findings_report_overlap(tmp_path: Path) -> None:
 
     assert findings
     assert "thread-a overlaps thread-b" in findings[0] or "thread-b overlaps thread-a" in findings[0]
+
+
+def test_command_surface_status_reports_repair_command() -> None:
+    status = installed_cli_status()
+
+    assert status["agentpack_version"]
+    assert "importable_commands" in status
+    assert status["repair_command"]
+    assert refresh_commands("auto").primary.startswith("agentpack ")

@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from agentpack.commands._shared import console, _root
+from agentpack.core.command_surface import refresh_command_args
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.thread_context import resolve_thread_option, thread_paths
 from agentpack.integrations.platform import cli_module_argv
@@ -42,9 +43,7 @@ def register(app: typer.Typer) -> None:
             if workspace:
                 argv.extend(["--workspace", workspace])
         else:
-            argv = cli_module_argv("guard", "--agent", agent, "--repair-stale", "--refresh-context", "--mode", mode)
-            if budget:
-                argv.extend(["--budget", str(budget)])
+            argv = cli_module_argv(*refresh_command_args(agent, mode, budget))
         if thread_id:
             argv.extend(["--thread", thread_id])
         result = subprocess.run(argv, cwd=root)

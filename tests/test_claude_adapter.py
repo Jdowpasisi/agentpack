@@ -41,6 +41,7 @@ def test_patch_creates_claude_md(tmp_path):
     assert (tmp_path / "CLAUDE.md").exists()
     content = (tmp_path / "CLAUDE.md").read_text()
     assert "agentpack:start" in content
+    assert "mcp__agentpack__readiness()" in content
     assert "mcp__agentpack__get_context()" in content
     assert "mcp__agentpack__pack_context" in content
     assert "agentpack guard --agent claude --repair-stale --refresh-context" in content

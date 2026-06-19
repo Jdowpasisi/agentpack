@@ -7,6 +7,7 @@ import typer
 from agentpack.commands._shared import console, _root, run_refresh
 from agentpack.commands.diagnose_selection import build_selection_diagnosis, _markdown_report
 from agentpack.commands.guard import _context_is_fresh
+from agentpack.core.command_surface import refresh_commands
 from agentpack.core.config import load_config
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.loop_protocol import load_loop_state
@@ -34,7 +35,7 @@ def register(app: typer.Typer) -> None:
             stats = run_refresh(root, "auto", "balanced", 0)
             if stats:
                 recommendations = [{"kind": "fixed", "command": "agentpack next", "reason": "refreshed stale context"}]
-                fixes.append({"kind": "stale_context", "command": "agentpack guard --agent auto --repair-stale --refresh-context", "returncode": 0})
+                fixes.append({"kind": "stale_context", "command": refresh_commands("auto").repair, "returncode": 0})
         payload = {"recommendations": recommendations, "fixes": fixes, "ok": not recommendations}
         if json_output:
             typer.echo(json.dumps(payload, indent=2, sort_keys=True))
@@ -58,7 +59,7 @@ def _recommendations(root) -> list[dict[str, str]]:
         items.append({"kind": "missing_task", "command": 'agentpack start "describe the task"', "reason": "no concrete task is set"})
     fresh, reason = _context_is_fresh(root)
     if not fresh:
-        items.append({"kind": "stale_context", "command": "agentpack guard --agent auto --repair-stale --refresh-context", "reason": reason})
+        items.append({"kind": "stale_context", "command": refresh_commands("auto").repair, "reason": reason})
     if _has_thread_conflicts(root):
         items.append({"kind": "thread_conflict", "command": "agentpack threads --conflicts", "reason": "active threads overlap on this branch/worktree"})
     if _pack_looks_noisy(root):
@@ -138,7 +139,7 @@ def _fix_all_safe(root, recommendations: list[dict[str, str]]) -> tuple[list[dic
         stats = run_refresh(root, "auto", "balanced", 0)
         fixes.append({
             "kind": "stale_context",
-            "command": "agentpack guard --agent auto --repair-stale --refresh-context",
+            "command": refresh_commands("auto").repair,
             "returncode": 0 if stats else 1,
         })
         recommendations = _recommendations(root)

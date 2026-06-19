@@ -166,6 +166,7 @@ class E2EResult:
     expected_files_touched: list[str]
     missing_expected_edits: list[str]
     unexpected_files_touched: list[str]
+    agentpack_noise: list[str]
     agent_log_path: str
     test_log_path: str
     workdir: str
@@ -3226,6 +3227,7 @@ def _e2e_strategy_metrics(records: list[dict[str, Any]], strategy: str) -> dict[
     return {
         "runs": float(len(subset)),
         "success_rate": sum(1 for row in subset if row.get("passed")) / len(subset),
+        "noise_rate": sum(1 for row in subset if row.get("agentpack_noise")) / len(subset),
         "expected_touch_rate": expected_touch_rate,
         "avg_input_tokens": avg("input_tokens"),
         "avg_output_tokens": avg("agent_output_tokens"),
@@ -3285,6 +3287,7 @@ def _print_e2e_ab_table(
     table.add_row("runs", f"{base['runs']:.0f}", f"{treat['runs']:.0f}", "-")
     table.add_row("task success", f"{base['success_rate']:.0%}", f"{treat['success_rate']:.0%}", f"{deltas['success_rate_pp']:+.1f} pp")
     table.add_row("expected file touched", f"{base['expected_touch_rate']:.0%}", f"{treat['expected_touch_rate']:.0%}", "-")
+    table.add_row("AgentPack noise cases", f"{base['noise_rate']:.0%}", f"{treat['noise_rate']:.0%}", "-")
     table.add_row("tool calls", f"{base['avg_tool_calls']:.1f}", f"{treat['avg_tool_calls']:.1f}", f"{deltas['tool_calls_saved']:+.1f}")
     table.add_row("tokens", f"{base['avg_total_tokens']:,.0f}", f"{treat['avg_total_tokens']:,.0f}", f"{deltas['tokens_saved']:+,.0f}")
     table.add_row("cost", f"${base['avg_total_cost_usd']:.4f}", f"${treat['avg_total_cost_usd']:.4f}", _fmt_signed_usd(deltas["token_cost_saved_usd"]))
@@ -3317,6 +3320,7 @@ def _e2e_ab_markdown(
         f"| runs | {base['runs']:.0f} | {treat['runs']:.0f} | - |",
         f"| task success | {base['success_rate']:.0%} | {treat['success_rate']:.0%} | {deltas['success_rate_pp']:+.1f} pp |",
         f"| expected file touched | {base['expected_touch_rate']:.0%} | {treat['expected_touch_rate']:.0%} | - |",
+        f"| AgentPack noise cases | {base['noise_rate']:.0%} | {treat['noise_rate']:.0%} | - |",
         f"| tool calls | {base['avg_tool_calls']:.1f} | {treat['avg_tool_calls']:.1f} | {deltas['tool_calls_saved']:+.1f} |",
         f"| tokens | {base['avg_total_tokens']:,.0f} | {treat['avg_total_tokens']:,.0f} | {deltas['tokens_saved']:+,.0f} |",
         f"| token cost | ${base['avg_total_cost_usd']:.4f} | ${treat['avg_total_cost_usd']:.4f} | {_fmt_signed_usd(deltas['token_cost_saved_usd'])} |",
@@ -3410,6 +3414,7 @@ def _run_e2e_case(
     expected_touched = _expected_files_touched(public_changed, case.expected_edit_paths)
     missing_expected = sorted(set(case.expected_edit_paths) - set(expected_touched))
     unexpected_touched = _unexpected_files_touched(public_changed, case.expected_edit_paths)
+    agentpack_noise = _agentpack_noise(strategy, unexpected_touched, missing_expected, public_changed)
     time_to_first_expected_file = _time_to_first_expected_file(repo, expected_touched, agent_start_epoch)
     tool_calls = _estimate_agent_tool_calls(agent)
     duration = time.perf_counter() - start
@@ -3442,6 +3447,7 @@ def _run_e2e_case(
         expected_files_touched=expected_touched,
         missing_expected_edits=missing_expected,
         unexpected_files_touched=unexpected_touched,
+        agentpack_noise=agentpack_noise,
         agent_log_path=str(agent_log_path),
         test_log_path=str(test_log_path),
         workdir=str(work_root),
@@ -3493,6 +3499,20 @@ def _unexpected_files_touched(changed: list[str], expected_edit_paths: list[str]
         return []
     expected = set(expected_edit_paths)
     return sorted(path for path in changed if path not in expected)
+
+
+def _agentpack_noise(strategy: str, unexpected: list[str], missing_expected: list[str], changed: list[str]) -> list[str]:
+    if "agentpack" not in strategy:
+        return []
+    noise: list[str] = []
+    if unexpected:
+        noise.append(f"unexpected edits: {', '.join(unexpected[:5])}")
+    if missing_expected:
+        noise.append(f"missed expected files: {', '.join(missing_expected[:5])}")
+    generated = [path for path in changed if _is_generated_e2e_path(path)]
+    if generated:
+        noise.append(f"generated AgentPack files changed: {', '.join(generated[:5])}")
+    return noise
 
 
 def _process_output_tokens(result: subprocess.CompletedProcess[str]) -> int:

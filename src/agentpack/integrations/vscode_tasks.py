@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agentpack.core.command_surface import refresh_commands
+
 _TASK_LABEL = "AgentPack: Repack context"
 _TASK_LABEL_AUTO = "AgentPack: Repack (auto task)"
 _TASK_LABEL_GUARD = "AgentPack: Guard context"
 
 
 def _agentpack_tasks(agent: str) -> list[dict]:
+    refresh = f"{refresh_commands(agent).primary} --mode balanced"
     return [
         {
             "label": _TASK_LABEL,
@@ -21,7 +24,7 @@ def _agentpack_tasks(agent: str) -> list[dict]:
         {
             "label": _TASK_LABEL_AUTO,
             "type": "shell",
-            "command": f"agentpack guard --agent {agent} --repair-stale --refresh-context --mode balanced",
+            "command": refresh,
             "runOptions": {"runOn": "folderOpen"},
             "group": "none",
             "presentation": {"reveal": "silent", "panel": "shared"},
@@ -30,7 +33,7 @@ def _agentpack_tasks(agent: str) -> list[dict]:
         {
             "label": _TASK_LABEL_GUARD,
             "type": "shell",
-            "command": f"agentpack guard --agent {agent} --repair-stale --refresh-context --mode balanced",
+            "command": refresh,
             "group": "none",
             "presentation": {"reveal": "always", "panel": "shared"},
             "problemMatcher": [],

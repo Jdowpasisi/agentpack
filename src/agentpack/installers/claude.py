@@ -4,7 +4,19 @@ import json
 import re
 from pathlib import Path
 
-_AGENTPACK_BLOCK = """\
+from agentpack.core.command_surface import fallback_agent_guidance, refresh_commands
+
+
+def _agentpack_block() -> str:
+    commands = refresh_commands("claude")
+    thread_line = (
+        "\nFor multiple agent threads in one repo, stay in legacy global mode unless a thread is explicit. Use\n"
+        f"`{commands.thread_auto}`\n"
+        "or pass `thread_id` to AgentPack MCP tools to use `.agentpack/threads/<id>/...` and get overlap warnings."
+        if commands.thread_auto
+        else ""
+    )
+    return f"""\
 <!-- agentpack:start -->
 ## AgentPack
 
@@ -23,13 +35,14 @@ When full packed context is needed, call:
 mcp__agentpack__pack_context(task="<what you're working on>", budget=4000)
 ```
 
-Executable fallback guard:
+Executable fallback:
 
 ```bash
-agentpack guard --agent claude --repair-stale --refresh-context
+{commands.primary}
 ```
 
 Other tools:
+- `mcp__agentpack__readiness()` — proves this host exposes AgentPack MCP tools
 - `mcp__agentpack__route_task(task)` — files, rules, skills, commands, and safety warnings
 - `mcp__agentpack__explain_file(path)` — score breakdown + symbols for a file
 - `mcp__agentpack__get_related_files(path)` — import-graph neighbours
@@ -46,10 +59,11 @@ agentpack pack --agent claude --task auto
 
 Then read `.agentpack/context.claude.md`.
 
-For multiple agent threads in one repo, stay in legacy global mode unless a thread is explicit. Use
-`AGENTPACK_THREAD_ID=<stable-id> agentpack guard --agent claude --repair-stale --refresh-context --thread auto`
-or pass `thread_id` to AgentPack MCP tools to use `.agentpack/threads/<id>/...` and get overlap warnings.
+{fallback_agent_guidance()}{thread_line}
 <!-- agentpack:end -->"""
+
+
+_AGENTPACK_BLOCK = _agentpack_block()
 
 _BLOCK_RE = re.compile(
     r"<!-- agentpack:start -->.*?<!-- agentpack:end -->",
@@ -65,18 +79,18 @@ class ClaudeInstaller:
         claude_md = root / "CLAUDE.md"
 
         if not claude_md.exists():
-            claude_md.write_text(f"{_AGENTPACK_BLOCK}\n")
+            claude_md.write_text(f"{_agentpack_block()}\n")
             return "created"
 
         content = claude_md.read_text()
         if _BLOCK_RE.search(content):
-            new_content = _BLOCK_RE.sub(_AGENTPACK_BLOCK, content)
+            new_content = _BLOCK_RE.sub(_agentpack_block(), content)
             if new_content != content:
                 claude_md.write_text(new_content)
                 return "updated"
             return "unchanged"
 
-        claude_md.write_text(content.rstrip() + "\n\n" + _AGENTPACK_BLOCK + "\n")
+        claude_md.write_text(content.rstrip() + "\n\n" + _agentpack_block() + "\n")
         return "appended"
 
     def patch_claude_settings(self, root: Path, global_install: bool = False) -> str:

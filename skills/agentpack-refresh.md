@@ -9,17 +9,17 @@ Use when the user invokes `@agentpack-refresh`, context looks stale, or task/git
 
 ## Steps
 
-1. Run the guarded refresh path:
+1. Run the portable refresh path:
 
 ```bash
-agentpack guard --agent codex --repair-stale --refresh-context
+agentpack pack --agent codex --task auto
 ```
 
 2. If the task changed, update it first:
 
 ```bash
 agentpack task set "<task>"
-agentpack guard --agent codex --repair-stale --refresh-context
+agentpack pack --agent codex --task auto
 ```
 
 3. Read `.agentpack/context.md` after refresh.

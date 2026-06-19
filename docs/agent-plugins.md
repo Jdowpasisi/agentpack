@@ -44,7 +44,7 @@ agentpack route --task "<task>"
 agentpack task set "<task>"
 agentpack pack --task auto
 agentpack upgrade --agent auto
-agentpack guard --agent <agent> --repair-stale --refresh-context
+agentpack doctor --agent <agent>
 agentpack benchmark capture --since main --task "<task>"
 agentpack benchmark --misses
 ```
@@ -72,7 +72,7 @@ native-integrations/cursor-extension/
 native-integrations/windsurf-extension/
 ```
 
-Those skeletons stay `guarded`, not `enforced`, until host APIs can guarantee activation before edits and block edits when `agentpack guard` fails.
+Those skeletons stay advisory, not enforced, until host APIs can guarantee activation before edits and block edits when the installed AgentPack readiness check fails.
 
 See [`native-integrations/README.md`](https://github.com/vishal2612200/agentpack/blob/main/native-integrations/README.md).
 

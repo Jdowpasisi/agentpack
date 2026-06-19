@@ -11,6 +11,23 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.26] — 2026-06-19
+
+### Added
+- Added MCP `readiness()` proof output so hosts can confirm live AgentPack MCP tool exposure from inside the active agent session.
+- Added command-surface-aware refresh guidance so generated agent instructions and fallback commands avoid unavailable CLI commands.
+- Added task-mode routing for small edits, PR review, runtime debugging, integration readiness, release/docs work, and broad feature work.
+- Added runtime/integration evidence checklists and E2E benchmark noise metrics.
+
+### Changed
+- Expanded context freshness provenance with task, cwd, git/worktree path, branch, timestamp, AgentPack version, and source command.
+- Prioritized PR/diff files ahead of generic metadata while suppressing unrelated generated/noisy files.
+- Kept benchmark and native-integration docs scoped to current evidence and advisory host limits.
+
+### Fixed
+- Preserved changed workflow files in PR review routing even though unrelated workflow metadata remains noisy by default.
+- Replaced remaining static `agentpack guard` refresh instructions with portable pack/doctor guidance where command-surface detection is unavailable.
+
 ## [0.3.25] — 2026-06-14
 
 ### Added

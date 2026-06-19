@@ -4,6 +4,7 @@ import typer
 import shutil
 
 from agentpack.core.config import load_config
+from agentpack.core.command_surface import refresh_commands
 from agentpack.core.ignore import load_spec
 from agentpack.core.scanner import scan
 from agentpack.core.snapshot import build_snapshot
@@ -98,4 +99,4 @@ def _print_deep_health(root, meta: dict | None) -> None:
         if not check.ok:
             failing.append(check)
     if failing:
-        console.print(f"  [yellow]![/] Guard repair: agentpack guard --agent {agent} --repair-stale --refresh-context")
+        console.print(f"  [yellow]![/] Repair: {refresh_commands(agent).repair}")

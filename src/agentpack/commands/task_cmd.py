@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from agentpack.commands._shared import console, _root
+from agentpack.core.command_surface import refresh_command_args
 from agentpack.core.thread_context import resolve_thread_option, thread_paths
 from agentpack.integrations.platform import cli_module_argv
 from agentpack.session.state import TASK_FILE
@@ -47,7 +48,7 @@ def set_task(
     task_text: str = typer.Argument(..., help="Task text to write."),
     thread: str = typer.Option("", "--thread", help="Use thread-scoped task state."),
     pack: bool = typer.Option(False, "--pack", help="Run agentpack pack after writing the task."),
-    guard: bool = typer.Option(False, "--guard", help="Run agentpack guard --repair-stale --refresh-context after writing."),
+    guard: bool = typer.Option(False, "--guard", help="Run the installed refresh/repair command after writing."),
     agent: str = typer.Option("auto", "--agent", help="Agent to pass to pack/guard."),
     mode: str = typer.Option("balanced", "--mode", help="Pack/guard mode."),
 ) -> None:
@@ -63,7 +64,7 @@ def set_task(
 
     thread_id = _thread_id(root, thread)
     if guard:
-        _run_cli(["guard", "--agent", agent, "--repair-stale", "--refresh-context", "--mode", mode], thread_id=thread_id)
+        _run_cli(refresh_command_args(agent, mode), thread_id=thread_id)
     elif pack:
         _run_cli(["pack", "--agent", agent, "--task", "auto", "--mode", mode], thread_id=thread_id)
 

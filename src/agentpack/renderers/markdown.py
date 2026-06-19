@@ -4,6 +4,7 @@ from collections import defaultdict
 import json
 
 from agentpack.core.models import ContextPack, OmittedRelevantFile, SelectedFile, Symbol
+from agentpack.core.command_surface import refresh_commands
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -188,6 +189,12 @@ def _machine_freshness_block(pack: ContextPack) -> str:
         "active_context": "mcp",
         "fallback_context": "markdown",
         "packed_task": pack.task,
+        "cwd": pack.freshness.get("cwd", ""),
+        "git_root": pack.freshness.get("git_root", ""),
+        "worktree_path": pack.freshness.get("worktree_path", ""),
+        "git_branch": pack.freshness.get("git_branch", ""),
+        "agentpack_version": pack.freshness.get("agentpack_version", ""),
+        "source_command": pack.freshness.get("source_command", ""),
         "task_hash": pack.freshness.get("packed_task_hash") or pack.freshness.get("task_hash") or "",
         "task_md_hash": pack.freshness.get("task_md_hash", ""),
         "snapshot_root_hash": pack.freshness.get("snapshot_root_hash", ""),
@@ -195,8 +202,7 @@ def _machine_freshness_block(pack: ContextPack) -> str:
         "stale_task_context": stale_task,
         "refresh_required": refresh_required,
         "mcp_refresh_tool": "agentpack_get_context",
-        "cli_refresh_command": "agentpack pack --task auto",
-        "guard_command": "agentpack guard --agent auto --repair-stale --refresh-context",
+        "cli_refresh_command": refresh_commands(pack.agent).primary,
     }
     return "<!-- agentpack:freshness\n" + json.dumps(fields, indent=2, sort_keys=True) + "\n-->"
 
@@ -264,7 +270,7 @@ def _stable_prefix_lines(agent_name: str) -> list[str]:
             "Modes: `full` source, `diff` hunks, `symbols` or `skeleton` interfaces, `summary` brief context.\n"
             "If this pack's task does not match the user's current task, write the new task to "
             "`.agentpack/task.md`, run `agentpack pack --task auto`, re-read the context, then proceed. "
-            "If the pack looks stale (changed files list is empty but you expect changes), refresh the pack before editing."
+            "If the pack looks stale or from another worktree, do not trust old selected files."
         ),
         "",
         "<!-- agentpack:stable-prefix:end -->",
@@ -300,6 +306,11 @@ def render_claude(pack: ContextPack) -> str:
             sections.append("")
         for label, key in (
             ("Generated", "generated_at"),
+            ("AgentPack version", "agentpack_version"),
+            ("Source command", "source_command"),
+            ("CWD", "cwd"),
+            ("Git root", "git_root"),
+            ("Worktree path", "worktree_path"),
             ("Git branch", "git_branch"),
             ("Git SHA", "git_sha"),
             ("Task class", "task_class"),

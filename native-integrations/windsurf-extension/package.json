@@ -1,7 +1,7 @@
 {
   "name": "agentpack-windsurf-native-skeleton",
-  "displayName": "AgentPack Guard for Windsurf",
-  "description": "Skeleton for native AgentPack guard enforcement in Windsurf-style hosts.",
+  "displayName": "AgentPack Readiness for Windsurf",
+  "description": "Skeleton for native AgentPack readiness checks in Windsurf-style hosts.",
   "version": "0.0.0",
   "private": true,
   "publisher": "agentpack",
@@ -20,15 +20,15 @@
     "commands": [
       {
         "command": "agentpack.guard",
-        "title": "AgentPack: Run Guard"
+        "title": "AgentPack: Check Readiness"
       }
     ],
     "configuration": {
-      "title": "AgentPack Guard",
+      "title": "AgentPack Readiness",
       "properties": {
         "agentpack.guardCommand": {
           "type": "string",
-          "default": "agentpack guard --agent windsurf --repair-stale --refresh-context",
+          "default": "agentpack doctor --agent windsurf",
           "description": "Command to run before trusting packed AgentPack context."
         }
       }

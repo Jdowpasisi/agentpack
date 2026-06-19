@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agentpack import __version__
 from agentpack.core.config import load_config
 from agentpack.core.changed_paths import clear_changed_paths, read_changed_paths
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE, load_spec
@@ -16,6 +17,7 @@ from agentpack.core.scanner import scan, scan_incremental
 from agentpack.core.snapshot import build_snapshot, save_snapshot, load_snapshot
 from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
+from agentpack.core.command_surface import refresh_commands
 from agentpack.core.context_pack import enrich_call_site_scores, select_files, save_pack_metadata, load_pack_metadata
 from agentpack.core.execution_state import build_execution_state, compact_execution_state
 from agentpack.core.models import (
@@ -1575,7 +1577,12 @@ def _build_freshness_metadata(
 ) -> dict[str, Any]:
     dirty = git.dirty_files(root) if git.is_git_repo(root) else set()
     metadata: dict[str, Any] = {
+        "agentpack_version": __version__,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cwd": str(Path.cwd()),
+        "git_root": str(root),
+        "worktree_path": str(root),
+        "source_command": refresh_commands(request.agent).primary,
         "task_source": request.task_source,
         "changed_files_source": plan.changed_files_source,
         "snapshot_root_hash": snapshot_root_hash,

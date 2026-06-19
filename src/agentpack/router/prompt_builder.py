@@ -8,6 +8,7 @@ def build_agent_prompt(result: RouteResult) -> str:
         "Use Agentpack route result before editing.",
         "",
         f"Task: {result.task}",
+        f"Task mode: {result.task_mode} (confidence {result.task_mode_confidence:.2f})",
         "",
         "Read these files first:",
     ]
@@ -40,6 +41,14 @@ def build_agent_prompt(result: RouteResult) -> str:
     if result.safety_warnings:
         lines += ["", "Safety warnings:"]
         lines.extend(f"- {warning}" for warning in result.safety_warnings)
+
+    if result.routing_notes:
+        lines += ["", "Routing notes:"]
+        lines.extend(f"- {note}" for note in result.routing_notes)
+
+    if result.evidence_checklist:
+        lines += ["", "Evidence checklist:"]
+        lines.extend(f"- {item}" for item in result.evidence_checklist)
 
     if result.suggested_commands:
         lines += ["", "Consider these commands; do not run blindly:"]
@@ -104,6 +113,16 @@ def render_plain(result: RouteResult) -> str:
         lines.extend(f"- {warning}" for warning in result.safety_warnings)
     else:
         lines.append("- No external side-effect skills selected.")
+
+    lines += ["", "Routing:"]
+    lines.append(f"- task_mode: {result.task_mode} (confidence {result.task_mode_confidence:.2f})")
+    if result.task_mode_signals:
+        lines.append(f"- signals: {', '.join(result.task_mode_signals[:4])}")
+    for note in result.routing_notes:
+        lines.append(f"- {note}")
+    if result.evidence_checklist:
+        lines.append("- evidence checklist:")
+        lines.extend(f"  - {item}" for item in result.evidence_checklist)
 
     lines += ["", "Agent prompt:", result.agent_prompt]
     return "\n".join(lines)

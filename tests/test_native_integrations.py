@@ -24,13 +24,13 @@ def test_native_integration_entries_have_real_paths_and_blockers() -> None:
         path = ROOT / host["path"]
         assert path.exists(), host
         assert host["status"] in {"skeleton", "blocked_stub"}
-        assert host["enforcement_level"] == "guarded"
+        assert host["enforcement_level"] == "advisory"
         assert host["blocked_on"], host
         assert all("Host API" in blocker or "plugin API" in blocker for blocker in host["blocked_on"])
         assert (path / "README.md").exists(), host
 
 
-def test_extension_skeletons_default_to_agent_specific_guard_commands() -> None:
+def test_extension_skeletons_default_to_agent_specific_readiness_commands() -> None:
     cursor_package = json.loads(
         (ROOT / "native-integrations" / "cursor-extension" / "package.json").read_text(encoding="utf-8")
     )
@@ -40,8 +40,8 @@ def test_extension_skeletons_default_to_agent_specific_guard_commands() -> None:
 
     cursor_default = cursor_package["contributes"]["configuration"]["properties"]["agentpack.guardCommand"]["default"]
     windsurf_default = windsurf_package["contributes"]["configuration"]["properties"]["agentpack.guardCommand"]["default"]
-    assert cursor_default == "agentpack guard --agent cursor --repair-stale --refresh-context"
-    assert windsurf_default == "agentpack guard --agent windsurf --repair-stale --refresh-context"
+    assert cursor_default == "agentpack doctor --agent cursor"
+    assert windsurf_default == "agentpack doctor --agent windsurf"
 
 
 def test_native_stub_readmes_state_not_production_enforced() -> None:
@@ -52,5 +52,5 @@ def test_native_stub_readmes_state_not_production_enforced() -> None:
         "native-integrations/codex-native/README.md",
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
-        assert "Current enforcement level: `guarded`." in text
+        assert "Current enforcement level: `advisory`." in text
         assert "mandatory" in text.lower()

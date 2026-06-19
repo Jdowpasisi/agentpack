@@ -6,15 +6,15 @@ Claude already has the strongest current AgentPack integration in this repo thro
 
 - MCP tools.
 - Lifecycle hooks.
-- `agentpack guard --agent claude --repair-stale --refresh-context`.
+- Version-aware generated refresh/readiness commands.
 - `CLAUDE.md` fallback rules.
 
-Current enforcement level: `guarded`.
+Current enforcement level: `advisory`.
 
 This stub tracks what would be needed for true native hard enforcement:
 
 - A mandatory host plugin API that runs before edits or edit-capable tool calls.
-- A host-level block/deny result when `agentpack guard` fails.
+- A host-level block/deny result when AgentPack readiness fails.
 - Access to workspace root and the current task or prompt before edits happen.
 
 Until those host capabilities exist, AgentPack cannot honestly mark Claude enforcement as `enforced`.

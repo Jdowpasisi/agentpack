@@ -10,6 +10,7 @@ import typer
 
 from agentpack.commands._shared import console, _root, run_refresh
 from agentpack.commands.guard import _context_is_fresh
+from agentpack.core.command_surface import refresh_commands
 from agentpack.core.config import load_config
 from agentpack.core.loop_protocol import (
     LoopCommandResult,
@@ -317,7 +318,7 @@ def _loop_finish_blockers(
             {
                 "kind": "stale_context",
                 "message": f"Context is stale: {reason}",
-                "command": "agentpack guard --agent auto --repair-stale --refresh-context",
+                "command": refresh_commands("auto").repair,
             }
         )
     return blockers
@@ -434,6 +435,7 @@ def _read_task(root: Path, thread: str) -> str:
 
 def _refresh_loop_context(root: Path, agent: str, mode: str, budget: int, thread_id: str | None) -> LoopCommandResult:
     stats = run_refresh(root, agent, mode, budget, thread_id=thread_id)
+    command = refresh_commands(agent).primary
     if stats is None:
-        return LoopCommandResult(command="agentpack guard --repair-stale --refresh-context", returncode=1, output_excerpt="context refresh failed")
-    return LoopCommandResult(command="agentpack guard --repair-stale --refresh-context", returncode=0, output_excerpt=json.dumps(stats, sort_keys=True))
+        return LoopCommandResult(command=command, returncode=1, output_excerpt="context refresh failed")
+    return LoopCommandResult(command=command, returncode=0, output_excerpt=json.dumps(stats, sort_keys=True))

@@ -10,6 +10,7 @@ class TestCodexAdapter:
         assert action == "created"
         content = (tmp_path / "AGENTS.md").read_text()
         assert "agentpack:start" in content
+        assert "agentpack_readiness()" in content
         assert "agentpack_get_context()" in content
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent codex --repair-stale --refresh-context" in content

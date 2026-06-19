@@ -11,10 +11,11 @@ Use AgentPack as an MCP context engine when an agent needs fresh local repositor
 
 ## Core MCP flow
 
-1. `start_task(task)` writes the task and creates a ranked context pack.
-2. `get_context()` returns the latest pack and refreshes once when the task or repo snapshot changed.
-3. `route_task(task)` returns a read-only route: relevant files, rules, skills, commands, safety warnings, and an agent prompt.
-4. `get_skill(name_or_path)` loads one recommended skill's `SKILL.md` content on demand.
+1. `readiness()` proves the current host can call AgentPack MCP tools and returns version/tool status.
+2. `start_task(task)` writes the task and creates a ranked context pack.
+3. `get_context()` returns the latest pack and refreshes once when the task or repo snapshot changed.
+4. `route_task(task)` returns a read-only route: relevant files, rules, skills, commands, safety warnings, and an agent prompt.
+5. `get_skill(name_or_path)` loads one recommended skill's `SKILL.md` content on demand.
 
 This keeps the first prompt smaller while still letting the agent retrieve more detail when needed.
 

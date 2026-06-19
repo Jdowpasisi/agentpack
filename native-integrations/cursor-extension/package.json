@@ -1,7 +1,7 @@
 {
   "name": "agentpack-cursor-native-skeleton",
-  "displayName": "AgentPack Guard for Cursor",
-  "description": "Skeleton for native AgentPack guard enforcement in Cursor-style hosts.",
+  "displayName": "AgentPack Readiness for Cursor",
+  "description": "Skeleton for native AgentPack readiness checks in Cursor-style hosts.",
   "version": "0.0.0",
   "private": true,
   "publisher": "agentpack",
@@ -20,15 +20,15 @@
     "commands": [
       {
         "command": "agentpack.guard",
-        "title": "AgentPack: Run Guard"
+        "title": "AgentPack: Check Readiness"
       }
     ],
     "configuration": {
-      "title": "AgentPack Guard",
+      "title": "AgentPack Readiness",
       "properties": {
         "agentpack.guardCommand": {
           "type": "string",
-          "default": "agentpack guard --agent cursor --repair-stale --refresh-context",
+          "default": "agentpack doctor --agent cursor",
           "description": "Command to run before trusting packed AgentPack context."
         }
       }

@@ -64,11 +64,16 @@ class SkillInventory(BaseModel):
 
 class RouteResult(BaseModel):
     task: str
+    task_mode: str = "broad_feature"
+    task_mode_confidence: float = 0.0
+    task_mode_signals: list[str] = Field(default_factory=list)
     selected_files: list[dict] = Field(default_factory=list)
     selected_skills: list[SelectedSkill] = Field(default_factory=list)
     baseline_skills: list[SelectedSkill] = Field(default_factory=list)
     applied_rules: list[AppliedRule] = Field(default_factory=list)
     suggested_commands: list[CommandSuggestion] = Field(default_factory=list)
+    evidence_checklist: list[str] = Field(default_factory=list)
+    routing_notes: list[str] = Field(default_factory=list)
     safety_warnings: list[str] = Field(default_factory=list)
     agent_prompt: str = ""
 

@@ -17,6 +17,7 @@ from agentpack.integrations.global_install import (
     _detect_rc_file,
 )
 from agentpack.commands._shared import console, _root
+from agentpack.core.command_surface import available_cli_commands, installed_cli_status, refresh_commands
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.ignore import agentignore_sync_status, format_import_summary
 from agentpack.core.task_freshness import task_freshness
@@ -45,7 +46,12 @@ def register(app: typer.Typer) -> None:
 
         # --- CLI binary ---
         console.print("[bold]CLI[/]")
-        binary = shutil.which("agentpack")
+        cli_status = installed_cli_status()
+        binary = cli_status.get("binary") or shutil.which("agentpack")
+        console.print(f"  [green]✓[/] importable AgentPack version: {cli_status.get('agentpack_version')}")
+        importable = cli_status.get("importable_commands") or []
+        if importable:
+            console.print(f"  [green]✓[/] importable commands: {', '.join(str(cmd) for cmd in importable)}")
         if binary:
             try:
                 result = subprocess.run(["agentpack", "--version"], capture_output=True, text=True)
@@ -55,6 +61,15 @@ def register(app: typer.Typer) -> None:
                 console.print(f"  [green]✓[/] agentpack found at {binary}")
         else:
             console.print("  [red]✗[/] agentpack not on PATH — run: pipx install agentpack-cli")
+            ok = False
+        help_commands = cli_status.get("help_commands") or []
+        if help_commands:
+            console.print(f"  [green]✓[/] installed CLI commands: {', '.join(str(cmd) for cmd in help_commands)}")
+        if binary and "guard" not in set(str(cmd) for cmd in help_commands) and "guard" in set(available_cli_commands()):
+            console.print(
+                "  [yellow]![/] installed CLI command surface may be stale; "
+                f"exact repair: {cli_status.get('repair_command')}"
+            )
             ok = False
 
         try:
@@ -147,8 +162,19 @@ def register(app: typer.Typer) -> None:
                         "MCP get_context auto-refreshes this, or run: agentpack pack --task auto"
                     )
                     ok = False
+                meta = load_pack_metadata(root) or {}
+                freshness = meta.get("freshness") or {}
+                if freshness:
+                    console.print(
+                        "  [green]✓[/] context provenance: "
+                        f"task_source={freshness.get('task_source', 'unknown')}, "
+                        f"git_root={freshness.get('git_root', root)}, "
+                        f"worktree={freshness.get('worktree_path', root)}, "
+                        f"branch={freshness.get('git_branch', 'unknown')}, "
+                        f"generated={freshness.get('generated_at', 'unknown')}"
+                    )
             else:
-                console.print("  [yellow]![/] No context pack yet — write .agentpack/task.md, then run: agentpack pack --task auto")
+                console.print(f"  [yellow]![/] No context pack yet — write .agentpack/task.md, then run: {refresh_commands(agent).context_missing}")
 
         # --- Agent-specific config ---
         console.print("\n[bold]Agent config[/]")
@@ -249,6 +275,14 @@ def register(app: typer.Typer) -> None:
                 pass
         if not _local_has_mcp and not _global_has_mcp:
             console.print("  [yellow]![/] MCP server not registered — mcp__agentpack__* tools unavailable")
+            console.print("  [yellow]![/] exact repair: agentpack install --agent claude")
+            ok = False
+        else:
+            console.print(
+                "  [green]✓[/] expected MCP tools: "
+                "readiness, route_task, pack_context, get_context, refresh, get_stats"
+            )
+            console.print("  [green]✓[/] live exposure proof: call MCP tool `readiness` from the agent host")
 
         # --- Agent integration matrix ---
         console.print("\n[bold]Agent integration audit[/]")
@@ -268,8 +302,7 @@ def register(app: typer.Typer) -> None:
                 ok = False
             if not selected_ok:
                 console.print(
-                    f"    [yellow]![/] executable guard repair: "
-                    f"agentpack guard --agent {selected} --repair-stale --refresh-context"
+                    f"    [yellow]![/] exact repair: {refresh_commands(selected).repair}"
                 )
 
         # --- Concurrent threads ---

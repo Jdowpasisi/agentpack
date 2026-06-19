@@ -33,7 +33,7 @@ Pack repo context and immediately start working on the task.
 If a session is already running (`.agentpack/session.json` exists and `"active": true`):
 
 1. If the user gives a new coding task, write a one-line summary to `.agentpack/task.md`.
-2. Run `agentpack guard --agent claude --repair-stale --refresh-context` unless watch mode already refreshed after the task write.
+2. Run `agentpack pack --agent claude --task auto` unless watch mode already refreshed after the task write.
 3. Read `.agentpack/context.md` — context now matches the current task.
 4. Proceed with the task using the context you just read.
 
@@ -72,21 +72,21 @@ Then use normal prompts — context stays current while `watch` is running.
 
 ```bash
 printf '%s\n' "<task>" > .agentpack/task.md
-agentpack guard --agent claude --repair-stale --refresh-context --mode balanced
+agentpack pack --agent claude --task auto --mode balanced
 ```
 
 Then read `.agentpack/context.claude.md` in full.
 
 ## Thread Mode (explicit opt-in)
 
-Plain `agentpack pack`, `agentpack status`, and `agentpack guard` use the legacy global files:
+Plain `agentpack pack` and `agentpack status` use the legacy global files:
 `.agentpack/task.md`, `.agentpack/context.md`, and `.agentpack/pack_metadata.json`.
 
 When multiple agents work in the same repo, opt into scoped state:
 
 ```bash
 export AGENTPACK_THREAD_ID=codex-local
-agentpack guard --agent claude --repair-stale --refresh-context --thread auto
+agentpack pack --agent claude --task auto --thread auto
 ```
 
 Thread mode writes `.agentpack/threads/<id>/task.md`, `context.md`, `context.claude.md`,
@@ -122,12 +122,12 @@ test -f .agentpack/config.toml || "$AGENTPACK_BIN" init --yes
 
 **Session active** (`.agentpack/session.json` exists, `"active": true`):
 - Update `.agentpack/task.md` if task changed
-- Run `"$AGENTPACK_BIN" guard --agent claude --repair-stale --refresh-context` unless watch already refreshed it
+- Run `"$AGENTPACK_BIN" pack --agent claude --task auto` unless watch already refreshed it
 - Read `.agentpack/context.md`
 - Proceed immediately
 
 **No session**:
-- Run `"$AGENTPACK_BIN" session start` or `"$AGENTPACK_BIN" guard --agent claude --repair-stale --refresh-context`
+- Run `"$AGENTPACK_BIN" session start` or `"$AGENTPACK_BIN" pack --agent claude --task auto`
 - Read the context file
 - Proceed
 
@@ -145,7 +145,7 @@ Do not say "context pack ready" and stop. Do not tell the user to run more comma
 
 If `"$AGENTPACK_BIN" status` exits non-zero or context seems unrelated to the task:
 - Run `"$AGENTPACK_BIN" session refresh` (if session active)
-- Or run `"$AGENTPACK_BIN" guard --agent claude --repair-stale --refresh-context` (manual mode)
+- Or run `"$AGENTPACK_BIN" pack --agent claude --task auto` (manual mode)
 - Re-read the context, then proceed
 
 Do not ask the user — just refresh and proceed.

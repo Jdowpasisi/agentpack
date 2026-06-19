@@ -1,5 +1,6 @@
 import json
 
+from agentpack.core.command_surface import refresh_commands
 from agentpack.integrations.vscode_tasks import install_vscode_tasks, remove_vscode_tasks
 
 
@@ -54,8 +55,7 @@ class TestInstallVscodeTasks:
         data = json.loads((tmp_path / ".vscode" / "tasks.json").read_text())
         auto_task = next(t for t in data["tasks"] if t["label"] == "AgentPack: Repack (auto task)")
         assert auto_task["runOptions"]["runOn"] == "folderOpen"
-        assert "agentpack guard" in auto_task["command"]
-        assert "--repair-stale" in auto_task["command"]
+        assert refresh_commands("cursor").primary in auto_task["command"]
 
 
 class TestRemoveVscodeTasks:

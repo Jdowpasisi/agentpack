@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-from agentpack.mcp_server import _explain_route_impl, _get_skill_impl, _get_skills_impl, _route_task_impl, serve
+from agentpack.mcp_server import _explain_route_impl, _get_skill_impl, _get_skills_impl, _readiness_impl, _route_task_impl, serve
 from agentpack.router.service import RouteService
 
 
@@ -75,6 +75,19 @@ def test_mcp_explain_route_includes_skill_scores(tmp_path):
     assert data["skill_scores"][0]["reasons"]
 
 
+def test_mcp_readiness_proves_live_tool_exposure(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+
+    data = json.loads(_readiness_impl(tmp_path))
+
+    assert data["ok"] is True
+    assert "proves" in data["proof"]
+    assert data["mcp_server"] == "agentpack"
+    assert "readiness" in data["mcp_tools"]
+    assert "route_task" in data["mcp_tools"]
+    assert "pack" in data["cli_commands"]
+
+
 def test_route_service_separates_always_recommend_baseline_skill(tmp_path):
     (tmp_path / ".agentpack").mkdir(exist_ok=True)
     (tmp_path / ".agentpack" / "config.toml").write_text(
@@ -123,4 +136,4 @@ def test_mcp_server_registers_router_tools(monkeypatch):
         serve()
 
     tool_names = set(FakeMCP.instances[0].tools)
-    assert {"route_task", "get_skills", "get_skill", "explain_route"} <= tool_names
+    assert {"readiness", "route_task", "get_skills", "get_skill", "explain_route"} <= tool_names

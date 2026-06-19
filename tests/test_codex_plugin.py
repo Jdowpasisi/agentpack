@@ -41,7 +41,7 @@ def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
     assert "agentpack route --task" in combined
     assert "agentpack task set" in combined
     assert "agentpack pack --task auto" in combined
-    assert "agentpack guard --agent codex --repair-stale --refresh-context" in combined
+    assert "agentpack guard --agent codex --repair-stale --refresh-context" not in combined
     assert "agentpack benchmark capture --since main --task" in combined
     assert "not a coding agent" in combined.lower()
     assert "map, not proof" in combined.lower()
@@ -76,7 +76,7 @@ def test_agent_plugin_distribution_docs_cover_supported_hosts() -> None:
 
     assert "does not reimplement ranking, scanning, packing, mcp, or benchmarking" in docs
     assert "local context engine, not a coding agent" in docs
-    assert "agentpack guard --agent <agent> --repair-stale --refresh-context" in docs
+    assert "agentpack doctor --agent <agent>" in docs
     assert "native-integrations/cursor-extension/" in docs
     assert "native-integrations/windsurf-extension/" in docs
 

@@ -15,13 +15,13 @@ The CLI remains the setup/debug/release path. MCP is the best interactive path b
 
 Markdown context files are fallback artifacts for CI, logs, manual review, and non-MCP agents. Every rendered pack includes a machine-readable `agentpack:freshness` comment; agents should treat `active_context: mcp` as the preferred path and refresh before using markdown when `refresh_required: true`.
 
-For non-MCP agents, use the executable guard before editing:
+For non-MCP agents, use `doctor` to verify the installed command surface and exact repair path:
 
 ```bash
-agentpack guard --agent auto --repair-stale --refresh-context
+agentpack doctor --agent auto
 ```
 
-`guard` checks pack freshness, task freshness, repo snapshot freshness, and installed agent rules/hooks. With `--repair-stale --refresh-context`, it repairs stale AgentPack rule files and refreshes missing or stale context before returning success. `agentpack pack` also self-heals stale AgentPack rule blocks for the active agent, so older installs that still run `pack` get upgraded opportunistically.
+Generated agent rules use commands available in the installed AgentPack version. Older installs fall back to `agentpack pack --task auto` instead of referencing newer commands they do not support.
 
 ### Thread IDs
 
@@ -31,7 +31,7 @@ not force thread mode from ambient host session variables.
 For multiple agents in one repo, configure a stable thread id explicitly:
 
 ```bash
-AGENTPACK_THREAD_ID=codex-local agentpack guard --agent auto --repair-stale --refresh-context --thread auto
+AGENTPACK_THREAD_ID=codex-local agentpack pack --agent auto --task auto
 ```
 
 For MCP tools, pass `thread_id` explicitly or set `AGENTPACK_THREAD_ID` and use
