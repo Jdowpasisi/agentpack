@@ -11,6 +11,21 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.27] — 2026-06-20
+
+### Added
+- Added prompt-quality routing hints so short, vague, repeated, or simple-question tasks produce Ask/Chat, file-context, output-length, and spec guidance before agents enter heavy coding workflows.
+- Added generated agent-rule guidance for concise outputs, file references, acceptance criteria, constraints, and validation expectations.
+
+### Changed
+- Made `agentpack upgrade` the post-upgrade repair path for existing repo integrations and already-installed global AgentPack git/shell hooks.
+- Kept release hygiene findings advisory in `agentpack doctor` so local generated artifacts do not fail otherwise healthy installations.
+- Suppressed weak external side-effect skill warnings unless the route has strong task-specific evidence.
+
+### Fixed
+- Fixed rich CLI help parsing so doctor detects the installed command surface reliably.
+- Avoided false external skill matches from conversational prompt terms such as `can` and `you`.
+
 ## [0.3.26] — 2026-06-19
 
 ### Added
