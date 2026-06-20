@@ -57,6 +57,25 @@ _USER_PROMPT_SUBMIT_HOOK = {
     "statusMessage": "Checking agentpack index...",
 }
 
+_CODEX_MCP_BLOCK = """\
+# agentpack:mcp:start
+[mcp_servers.agentpack]
+command = "agentpack"
+args = ["mcp"]
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+# agentpack:mcp:end
+"""
+
+_CODEX_MCP_BLOCK_RE = re.compile(
+    r"# agentpack:mcp:start\n.*?# agentpack:mcp:end\n?",
+    re.DOTALL,
+)
+_CODEX_MCP_TABLE_RE = re.compile(
+    r"(?ms)^\[mcp_servers\.agentpack\]\n.*?(?=^\[[^\n]+\]\n|\Z)",
+)
+
 
 class CodexInstaller:
     """Configures Codex/OpenAI-specific repo files and auto-repack hooks."""
@@ -125,6 +144,18 @@ class CodexInstaller:
         results.update({f"git:{k}": v for k, v in hook_results.items()})
         return results
 
+    def patch_codex_mcp_config(self, *, codex_home: Path | None = None) -> str:
+        """Install AgentPack's MCP server in Codex's user config."""
+        config_path = _codex_config_path(codex_home)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        existed = config_path.exists()
+        content = config_path.read_text(encoding="utf-8") if existed else ""
+        desired = _patch_codex_mcp_config_text(content)
+        if content == desired:
+            return "unchanged"
+        config_path.write_text(desired, encoding="utf-8")
+        return "updated" if existed else "created"
+
     def install_codex_plugin(self, *, codex_home: Path | None = None) -> dict[str, str]:
         """Install AgentPack's thin Codex plugin package into the local Codex cache."""
         source = _codex_plugin_source()
@@ -133,9 +164,26 @@ class CodexInstaller:
         return {str(target): action}
 
 
+def _patch_codex_mcp_config_text(content: str) -> str:
+    normalized_block = _CODEX_MCP_BLOCK
+    if _CODEX_MCP_BLOCK_RE.search(content):
+        return _CODEX_MCP_BLOCK_RE.sub(normalized_block, content)
+    if _CODEX_MCP_TABLE_RE.search(content):
+        return _CODEX_MCP_TABLE_RE.sub(normalized_block, content)
+    prefix = content.rstrip()
+    if not prefix:
+        return normalized_block
+    return prefix + "\n\n" + normalized_block
+
+
 def _codex_plugin_target(codex_home: Path | None = None) -> Path:
     root = codex_home or Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser()
     return root / "plugins" / "cache" / "local" / "agentpack" / __version__
+
+
+def _codex_config_path(codex_home: Path | None = None) -> Path:
+    root = codex_home or Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser()
+    return root / "config.toml"
 
 
 def _codex_plugin_source() -> Path:

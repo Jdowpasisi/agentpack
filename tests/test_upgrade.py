@@ -18,6 +18,32 @@ def test_upgrade_auto_installs_codex_plugin_only_when_codex_detected(tmp_path, m
     assert "Auto-detected agent: codex" in result.output
     assert (tmp_path / "AGENTS.md").exists()
     assert list((tmp_path / "codex-home" / "plugins" / "cache" / "local" / "agentpack").glob("*/.codex-plugin/plugin.json"))
+    codex_config = (tmp_path / "codex-home" / "config.toml").read_text(encoding="utf-8")
+    assert "[mcp_servers.agentpack]" in codex_config
+    assert 'command = "agentpack"' in codex_config
+
+
+def test_upgrade_codex_repairs_stale_mcp_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    codex_config = tmp_path / "codex-home" / "config.toml"
+    codex_config.parent.mkdir(parents=True)
+    codex_config.write_text(
+        "[mcp_servers.agentpack]\n"
+        'command = "old-agentpack"\n'
+        'args = ["old"]\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["upgrade", "--agent", "codex", "--no-repair-existing-global-hooks"])
+
+    assert result.exit_code == 0, result.output
+    content = codex_config.read_text(encoding="utf-8")
+    assert 'command = "old-agentpack"' not in content
+    assert "[mcp_servers.agentpack]" in content
+    assert 'command = "agentpack"' in content
+    assert 'args = ["mcp"]' in content
 
 
 def test_upgrade_generic_does_not_install_codex_plugin(tmp_path, monkeypatch) -> None:

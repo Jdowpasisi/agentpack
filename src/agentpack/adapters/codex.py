@@ -25,5 +25,8 @@ class CodexAdapter(BaseAdapter):
     def patch_codex_hooks(self, root: Path) -> str:
         return CodexInstaller().patch_codex_hooks(root)
 
+    def patch_codex_mcp_config(self, *, codex_home: Path | None = None) -> str:
+        return CodexInstaller().patch_codex_mcp_config(codex_home=codex_home)
+
     def install_auto_repack(self, root: Path) -> dict[str, str]:
         return CodexInstaller().install_auto_repack(root)

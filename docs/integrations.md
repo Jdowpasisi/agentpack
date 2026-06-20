@@ -44,7 +44,7 @@ about same-worktree, same-branch file overlap. Without `--thread`, global
 | Agent | Automation level | Method |
 |---|---|---|
 | Claude Code (hook) | Highest | `init` writes `CLAUDE.md`, `.claude/settings.json` hooks, and `.mcp.json` |
-| Codex | Medium | `init` writes `AGENTS.md`, `.codex/hooks.json` + git hooks; optional thin plugin in [`docs/codex-plugin.md`](codex-plugin.md) |
+| Codex | Medium | `init` writes `AGENTS.md`, `.codex/hooks.json`, Codex `[mcp_servers.agentpack]` config + git hooks; optional thin plugin in [`docs/codex-plugin.md`](codex-plugin.md) |
 | Cursor | Medium | `init` writes `.cursorrules`, `.cursor/rules/agentpack.mdc`, VS Code task + git hooks |
 | Windsurf | Medium | `init` writes `.windsurfrules`, VS Code task + git hooks |
 | Antigravity | Medium | `init` writes `GEMINI.md`, VS Code task + git hooks |
@@ -125,6 +125,7 @@ agentpack init --agent codex
 Configures:
 - `AGENTS.md` — tells Codex to write current task, repack, and read the context pack before each task
 - `.codex/hooks.json` — Codex app lifecycle hooks for prompt-time AgentPack refresh hints
+- `~/.codex/config.toml` or `$CODEX_HOME/config.toml` — registers `[mcp_servers.agentpack]` for Codex-host MCP exposure
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 
 Optional plugin packaging lives in `.codex-plugin/plugin.json` and `skills/`.

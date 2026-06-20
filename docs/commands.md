@@ -432,7 +432,7 @@ agentpack install                      # auto-detect IDE
 agentpack install --agent claude       # CLAUDE.md + .claude/settings.json hooks
 agentpack install --agent cursor       # .cursorrules + .mdc + git hooks + VS Code tasks
 agentpack install --agent windsurf     # .windsurfrules + git hooks + VS Code tasks
-agentpack install --agent codex        # AGENTS.md + .codex/hooks.json + git hooks
+agentpack install --agent codex        # AGENTS.md + .codex/hooks.json + Codex MCP config + git hooks
 agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
@@ -450,7 +450,7 @@ machine into new global automation unless AgentPack hooks were already present.
 
 ```bash
 agentpack upgrade                 # auto-detect the current IDE/agent
-agentpack upgrade --agent codex   # AGENTS.md + .codex/hooks.json + local plugin cache
+agentpack upgrade --agent codex   # AGENTS.md + .codex/hooks.json + Codex MCP config + local plugin cache
 agentpack upgrade --agent cursor  # Cursor rules/hooks
 agentpack upgrade --agent all     # refresh every supported repo integration
 agentpack upgrade --no-repair-existing-global-hooks
@@ -468,7 +468,7 @@ Repair missing or drifted integration files. It uses the same installer contract
 
 ```bash
 agentpack repair                 # repair auto-detected agent
-agentpack repair --agent codex   # AGENTS.md + .codex/hooks.json + git hooks
+agentpack repair --agent codex   # AGENTS.md + .codex/hooks.json + Codex MCP config + git hooks
 agentpack repair --agent all     # repair every supported integration
 ```
 

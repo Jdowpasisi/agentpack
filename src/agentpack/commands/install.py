@@ -66,7 +66,7 @@ def _print_dry_run_agent(agent: str) -> None:
     elif agent == "windsurf":
         console.print("\n[dim]Would patch: .windsurfrules, VS Code task, git hooks[/]")
     elif agent == "codex":
-        console.print("\n[dim]Would patch: AGENTS.md, .codex/hooks.json, git hooks[/]")
+        console.print("\n[dim]Would patch: AGENTS.md, .codex/hooks.json, Codex MCP config, git hooks[/]")
     elif agent == "antigravity":
         console.print("\n[dim]Would patch: GEMINI.md, VS Code task, git hooks[/]")
     elif agent == "generic":

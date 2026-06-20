@@ -88,6 +88,7 @@ def install_agent_integration(
         results = {
             "AGENTS.md": installer.patch_agents_md(root),
             "~/.codex/plugins/cache/local/agentpack": next(iter(plugin_result.values())),
+            "~/.codex/config.toml:mcp_servers.agentpack": installer.patch_codex_mcp_config(),
         }
         if not global_install:
             results.update(installer.install_auto_repack(root))
@@ -126,6 +127,7 @@ def check_agent_integration(root: Path, agent: str) -> list[AgentCheck]:
         return [
             _current_rule_file(root, agent, "AGENTS.md", "agentpack repair --agent codex"),
             _codex_hooks(root),
+            _codex_mcp_config(),
             *_check_git_hooks(root, agent),
         ]
     if agent == "antigravity":
@@ -311,5 +313,29 @@ def _codex_hooks(root: Path) -> AgentCheck:
         ".codex/hooks.json",
         ok,
         "Codex app lifecycle hooks present" if ok else "missing SessionStart/UserPromptSubmit hooks",
+        None if ok else "agentpack repair --agent codex",
+    )
+
+
+def _codex_mcp_config() -> AgentCheck:
+    import os
+
+    path = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser() / "config.toml"
+    if not path.exists():
+        return AgentCheck("codex", "~/.codex/config.toml", False, "missing Codex MCP config", "agentpack repair --agent codex")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return AgentCheck("codex", "~/.codex/config.toml", False, "unreadable", "agentpack repair --agent codex")
+    ok = (
+        "[mcp_servers.agentpack]" in content
+        and 'command = "agentpack"' in content
+        and 'args = ["mcp"]' in content
+    )
+    return AgentCheck(
+        "codex",
+        "~/.codex/config.toml",
+        ok,
+        "Codex MCP server registered" if ok else "agentpack MCP server missing",
         None if ok else "agentpack repair --agent codex",
     )

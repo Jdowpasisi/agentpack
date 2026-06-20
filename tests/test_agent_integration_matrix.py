@@ -26,6 +26,7 @@ GIT_AGENTS = {"cursor", "windsurf", "codex", "antigravity"}
 @pytest.mark.parametrize("agent", AGENTS)
 def test_cli_agent_matrix_is_complete_and_idempotent(tmp_path, monkeypatch, command, agent) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
     runner = CliRunner()
 
@@ -42,6 +43,7 @@ def test_cli_agent_matrix_is_complete_and_idempotent(tmp_path, monkeypatch, comm
 
 def test_repair_all_installs_every_agent_integration(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
     runner = CliRunner()
 
@@ -64,6 +66,7 @@ def test_repair_all_installs_every_agent_integration(tmp_path, monkeypatch) -> N
 )
 def test_repair_updates_stale_agent_rule_blocks(tmp_path, monkeypatch, agent, rel, marker) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
     path = tmp_path / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,6 +103,7 @@ def test_doctor_agent_all_reports_missing_integrations(tmp_path, monkeypatch) ->
 
 def test_status_deep_prints_agent_health(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
     runner = CliRunner()
     runner.invoke(app, ["init", "--yes", "--agent", "codex"])
@@ -128,6 +132,9 @@ def _assert_agent_ready(root: Path, agent: str, *, strict_git: bool = True) -> N
         text = json.dumps(hooks)
         assert text.count("agentpack hook --event SessionStart") == 1
         assert text.count("agentpack hook --event UserPromptSubmit") == 1
+        codex_config = (root / "codex-home" / "config.toml").read_text(encoding="utf-8")
+        assert "[mcp_servers.agentpack]" in codex_config
+        assert 'args = ["mcp"]' in codex_config
 
     if strict_git:
         for event in ("post-commit", "post-merge", "post-checkout"):

@@ -309,6 +309,9 @@ def test_init_installs_agent_integrations(tmp_path, monkeypatch, agent, expected
     if agent == "codex":
         plugin = tmp_path / "codex-home" / "plugins" / "cache" / "local" / "agentpack"
         assert list(plugin.glob("*/.codex-plugin/plugin.json"))
+        codex_config = (tmp_path / "codex-home" / "config.toml").read_text(encoding="utf-8")
+        assert "[mcp_servers.agentpack]" in codex_config
+        assert 'command = "agentpack"' in codex_config
     for event in ("post-commit", "post-merge", "post-checkout"):
         hook = tmp_path / ".git" / "hooks" / event
         assert hook.exists()

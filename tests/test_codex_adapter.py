@@ -1,6 +1,7 @@
 import json
 
 from agentpack.adapters.codex import CodexAdapter
+from agentpack.installers.codex import _patch_codex_mcp_config_text
 
 
 class TestCodexAdapter:
@@ -78,6 +79,45 @@ class TestCodexAdapter:
         data = json.loads(hooks_path.read_text(encoding="utf-8"))
         assert data["hooks"]["Stop"][0]["hooks"][0]["command"] == "echo done"
         assert "agentpack hook --event UserPromptSubmit" in json.dumps(data)
+
+    def test_patch_codex_mcp_config_creates_agentpack_server(self, tmp_path):
+        adapter = CodexAdapter()
+        action = adapter.patch_codex_mcp_config(codex_home=tmp_path / "codex-home")
+
+        assert action == "created"
+        content = (tmp_path / "codex-home" / "config.toml").read_text(encoding="utf-8")
+        assert "[mcp_servers.agentpack]" in content
+        assert 'command = "agentpack"' in content
+        assert 'args = ["mcp"]' in content
+
+    def test_patch_codex_mcp_config_is_idempotent(self, tmp_path):
+        adapter = CodexAdapter()
+        codex_home = tmp_path / "codex-home"
+        adapter.patch_codex_mcp_config(codex_home=codex_home)
+        action = adapter.patch_codex_mcp_config(codex_home=codex_home)
+
+        assert action == "unchanged"
+
+    def test_patch_codex_mcp_config_preserves_other_servers(self):
+        content = (
+            '[mcp_servers.node_repl]\n'
+            'command = "node"\n'
+            "\n"
+            "[mcp_servers.agentpack]\n"
+            'command = "old-agentpack"\n'
+            'args = ["old"]\n'
+            "\n"
+            '[plugins."github@openai-curated"]\n'
+            'enabled = true\n'
+        )
+
+        patched = _patch_codex_mcp_config_text(content)
+
+        assert '[mcp_servers.node_repl]\ncommand = "node"' in patched
+        assert '[plugins."github@openai-curated"]\nenabled = true' in patched
+        assert 'command = "old-agentpack"' not in patched
+        assert patched.count("[mcp_servers.agentpack]") == 1
+        assert 'command = "agentpack"' in patched
 
     def test_output_path(self, tmp_path):
         adapter = CodexAdapter()
