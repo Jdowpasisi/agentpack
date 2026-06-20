@@ -57,8 +57,22 @@ def test_release_hygiene_flags_generated_artifacts(tmp_path: Path, monkeypatch) 
 
 def test_doctor_release_hygiene_warning_does_not_fail_summary(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
     (tmp_path / ".agent").mkdir()
     (tmp_path / ".agent" / "generated.md").write_text("generated\n", encoding="utf-8")
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(
+        '{"hooks":{"SessionStart":[{"hooks":[{"command":"agentpack hook --event SessionStart"}]}]},'
+        '"mcpServers":{"agentpack":{"command":"agentpack","args":["mcp"]}}}',
+        encoding="utf-8",
+    )
+    (tmp_path / ".mcp.json").write_text(
+        '{"mcpServers":{"agentpack":{"command":"agentpack","args":["mcp"]}}}',
+        encoding="utf-8",
+    )
+    (tmp_path / ".claude" / "commands").mkdir()
+    (tmp_path / ".claude" / "commands" / "agentpack.md").write_text("agentpack\n", encoding="utf-8")
 
     monkeypatch.setattr("agentpack.commands.doctor.installed_cli_status", lambda: {
         "agentpack_version": "0.0.0",

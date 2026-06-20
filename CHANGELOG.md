@@ -11,6 +11,12 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.28] — 2026-06-20
+
+### Fixed
+- Repaired the doctor release-hygiene regression test fixture so CI validates advisory release-noise warnings without unrelated missing-init/MCP failures.
+- Supersedes the failed `0.3.27` publish attempt, where npm completed but PyPI was blocked by the CI fixture failure.
+
 ## [0.3.27] — 2026-06-20
 
 ### Added
