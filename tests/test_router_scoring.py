@@ -73,6 +73,58 @@ def test_external_skill_warned_not_selected_by_default():
     assert "production-deploy-checklist" in warnings[0]
 
 
+def test_weak_external_skill_match_is_not_warned_as_actionable():
+    skills = [
+        SkillArtifact(
+            name="cloud-gap-helper",
+            path="skills/cloud-gap-helper/SKILL.md",
+            source="skills",
+            description="Send Slack status for deployment gaps.",
+            triggers=["gaps"],
+            side_effect_level="external",
+            confidence_threshold=0.95,
+        )
+    ]
+
+    selected, warnings, all_scores = score_skills(
+        skills,
+        task="can you fix these gaps",
+        selected_paths=["src/agentpack/router/service.py"],
+        max_selected=3,
+        allow_external=False,
+    )
+
+    assert selected == []
+    assert warnings == []
+    assert all_scores
+    assert all_scores[0].confidence < all_scores[0].skill.confidence_threshold
+
+
+def test_conversational_stopwords_do_not_trigger_external_warning():
+    skills = [
+        SkillArtifact(
+            name="state-management",
+            path="skills/state-management/SKILL.md",
+            source="skills",
+            description="Use when you can manage state.",
+            triggers=["can", "you", "state"],
+            side_effect_level="external",
+        )
+    ]
+
+    selected, warnings, all_scores = score_skills(
+        skills,
+        task="can you fix these gaps",
+        selected_paths=["src/agentpack/router/service.py"],
+        max_selected=3,
+        allow_external=False,
+    )
+
+    assert selected == []
+    assert warnings == []
+    assert all_scores == []
+
+
 def test_unpinned_general_coding_guideline_does_not_clear_confidence_threshold():
     skills = [
         SkillArtifact(
@@ -168,8 +220,9 @@ def test_always_recommend_does_not_boost_external_skills():
     )
 
     assert selected == []
-    assert warnings
+    assert warnings == []
     assert "always-recommend skill" not in all_scores[0].reasons
+    assert "external always-recommend skill blocked" in all_scores[0].reasons
 
 
 def test_rich_metadata_confidence_and_negative_matches():

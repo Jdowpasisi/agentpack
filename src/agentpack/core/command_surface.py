@@ -73,6 +73,15 @@ def fallback_agent_guidance() -> str:
     )
 
 
+def prompt_quality_guidance() -> str:
+    return (
+        "Prompt hygiene: for agent-mode coding work, prefer `Task`, `Files`, "
+        "`Acceptance criteria`, `Constraints`, `Validation`, and `Output` sections. "
+        "For short/simple questions, use Ask/Chat mode instead of agent mode. "
+        "Keep routine responses concise unless the user asks for detail."
+    )
+
+
 def installed_cli_status() -> dict[str, object]:
     binary = shutil.which("agentpack")
     status: dict[str, object] = {

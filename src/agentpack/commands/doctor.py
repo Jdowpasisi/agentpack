@@ -321,7 +321,7 @@ def register(app: typer.Typer) -> None:
         if findings:
             for finding in findings:
                 console.print(f"  [yellow]![/] {finding}")
-            ok = False
+            console.print("  [dim]warning only; keep these out of commits/releases.[/]")
         else:
             console.print("  [green]✓[/] no generated release-noise files staged or untracked")
 

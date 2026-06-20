@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agentpack.core.command_surface import fallback_agent_guidance, refresh_commands
+from agentpack.core.command_surface import fallback_agent_guidance, prompt_quality_guidance, refresh_commands
 from agentpack.integrations.git_hooks import install_git_hooks
 from agentpack.integrations.vscode_tasks import install_vscode_tasks
 
@@ -27,7 +27,8 @@ At the start of every coding task:
 6. Use files listed in context as starting points, but verify with actual code before editing.
 When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the refresh command before editing.
 If context is missing: {commands.context_missing}.
-{fallback_agent_guidance()}{thread_line}
+{fallback_agent_guidance()}
+{prompt_quality_guidance()}{thread_line}
 <!-- agentpack:rule:end -->"""
 
 _RULE_RE = re.compile(

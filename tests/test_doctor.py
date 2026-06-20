@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import datetime, timezone
 
+from typer.testing import CliRunner
+
+from agentpack.cli import app
 from agentpack.commands.doctor import (
     _agentignore_sync_findings,
     _latest_context_path,
@@ -50,6 +53,40 @@ def test_release_hygiene_flags_generated_artifacts(tmp_path: Path, monkeypatch) 
     assert ".agentpack/context.md" in findings[0]
     assert ".coverage" in findings[0]
     assert "pack.py" not in findings[0]
+
+
+def test_doctor_release_hygiene_warning_does_not_fail_summary(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agent").mkdir()
+    (tmp_path / ".agent" / "generated.md").write_text("generated\n", encoding="utf-8")
+
+    monkeypatch.setattr("agentpack.commands.doctor.installed_cli_status", lambda: {
+        "agentpack_version": "0.0.0",
+        "binary": "/bin/agentpack",
+        "importable_commands": ["pack"],
+        "help_commands": ["pack"],
+    })
+    monkeypatch.setattr("agentpack.commands.doctor.available_cli_commands", lambda: ("pack",))
+    monkeypatch.setattr("agentpack.commands.doctor.shutil.which", lambda name: "/bin/agentpack" if name == "agentpack" else None)
+    monkeypatch.setattr("agentpack.commands.doctor._source_checkout_warning", lambda *args, **kwargs: None)
+    monkeypatch.setattr("agentpack.commands.doctor._GIT_TEMPLATE_DIR", tmp_path / "templates")
+    hooks = tmp_path / "templates" / "hooks"
+    hooks.mkdir(parents=True)
+    for name in ("post-checkout", "post-commit", "post-merge"):
+        (hooks / name).write_text("# agentpack:global\n", encoding="utf-8")
+    monkeypatch.setattr("agentpack.commands.doctor._detect_rc_file", lambda: tmp_path / ".zshrc")
+    (tmp_path / ".zshrc").write_text("# agentpack:chpwd:start\n", encoding="utf-8")
+    monkeypatch.setattr("agentpack.commands.doctor.subprocess.run", _doctor_successful_subprocess(tmp_path))
+    monkeypatch.setattr("agentpack.commands.doctor._agentignore_sync_findings", lambda root: ["synced: .agentignore present"])
+    monkeypatch.setattr("agentpack.commands.doctor._thread_conflict_findings", lambda root: [])
+    monkeypatch.setattr("agentpack.commands.doctor._publish_secret_findings", lambda root: [])
+
+    result = CliRunner().invoke(app, ["doctor", "--agent", "generic"])
+
+    assert result.exit_code == 0, result.output
+    assert "generated/local artifacts present" in result.output
+    assert "warning only" in result.output
+    assert "All checks passed" in result.output
 
 
 def test_publish_secret_findings_warns_when_npm_token_missing(tmp_path: Path) -> None:
@@ -160,3 +197,22 @@ def test_command_surface_status_reports_repair_command() -> None:
     assert "importable_commands" in status
     assert status["repair_command"]
     assert refresh_commands("auto").primary.startswith("agentpack ")
+
+
+def _doctor_successful_subprocess(root: Path):
+    def fake_run(args, *pargs, **kwargs):
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        result = Result()
+        if args[:3] == ["git", "config", "--global"]:
+            result.stdout = str(root / "templates")
+        elif args[:2] == ["git", "status"]:
+            result.stdout = "?? .agent/generated.md\n"
+        elif args == ["agentpack", "--version"]:
+            result.stdout = "0.0.0\n"
+        return result
+
+    return fake_run

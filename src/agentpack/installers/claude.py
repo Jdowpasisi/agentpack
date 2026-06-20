@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from agentpack.core.command_surface import fallback_agent_guidance, refresh_commands
+from agentpack.core.command_surface import fallback_agent_guidance, prompt_quality_guidance, refresh_commands
 
 
 def _agentpack_block() -> str:
@@ -59,7 +59,9 @@ agentpack pack --agent claude --task auto
 
 Then read `.agentpack/context.claude.md`.
 
-{fallback_agent_guidance()}{thread_line}
+{fallback_agent_guidance()}
+
+{prompt_quality_guidance()}{thread_line}
 <!-- agentpack:end -->"""
 
 

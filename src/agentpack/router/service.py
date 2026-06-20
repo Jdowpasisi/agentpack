@@ -35,6 +35,13 @@ class TaskModeDecision:
     signals: list[str]
 
 
+@dataclass(frozen=True)
+class PromptQualityDecision:
+    recommended_interaction_mode: str
+    warnings: list[str]
+    template: list[str]
+
+
 class RouteService:
     def inventory(self, root: Path, *, use_index: bool = True) -> SkillInventory:
         cfg = load_config(root)
@@ -47,6 +54,7 @@ class RouteService:
         task = _normalize_task(task)
         mode_decision = classify_task_mode(task)
         task_mode = mode_decision.mode
+        prompt_quality = assess_prompt_quality(task, task_mode)
         cfg = load_config(root)
         plan = PackPlanner().plan(PackRequest(
             root=root,
@@ -89,6 +97,7 @@ class RouteService:
 
         result = RouteResult(
             task=task,
+            recommended_interaction_mode=prompt_quality.recommended_interaction_mode,
             task_mode=task_mode,
             task_mode_confidence=mode_decision.confidence,
             task_mode_signals=mode_decision.signals,
@@ -99,6 +108,8 @@ class RouteService:
             suggested_commands=commands,
             evidence_checklist=checklist,
             routing_notes=notes,
+            prompt_quality_warnings=prompt_quality.warnings,
+            recommended_prompt_template=prompt_quality.template,
             safety_warnings=safety_warnings,
         )
         result.agent_prompt = build_agent_prompt(result)
@@ -181,6 +192,110 @@ def classify_task_mode(task: str) -> TaskModeDecision:
     if _has_any(lower, ("release", "changelog", "benchmark", "publish"), signals, "release-docs"):
         return TaskModeDecision("release_docs", _confidence(signals), signals)
     return TaskModeDecision("broad_feature", 0.35, ["fallback"])
+
+
+def assess_prompt_quality(task: str, task_mode: str) -> PromptQualityDecision:
+    lower = task.lower()
+    warnings: list[str] = []
+    words = _task_words(task)
+    has_file_context = _has_file_context(task)
+    has_output_constraint = _has_output_constraint(lower)
+    has_spec_signal = _has_spec_signal(lower)
+    simple_question = _is_simple_question(task, words)
+
+    if not has_file_context and task_mode not in {"pr_review", "runtime_debugging", "integration_readiness"}:
+        warnings.append("No file context detected. Add `#file` references or name the target files before using agent mode.")
+    if _looks_vague_or_repeated(lower, words):
+        warnings.append("Prompt is very short or retry-shaped. Rephrase with concrete files, observed behavior, and acceptance criteria instead of repeating.")
+    if len(words) <= 35 and not has_output_constraint:
+        warnings.append("Short prompt has no output constraint. Ask for concise bullets, no commentary, or a max length to avoid verbose output.")
+    if not has_spec_signal and task_mode in {"broad_feature", "runtime_debugging", "integration_readiness", "release_docs"}:
+        warnings.append("No spec or acceptance criteria detected. Add requirements, constraints, and validation before coding.")
+    if simple_question:
+        warnings.append("Simple question shape detected. Prefer Ask/Chat mode unless files, commands, or edits are required.")
+    if _has_frustration_signal(task):
+        warnings.append("Frustration signal detected. Pause retries and switch to a smaller diagnostic prompt.")
+    if _has_session_drift_signal(lower):
+        warnings.append("Multiple task types detected. Start a fresh focused session when switching between review, debug, release, docs, and feature work.")
+
+    mode = "ask" if simple_question and not has_file_context else "agent"
+    return PromptQualityDecision(
+        recommended_interaction_mode=mode,
+        warnings=warnings,
+        template=_prompt_template() if warnings else [],
+    )
+
+
+def _task_words(task: str) -> list[str]:
+    return re.findall(r"[A-Za-z0-9_#./:-]+", task)
+
+
+def _has_file_context(task: str) -> bool:
+    if "#file" in task.lower():
+        return True
+    return bool(re.search(r"(?:^|\s)[\w./-]+\.(?:py|ts|tsx|js|jsx|go|rs|java|rb|md|json|toml|ya?ml|css|scss)(?=\s|$|[:,])", task))
+
+
+def _has_output_constraint(lower: str) -> bool:
+    return any(term in lower for term in ("concise", "one-line", "one line", "no commentary", "brief", "max ", "bullets", "json only", "short"))
+
+
+def _has_spec_signal(lower: str) -> bool:
+    return any(term in lower for term in ("acceptance", "criteria", "requirements", "constraints", "validation", "must", "ensure", "spec", "plan:"))
+
+
+def _is_simple_question(task: str, words: list[str]) -> bool:
+    lower = task.lower().strip()
+    if len(words) > 14:
+        return False
+    if any(term in lower for term in ("fix", "edit", "change", "implement", "add ", "remove", "update", "release", "run ")):
+        return False
+    return lower.endswith("?") or lower.startswith(("what ", "why ", "how ", "can ", "should ", "is ", "does ", "do "))
+
+
+def _looks_vague_or_repeated(lower: str, words: list[str]) -> bool:
+    if len(words) <= 5:
+        return True
+    return lower.strip() in {
+        "fix this",
+        "try again",
+        "do it again",
+        "not working",
+        "can you fix this",
+        "can you fix these gaps",
+    }
+
+
+def _has_frustration_signal(task: str) -> bool:
+    letters = [char for char in task if char.isalpha()]
+    uppercase_ratio = sum(1 for char in letters if char.isupper()) / len(letters) if letters else 0
+    return "!!!" in task or "???" in task or (len(letters) >= 10 and uppercase_ratio >= 0.65)
+
+
+def _has_session_drift_signal(lower: str) -> bool:
+    task_types = sum(
+        1
+        for terms in (
+            ("review", "pr "),
+            ("debug", "log", "runtime"),
+            ("release", "publish", "changelog"),
+            ("docs", "readme"),
+            ("feature", "implement", "build"),
+        )
+        if any(term in lower for term in terms)
+    )
+    return task_types >= 3
+
+
+def _prompt_template() -> list[str]:
+    return [
+        "Task: <what to change or answer>",
+        "Files: #file:<path> #file:<path> (or name the target files)",
+        "Acceptance criteria: <bullets>",
+        "Constraints: <scope, style, risk limits>",
+        "Validation: <tests/checks to run>",
+        "Output: concise bullets; no extra commentary",
+    ]
 
 
 def _has_any(lower: str, terms: tuple[str, ...], signals: list[str], label: str) -> bool:

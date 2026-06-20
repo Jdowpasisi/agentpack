@@ -8,6 +8,7 @@ def build_agent_prompt(result: RouteResult) -> str:
         "Use Agentpack route result before editing.",
         "",
         f"Task: {result.task}",
+        f"Recommended interaction mode: {result.recommended_interaction_mode}",
         f"Task mode: {result.task_mode} (confidence {result.task_mode_confidence:.2f})",
         "",
         "Read these files first:",
@@ -41,6 +42,13 @@ def build_agent_prompt(result: RouteResult) -> str:
     if result.safety_warnings:
         lines += ["", "Safety warnings:"]
         lines.extend(f"- {warning}" for warning in result.safety_warnings)
+
+    if result.prompt_quality_warnings:
+        lines += ["", "Prompt quality warnings:"]
+        lines.extend(f"- {warning}" for warning in result.prompt_quality_warnings)
+        if result.recommended_prompt_template:
+            lines += ["", "Better prompt template:"]
+            lines.extend(f"- {item}" for item in result.recommended_prompt_template)
 
     if result.routing_notes:
         lines += ["", "Routing notes:"]
@@ -115,6 +123,7 @@ def render_plain(result: RouteResult) -> str:
         lines.append("- No external side-effect skills selected.")
 
     lines += ["", "Routing:"]
+    lines.append(f"- recommended_interaction_mode: {result.recommended_interaction_mode}")
     lines.append(f"- task_mode: {result.task_mode} (confidence {result.task_mode_confidence:.2f})")
     if result.task_mode_signals:
         lines.append(f"- signals: {', '.join(result.task_mode_signals[:4])}")
@@ -123,6 +132,12 @@ def render_plain(result: RouteResult) -> str:
     if result.evidence_checklist:
         lines.append("- evidence checklist:")
         lines.extend(f"  - {item}" for item in result.evidence_checklist)
+    if result.prompt_quality_warnings:
+        lines.append("- prompt quality warnings:")
+        lines.extend(f"  - {warning}" for warning in result.prompt_quality_warnings)
+    if result.recommended_prompt_template:
+        lines.append("- prompt template:")
+        lines.extend(f"  - {item}" for item in result.recommended_prompt_template)
 
     lines += ["", "Agent prompt:", result.agent_prompt]
     return "\n".join(lines)

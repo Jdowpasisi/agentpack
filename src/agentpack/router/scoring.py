@@ -17,8 +17,8 @@ _GENERAL_CODING_SKILL_TERMS = {
     "surgical", "verification", "verifiable", "writing",
 }
 _STOPWORDS = {
-    "and", "are", "but", "for", "from", "into", "the", "this", "that", "then",
-    "with", "your", "fix", "add", "make", "debug",
+    "and", "are", "but", "can", "for", "from", "into", "the", "this", "that", "then",
+    "with", "you", "your", "fix", "add", "make", "debug",
 }
 _TASK_TYPE_TERMS = {
     "bugfix": {"bug", "broken", "error", "exception", "fail", "failing", "fix", "issue", "regression"},
@@ -92,7 +92,9 @@ def score_skills(
         item = max(pool, key=lambda candidate: (_diverse_score(candidate, selected), candidate.score))
         pool.remove(item)
         if item.skill.side_effect_level == "external" and not allow_external:
-            if len(warnings) < 10:
+            if not _should_warn_blocked_external(item):
+                continue
+            if len(warnings) < 5:
                 warnings.append(
                     f"External side-effect skill not auto-selected: {item.skill.name} ({item.skill.path})"
                 )
@@ -105,6 +107,25 @@ def score_skills(
     if omitted_external_warnings:
         warnings.append(f"{omitted_external_warnings} more external side-effect skills not shown.")
     return selected, warnings, scored
+
+
+def _should_warn_blocked_external(item: SelectedSkill) -> bool:
+    if item.confidence >= item.skill.confidence_threshold:
+        return True
+    return _has_strong_external_warning_reason(item.reasons)
+
+
+def _has_strong_external_warning_reason(reasons: list[str]) -> bool:
+    for reason in reasons:
+        if reason == "test task match":
+            return True
+        if reason.startswith(("task type match:", "framework match:", "language match:", "path hint match:", "tool match:", "historical success boost:")):
+            return True
+        if reason.startswith("task keyword match:"):
+            matches = [part.strip() for part in reason.split(":", 1)[1].split(",") if part.strip()]
+            if len(matches) >= 2:
+                return True
+    return False
 
 
 def _score_skill(

@@ -6,7 +6,14 @@ from pathlib import Path
 import typer.main
 
 from agentpack.cli import app
-from agentpack.core.command_surface import _commands_from_help, available_cli_commands, missing_commands, refresh_command_args, refresh_commands
+from agentpack.core.command_surface import (
+    _commands_from_help,
+    available_cli_commands,
+    missing_commands,
+    prompt_quality_guidance,
+    refresh_command_args,
+    refresh_commands,
+)
 from agentpack.installers.antigravity import _gemini_block
 from agentpack.installers.claude import _agentpack_block as claude_block
 from agentpack.installers.codex import _agentpack_block as codex_block
@@ -95,3 +102,12 @@ def test_static_refresh_guidance_uses_portable_commands() -> None:
         content = path.read_text(encoding="utf-8")
         assert "agentpack guard" not in content
         assert '"$AGENTPACK_BIN" guard' not in content
+
+
+def test_generated_agent_rules_include_prompt_quality_guidance() -> None:
+    guidance = prompt_quality_guidance()
+
+    for block in [codex_block(), claude_block(), _cursor_rule(), _windsurf_rule(), _gemini_block()]:
+        assert guidance in block
+        assert "Acceptance criteria" in block
+        assert "Ask/Chat mode" in block

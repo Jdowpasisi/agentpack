@@ -118,6 +118,7 @@ def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, mon
     data = json.loads(result.output)
     assert set(data) >= {
         "task",
+        "recommended_interaction_mode",
         "task_mode",
         "task_mode_confidence",
         "task_mode_signals",
@@ -127,6 +128,8 @@ def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, mon
         "suggested_commands",
         "evidence_checklist",
         "routing_notes",
+        "prompt_quality_warnings",
+        "recommended_prompt_template",
         "safety_warnings",
         "agent_prompt",
     }
@@ -138,6 +141,80 @@ def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, mon
     assert data["task_mode_confidence"] > 0
     assert not (tmp_path / ".agentpack" / "context.md").exists()
     assert not (tmp_path / ".agentpack" / "context.claude.md").exists()
+
+
+def test_route_short_simple_question_recommends_ask_mode(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["route", "--task", "what does this error mean?", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["recommended_interaction_mode"] == "ask"
+    assert any("Ask/Chat mode" in warning for warning in data["prompt_quality_warnings"])
+    assert data["recommended_prompt_template"]
+
+
+def test_route_vague_agent_prompt_recommends_spec_and_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["route", "--task", "can you fix these gaps..", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    warnings = "\n".join(data["prompt_quality_warnings"])
+    assert data["recommended_interaction_mode"] == "agent"
+    assert "No file context detected" in warnings
+    assert "acceptance criteria" in warnings
+    assert "Short prompt has no output constraint" in warnings
+
+
+def test_route_caps_frustration_warns_to_switch_strategy(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["route", "--task", "THIS IS STILL BROKEN!!!", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert any("Frustration signal" in warning for warning in data["prompt_quality_warnings"])
+
+
+def test_route_suppresses_weak_external_skill_warning_noise(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text(
+        "[skills]\npaths = [\".agentpack/skills\"]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "agentpack.py").write_text("def route(): return True\n", encoding="utf-8")
+
+    for idx in range(8):
+        skill = tmp_path / ".agentpack" / "skills" / f"cloud-gap-{idx}" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            "---\n"
+            "confidence_threshold: 0.95\n"
+            "triggers: [gaps]\n"
+            "---\n"
+            f"# cloud-gap-{idx}\n\n"
+            "Send Slack status during cloud deploys and migrations.\n",
+            encoding="utf-8",
+        )
+
+    result = CliRunner().invoke(app, ["route", "--task", "can you fix these gaps..", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["safety_warnings"] == []
+    assert "External side-effect skill not auto-selected" not in data["agent_prompt"]
+    assert "more external side-effect skills not shown" not in data["agent_prompt"]
 
 
 def test_route_refreshes_stale_skills_index(tmp_path, monkeypatch) -> None:

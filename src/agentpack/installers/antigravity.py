@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agentpack.core.command_surface import fallback_agent_guidance, refresh_commands
+from agentpack.core.command_surface import fallback_agent_guidance, prompt_quality_guidance, refresh_commands
 from agentpack.integrations.git_hooks import install_git_hooks
 from agentpack.integrations.vscode_tasks import install_vscode_tasks
 
@@ -31,7 +31,9 @@ At the start of every coding task:
 
 When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the refresh command before editing.
 
-{fallback_agent_guidance()}{thread_line}
+{fallback_agent_guidance()}
+
+{prompt_quality_guidance()}{thread_line}
 <!-- agentpack:block:end -->"""
 
 _BLOCK_RE = re.compile(

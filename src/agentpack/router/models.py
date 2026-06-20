@@ -64,6 +64,7 @@ class SkillInventory(BaseModel):
 
 class RouteResult(BaseModel):
     task: str
+    recommended_interaction_mode: str = "agent"
     task_mode: str = "broad_feature"
     task_mode_confidence: float = 0.0
     task_mode_signals: list[str] = Field(default_factory=list)
@@ -74,6 +75,8 @@ class RouteResult(BaseModel):
     suggested_commands: list[CommandSuggestion] = Field(default_factory=list)
     evidence_checklist: list[str] = Field(default_factory=list)
     routing_notes: list[str] = Field(default_factory=list)
+    prompt_quality_warnings: list[str] = Field(default_factory=list)
+    recommended_prompt_template: list[str] = Field(default_factory=list)
     safety_warnings: list[str] = Field(default_factory=list)
     agent_prompt: str = ""
 
