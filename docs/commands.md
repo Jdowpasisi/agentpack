@@ -443,12 +443,17 @@ All installs are idempotent — safe to re-run, merge with existing config, neve
 ### `agentpack upgrade`
 
 Refresh the current repo's auto-detected IDE or agent integration after
-upgrading `agentpack-cli`.
+upgrading `agentpack-cli`. This is the post-upgrade repair path: it rewrites
+stale AgentPack rule blocks, refreshes agent hooks/tasks/plugin cache, and
+updates already-installed global AgentPack git/shell hooks. It does not opt a
+machine into new global automation unless AgentPack hooks were already present.
 
 ```bash
 agentpack upgrade                 # auto-detect the current IDE/agent
 agentpack upgrade --agent codex   # AGENTS.md + .codex/hooks.json + local plugin cache
 agentpack upgrade --agent cursor  # Cursor rules/hooks
+agentpack upgrade --agent all     # refresh every supported repo integration
+agentpack upgrade --no-repair-existing-global-hooks
 ```
 
 `--agent auto` does not default to Codex. It uses the same host detection as

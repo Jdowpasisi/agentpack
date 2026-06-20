@@ -68,15 +68,16 @@ For the cross-host plugin/IDE shape, see [`Agent and IDE plugins`](agent-plugins
 
 Use `--agent` explicitly to override detection. `agentpack install` remains available when you only want to repair or reconfigure agent files without reinitializing project state.
 
-After upgrading an existing AgentPack install, refresh the detected host
-integration explicitly:
+After upgrading an existing AgentPack install, run the post-upgrade refresh:
 
 ```bash
 agentpack upgrade --agent auto
 ```
 
 `auto` does not default to Codex. It detects the current IDE/agent from the
-environment and repo files, then refreshes only that integration.
+environment and repo files, then refreshes that integration. The command also
+updates already-installed global AgentPack git/shell hooks, without opting new
+machines into global automation.
 
 ### Claude Code
 
