@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agentpack hook --event SessionStart"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agentpack hook --event UserPromptSubmit",
+            "timeout": 5,
+            "statusMessage": "Checking agentpack index..."
+          }
+        ]
+      }
+    ]
+  }
+}

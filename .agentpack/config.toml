@@ -1,0 +1,117 @@
+[project]
+# Restrict packing to these glob patterns (empty = all files).
+# Example: include_globs = ["app/**", "packages/core/**"]
+include_globs = []
+# Always exclude these patterns on top of .agentignore.
+# Example: exclude_globs = ["migrations/**", "generated/**", "snapshots/**"]
+exclude_globs = []
+
+[context]
+default_budget = 40000   # token budget per pack
+default_mode = "balanced"  # lite | balanced | deep
+max_file_tokens = 4000   # files larger than this are summarised, not inlined
+incremental_scan = true  # reuse previous snapshot and re-hash only dirty paths when safe
+full_scan_interval_seconds = 3600  # periodic correctness backstop
+max_incremental_changed_files = 200  # fall back to full scan above this many dirty paths
+min_summary_score = 60   # unchanged summary files below this score are excluded
+max_summary_files_lite = 15      # 0 = no cap
+max_summary_files_balanced = 40  # 0 = no cap
+max_summary_files_deep = 0       # deep mode stays uncapped
+include_tests = true
+include_configs = true
+include_receipts = true
+
+[context_lite]
+budget = 8000
+max_selected_files = 12
+max_omitted_files = 5
+max_stubs = 8
+summary_chars = 500
+
+[summary]
+provider = "offline"
+schema_version = 2
+
+[learning]
+markdown_output = ".agentpack/learning.md"
+daily_output = ".agentpack/daily-summary.md"
+skill_map_output = ".agentpack/skills-progress.json"
+agent_lessons_output = ".agentpack/agent-lessons.md"
+llm_prompt_output = ".agentpack/learning.prompt.md"
+pr_comment_output = ".agentpack/pr-learning-comment.md"
+feedback_output = ".agentpack/learning-feedback.jsonl"
+ranking_feedback_output = ".agentpack/ranking-feedback.jsonl"
+dashboard_output = ".agentpack/learning-dashboard.html"
+team_lessons_output = ".agentpack/team-lessons.md"
+provider_command = ""
+provider_timeout_seconds = 60
+concept_provider_command = ""
+concept_provider_timeout_seconds = 30
+concept_provider_required = false
+inject_agent_lessons = true
+max_changed_files = 20
+max_diff_chars_per_file = 1200
+max_cards = 5
+max_quiz_questions = 5
+min_groundedness_score = 70
+
+[runtime]
+pack_registry_output = ".agentpack/pack-registry.json"
+session_events_output = ".agentpack/session-events.jsonl"
+max_registry_records = 200
+max_retrieve_chars = 20000
+max_output_summary_items = 40
+
+[loop]
+enabled = true
+runner = ""
+max_iterations = 10
+verification_commands = []
+require_verification = true
+require_progress_update = true
+require_clean_tree = true
+auto_commit = false
+auto_push = false
+runner_timeout_seconds = 600
+verification_timeout_seconds = 600
+max_repeated_failures = 3
+
+[hooks]
+# Claude UserPromptSubmit can detect a clearly different coding prompt,
+# update .agentpack/task.md, and repack even if files did not change.
+task_switch_detection = true
+task_switch_min_terms = 1
+# Block once on task switches so the first prompt sees fresh top-file hints.
+blocking_task_refresh = true
+
+[skills]
+# Skill/rule sources used by `agentpack route` and MCP `route_task`.
+paths = ["skills", ".claude-plugin", ".claude/skills", "~/.claude/skills", "~/.codex/skills", "~/.agents/skills", ".agentpack/skills", ".cursor/rules"]
+max_selected = 3
+always_recommend = ["karpathy-guidelines"]
+allow_external_side_effects = false
+
+[scoring]
+# Scoring weights — higher wins budget allocation.
+# Tune these to make agentpack favour your team's file layout.
+modified              = 100
+staged                = 90
+filename_keyword      = 80
+symbol_keyword        = 70
+content_keyword_per_hit = 10
+content_keyword_max   = 60
+direct_dep            = 50
+reverse_dep           = 40
+related_test          = 35
+config_file           = 25
+knowledge_file        = 30
+implementation_role   = 35
+cross_layer_related   = 30
+co_changed            = 28
+recall_neighbor       = 24
+workspace_match       = 32
+weak_filename_match_penalty = -45
+recently_modified     = 20
+churn_high            = 15
+large_unrelated_penalty = -50
+ignored_penalty       = -100

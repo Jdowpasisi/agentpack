@@ -9,7 +9,7 @@ Use when the user invokes `@agentpack-refresh`, context looks stale, or task/git
 
 ## Steps
 
-1. Run the stable refresh path:
+1. Run the portable refresh path:
 
 ```bash
 agentpack pack --agent codex --task auto

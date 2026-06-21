@@ -55,3 +55,12 @@ Gemfile.lock
 *.csv
 *.jsonl
 *.parquet
+
+# agentpack:imported-gitignore:start
+# Imported from git ignore sources because these look like generated/noisy paths
+.eggs/
+env/
+.pytest_cache/*
+.ruff_cache/*
+**/.claude/settings.local.json
+# agentpack:imported-gitignore:end

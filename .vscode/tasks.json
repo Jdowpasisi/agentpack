@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AgentPack: Repack context",
+      "type": "shell",
+      "command": "agentpack pack --agent auto --task auto --mode balanced",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentPack: Repack (auto task)",
+      "type": "shell",
+      "command": "agentpack guard --agent auto --repair-stale --refresh-context --mode balanced",
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AgentPack: Guard context",
+      "type": "shell",
+      "command": "agentpack guard --agent auto --repair-stale --refresh-context --mode balanced",
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

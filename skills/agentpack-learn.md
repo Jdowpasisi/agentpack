@@ -5,7 +5,7 @@ description: Learn one thing from current local AgentPack session context.
 
 # AgentPack Learn
 
-Use when the user invokes `/agentpack-learn <statement>` or `@agentpack-learn <statement>`.
+Use when the user invokes `@agentpack-learn <statement>` in Codex or `/agentpack-learn <statement>` in Claude Code.
 
 Use current local agent session context to teach what the user asks to learn.
 

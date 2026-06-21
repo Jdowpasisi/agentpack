@@ -6,11 +6,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_JSON = ROOT / ".codex-plugin" / "plugin.json"
+PACKAGED_PLUGIN_JSON = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / ".codex-plugin" / "plugin.json"
 SKILLS_DIR = ROOT / "skills"
+PACKAGED_SKILLS_DIR = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / "skills"
 
 
 def test_codex_plugin_manifest_points_to_skills() -> None:
     manifest = json.loads(PLUGIN_JSON.read_text(encoding="utf-8"))
+    packaged_manifest = json.loads(PACKAGED_PLUGIN_JSON.read_text(encoding="utf-8"))
+
+    assert packaged_manifest == manifest
 
     assert manifest["name"] == "agentpack"
     assert manifest["skills"] == "./skills/"
@@ -24,6 +29,8 @@ def test_codex_plugin_manifest_points_to_skills() -> None:
     ).lower()
     assert "local context engine" in description
     assert "not a coding agent" in description
+    prompts = manifest["interface"]["defaultPrompt"]
+    assert "@agentpack-learn retry handling in this repo" in prompts
 
 
 def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
@@ -37,6 +44,12 @@ def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
     }
 
     assert {path.name for path in SKILLS_DIR.glob("*.md")} == expected
+    assert {path.name for path in PACKAGED_SKILLS_DIR.glob("*.md")} == expected
+
+    for skill_name in expected:
+        assert (SKILLS_DIR / skill_name).read_text(encoding="utf-8") == (
+            PACKAGED_SKILLS_DIR / skill_name
+        ).read_text(encoding="utf-8")
 
     combined = "\n".join(path.read_text(encoding="utf-8") for path in SKILLS_DIR.glob("*.md"))
     assert "agentpack route --task" in combined
@@ -87,6 +100,8 @@ def test_agentpack_learn_slash_command_keeps_user_statement_last() -> None:
         assert ".agentpack/agent-lessons.md" in text
 
     for text in (codex_skill, packaged_codex_skill):
+        assert "@agentpack-learn <statement>" in text
+        assert "/agentpack-learn <statement>" in text
         assert "Learning Curve Destroyer" in text
         assert "Reveal answer only after at least two tries" in text
         assert ".agentpack/session-events.jsonl" in text
@@ -111,6 +126,7 @@ def test_agent_plugin_distribution_docs_cover_supported_hosts() -> None:
 
     assert "does not reimplement ranking, scanning, packing, mcp, or benchmarking" in docs
     assert "local context engine, not a coding agent" in docs
+    assert "review, and learning" in docs
     assert "agentpack doctor --agent <agent>" in docs
     assert "native-integrations/cursor-extension/" in docs
     assert "native-integrations/windsurf-extension/" in docs

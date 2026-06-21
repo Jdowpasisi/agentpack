@@ -7,22 +7,24 @@ Prefer MCP over reading `.agentpack/context*.md` directly because MCP auto-refre
 and repo-snapshot context before returning.
 
 ```
-mcp__agentpack__get_context()
+mcp__agentpack__route_task(task="<what you're working on>")
 ```
 
-For a brand-new task, call:
+When full packed context is needed, call:
 
 ```
 mcp__agentpack__pack_context(task="<what you're working on>", budget=4000)
 ```
 
-Executable fallback guard:
+Executable fallback:
 
 ```bash
 agentpack guard --agent claude --repair-stale --refresh-context
 ```
 
 Other tools:
+- `mcp__agentpack__readiness()` — proves this host exposes AgentPack MCP tools
+- `mcp__agentpack__route_task(task)` — files, rules, skills, commands, and safety warnings
 - `mcp__agentpack__explain_file(path)` — score breakdown + symbols for a file
 - `mcp__agentpack__get_related_files(path)` — import-graph neighbours
 - `mcp__agentpack__get_stats()` — token/saving stats for the latest pack
@@ -32,9 +34,15 @@ Other tools:
 If MCP is not available, fall back to the CLI:
 
 ```bash
-printf '%s\n' "<task>" > .agentpack/task.md
+printf '%s
+' "<task>" > .agentpack/task.md
 agentpack pack --agent claude --task auto
 ```
 
 Then read `.agentpack/context.claude.md`.
+
+If AgentPack tools are unavailable or context looks stale/wrong-worktree, do not trust old pack output. Use direct `rg`, PR diff inspection, and target-file reads, then run focused validation.
+For multiple agent threads in one repo, stay in legacy global mode unless a thread is explicit. Use
+`AGENTPACK_THREAD_ID=<stable-id> agentpack guard --agent claude --repair-stale --refresh-context --thread auto`
+or pass `thread_id` to AgentPack MCP tools to use `.agentpack/threads/<id>/...` and get overlap warnings.
 <!-- agentpack:end -->
