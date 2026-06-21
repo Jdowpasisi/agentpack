@@ -334,18 +334,25 @@ def register(app: typer.Typer) -> None:
         else:
             console.print("  [green]✓[/] npm publish token available in environment")
 
-        # --- Slash command ---
-        console.print("\n[bold]Slash command (/agentpack)[/]")
-        local_cmd = root / ".claude" / "commands" / "agentpack.md"
-        global_cmd = Path.home() / ".claude" / "commands" / "agentpack.md"
-        if local_cmd.exists():
-            console.print(f"  [green]✓[/] Slash command installed (local): {local_cmd}")
-        else:
-            console.print("  [dim]-[/] Slash command not installed locally — run: agentpack install --agent claude")
-        if global_cmd.exists():
-            console.print(f"  [green]✓[/] Slash command installed (global): {global_cmd}")
-        else:
-            console.print("  [dim]-[/] Slash command not installed globally — run: agentpack install --agent claude --global")
+        # --- Slash commands ---
+        console.print("\n[bold]Slash commands (/agentpack, /agentpack-learn)[/]")
+        for filename in ("agentpack.md", "agentpack-learn.md"):
+            local_cmd = root / ".claude" / "commands" / filename
+            global_cmd = Path.home() / ".claude" / "commands" / filename
+            if local_cmd.exists():
+                console.print(f"  [green]✓[/] Slash command installed (local): {local_cmd}")
+            else:
+                console.print(
+                    f"  [dim]-[/] Slash command not installed locally: {local_cmd} — "
+                    "run: agentpack install --agent claude"
+                )
+            if global_cmd.exists():
+                console.print(f"  [green]✓[/] Slash command installed (global): {global_cmd}")
+            else:
+                console.print(
+                    f"  [dim]-[/] Slash command not installed globally: {global_cmd} — "
+                    "run: agentpack install --agent claude --global"
+                )
 
         _print_summary(ok)
 

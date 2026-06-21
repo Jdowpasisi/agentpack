@@ -62,7 +62,11 @@ def install_agent_integration(
             ),
         }
         if slash_command and install_slash_command is not None:
-            results["/agentpack"] = install_slash_command(root, global_install)
+            slash_results = install_slash_command(root, global_install)
+            if isinstance(slash_results, dict):
+                results.update(slash_results)
+            else:
+                results["/agentpack"] = slash_results
         return results
 
     if agent == "cursor":

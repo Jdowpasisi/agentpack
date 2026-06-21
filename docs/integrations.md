@@ -129,8 +129,8 @@ Configures:
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 
 Optional plugin packaging lives in `.codex-plugin/plugin.json` and `skills/`.
-It adds `@agentpack-route`, `@agentpack-pack`, `@agentpack-refresh`, and
-`@agentpack-review` as thin Codex-facing skills that call the same local
+It adds `@agentpack-route`, `@agentpack-pack`, `@agentpack-refresh`,
+`@agentpack-review`, and `@agentpack-learn` as thin Codex-facing skills that call the same local
 AgentPack CLI/MCP behavior. `agentpack init --agent codex`, `agentpack repair
 --agent codex`, and `agentpack upgrade --agent codex` install or refresh the
 local plugin package under Codex's plugin cache. See [`Codex
@@ -156,7 +156,7 @@ Configures:
 | Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` + `.codex/hooks.json` | `GEMINI.md` + generated `.agent/skills/agentpack/SKILL.md` after pack |
 | Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` | ✅ Skill auto-activation |
 | Auto-repack when stale | ✅ hook (content hash via `root_hash`, ~1ms when fresh) | ✅ git hooks | ✅ git hooks | ✅ git hooks | ✅ git hooks |
-| Manual repack shortcut | ✅ `/agentpack` slash cmd | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
+| Manual repack shortcut | ✅ `/agentpack` slash cmd; `/agentpack-learn` for local-context learning | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
 
 ---
 

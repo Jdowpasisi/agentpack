@@ -206,6 +206,10 @@ def _patch_agentignore(
 
 def _install_agent_integration(root, agent: str) -> dict[str, str]:
     """Install repo-local agent integration files after `agentpack init`."""
+    if agent == "claude":
+        from agentpack.commands.install import _install_slash_command
+
+        return install_agent_integration(root, agent, install_slash_command=_install_slash_command)
     return install_agent_integration(root, agent)
 
 
@@ -246,7 +250,13 @@ def _resolve_init_agent(root: Path, agent: str, *, force: bool = False) -> str:
 
 def _agent_integration_paths(agent: str) -> tuple[str, ...]:
     if agent == "claude":
-        return ("CLAUDE.md", ".claude/settings.json", ".mcp.json")
+        return (
+            "CLAUDE.md",
+            ".claude/settings.json",
+            ".mcp.json",
+            ".claude/commands/agentpack.md",
+            ".claude/commands/agentpack-learn.md",
+        )
     if agent == "cursor":
         return (".cursorrules", ".cursor/rules/agentpack.mdc", ".vscode/tasks.json")
     if agent == "windsurf":

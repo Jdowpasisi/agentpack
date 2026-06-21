@@ -47,8 +47,8 @@ def _print_install_results(agent: str, results: dict[str, str]) -> None:
             console.print(f"[green].git/hooks/{key[4:]} {action}.[/]")
         elif key == "vscode:tasks":
             console.print(f"[green].vscode/tasks.json {action}.[/]")
-        elif key == "/agentpack":
-            console.print(f"[green]/agentpack slash command {action}.[/]")
+        elif key.startswith("/"):
+            console.print(f"[green]{key} slash command {action}.[/]")
         else:
             console.print(f"[green]{key} {action}.[/]")
 
@@ -256,18 +256,24 @@ def register(app: typer.Typer) -> None:
             console.print("  Current repo hooks now delegate through AgentPack's safe GitAutoRepack path.")
 
 
-def _install_slash_command(root: Path, global_install: bool) -> str:
-    import importlib.resources
-
+def _install_slash_command(root: Path, global_install: bool) -> dict[str, str]:
     commands_dir = Path.home() / ".claude" / "commands" if global_install else root / ".claude" / "commands"
     commands_dir.mkdir(parents=True, exist_ok=True)
-    dest = commands_dir / "agentpack.md"
+    return {
+        "/agentpack": _install_slash_command_file(commands_dir, "agentpack.md"),
+        "/agentpack-learn": _install_slash_command_file(commands_dir, "agentpack-learn.md"),
+    }
 
+
+def _install_slash_command_file(commands_dir: Path, filename: str) -> str:
+    import importlib.resources
+
+    dest = commands_dir / filename
     try:
-        pkg_files = importlib.resources.files("agentpack") / "data" / "agentpack.md"
+        pkg_files = importlib.resources.files("agentpack") / "data" / filename
         source_text = pkg_files.read_text(encoding="utf-8")
     except Exception:
-        source_text = (Path(__file__).parent.parent / "data" / "agentpack.md").read_text(encoding="utf-8")
+        source_text = (Path(__file__).parent.parent / "data" / filename).read_text(encoding="utf-8")
 
     existed = dest.exists()
     if existed and dest.read_text(encoding="utf-8") == source_text:

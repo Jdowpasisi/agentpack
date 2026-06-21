@@ -15,6 +15,7 @@ This is the first concrete packaged plugin. The broader plugin and IDE distribut
 - `@agentpack-pack <task>` writes the task and builds `.agentpack/context.md`.
 - `@agentpack-refresh [task]` refreshes stale context through the Codex guard path.
 - `@agentpack-review` inspects the diff and suggests benchmark capture or missing checks.
+- `@agentpack-learn <statement>` turns current local AgentPack session context into an interactive learning prompt.
 
 ## Install
 
@@ -76,6 +77,14 @@ After edits:
 ```
 
 Review should inspect `git diff`, run or recommend checks, and optionally capture a benchmark case.
+
+For learning from the current local context:
+
+```text
+@agentpack-learn explain the router scoring changes from this session
+```
+
+The learning command keeps a stable prompt prefix for caching and appends the user learning statement at the end.
 
 ## Rules For Codex
 

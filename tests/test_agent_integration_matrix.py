@@ -12,7 +12,13 @@ from agentpack.integrations.agents import check_agent_integration
 
 AGENTS = ("claude", "cursor", "windsurf", "codex", "antigravity", "generic")
 EXPECTED_FILES = {
-    "claude": ("CLAUDE.md", ".claude/settings.json", ".mcp.json"),
+    "claude": (
+        "CLAUDE.md",
+        ".claude/settings.json",
+        ".mcp.json",
+        ".claude/commands/agentpack.md",
+        ".claude/commands/agentpack-learn.md",
+    ),
     "cursor": (".cursorrules", ".cursor/rules/agentpack.mdc", ".vscode/tasks.json"),
     "windsurf": (".windsurfrules", ".vscode/tasks.json"),
     "codex": ("AGENTS.md", ".codex/hooks.json"),

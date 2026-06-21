@@ -255,9 +255,11 @@ Agent config
   ! ~/.claude/settings.json has no agentpack hooks — run: agentpack install --agent claude --global
   ! Hooks local-only — context won't auto-inject in other repos. Run: agentpack install --agent claude --global
 
-Slash command (/agentpack)
+Slash commands (/agentpack, /agentpack-learn)
   ✓ Slash command installed (local): .claude/commands/agentpack.md
-  - Slash command not installed globally — run: agentpack install --agent claude --global
+  ✓ Slash command installed (local): .claude/commands/agentpack-learn.md
+  - Slash command not installed globally: ~/.claude/commands/agentpack.md — run: agentpack install --agent claude --global
+  - Slash command not installed globally: ~/.claude/commands/agentpack-learn.md — run: agentpack install --agent claude --global
 
 Some checks failed. Run the suggested commands above to fix.
 ```
@@ -437,6 +439,9 @@ agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
 All installs are idempotent — safe to re-run, merge with existing config, never duplicate.
+Claude installs also refresh `/agentpack` and `/agentpack-learn`; the learning
+slash command uses current local AgentPack session context and keeps the user
+learning statement at the end for prompt caching.
 
 ---
 

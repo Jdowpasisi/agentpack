@@ -33,6 +33,7 @@ def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
         "agentpack-pack.md",
         "agentpack-refresh.md",
         "agentpack-review.md",
+        "agentpack-learn.md",
     }
 
     assert {path.name for path in SKILLS_DIR.glob("*.md")} == expected
@@ -43,6 +44,11 @@ def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
     assert "agentpack pack --task auto" in combined
     assert "agentpack guard --agent codex --repair-stale --refresh-context" not in combined
     assert "agentpack benchmark capture --since main --task" in combined
+    assert "agentpack-learn" in combined
+    assert "current local AgentPack session context" in combined
+    assert "agentpack status" in combined
+    assert ".agentpack/learning.md" in combined
+    assert "Reveal answer only after at least two tries" in combined
     assert "not a coding agent" in combined.lower()
     assert "map, not proof" in combined.lower()
 
@@ -55,6 +61,35 @@ def test_codex_plugin_docs_keep_local_first_boundary() -> None:
     assert "does not reimplement ranking, scanning, packing, mcp, or benchmarking" in docs
     assert "@agentpack-route" in docs
     assert "@agentpack-pack" in docs
+    assert "@agentpack-learn" in docs
+
+
+def test_agentpack_learn_slash_command_keeps_user_statement_last() -> None:
+    command = (ROOT / "src" / "agentpack" / "data" / "agentpack-learn.md").read_text(encoding="utf-8")
+    local = (ROOT / ".claude" / "commands" / "agentpack-learn.md").read_text(encoding="utf-8")
+    codex_skill = (ROOT / "skills" / "agentpack-learn.md").read_text(encoding="utf-8")
+    packaged_codex_skill = (
+        ROOT / "src" / "agentpack" / "data" / "codex_plugin" / "skills" / "agentpack-learn.md"
+    ).read_text(encoding="utf-8")
+
+    assert command == local
+    assert codex_skill == packaged_codex_skill
+    for text in (command, local):
+        lines = [line for line in text.splitlines() if line.strip()]
+        assert lines[-1] == "User learning statement: $ARGUMENTS"
+        assert text.count("$ARGUMENTS") == 1
+        assert "Learning Curve Destroyer" in text
+        assert "Real Error Simulator" in text
+        assert "Confusion Breaker" in text
+        assert "Personal Learning Path" in text
+        assert "Forced Feynman Method" in text
+        assert "agentpack status" in text
+        assert ".agentpack/agent-lessons.md" in text
+
+    for text in (codex_skill, packaged_codex_skill):
+        assert "Learning Curve Destroyer" in text
+        assert "Reveal answer only after at least two tries" in text
+        assert ".agentpack/session-events.jsonl" in text
 
 
 def test_agent_plugin_distribution_docs_cover_supported_hosts() -> None:
