@@ -11,6 +11,19 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.29] — 2026-06-21
+
+### Added
+- Added the context-aware `/agentpack-learn` command and packaged Codex skill so agents can explain recent local AgentPack session context without losing prompt-cache friendliness.
+- Added structured issue-reference memory for task, branch, commit, GitHub PR, and optional Jira metadata, including title/state/label details where available.
+
+### Changed
+- Made AgentPack routing use recent issue references as low-noise hints when the current task omits explicit ticket or PR context.
+- Extended local memory output to expose recent issue references and enriched details for future handoffs and diagnostics.
+
+### Fixed
+- Registered AgentPack MCP in Codex's host config during install, repair, and upgrade so upgraded repos are less likely to need manual MCP setup.
+
 ## [0.3.28] — 2026-06-20
 
 ### Fixed
