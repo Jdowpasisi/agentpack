@@ -20,6 +20,7 @@ from agentpack.core import git
 from agentpack.core.command_surface import refresh_commands
 from agentpack.core.context_pack import enrich_call_site_scores, select_files, save_pack_metadata, load_pack_metadata
 from agentpack.core.execution_state import build_execution_state, compact_execution_state
+from agentpack.core.pack_handoff import build_pack_handoff
 from agentpack.core.models import (
     ContextPack,
     DependencyGraph,
@@ -819,6 +820,7 @@ class PackService:
             freshness=pack_obj.freshness,
             freshness_warnings=pack_obj.freshness_warnings,
             selected_files=_selected_file_metadata(pack_obj.selected_files),
+            pack_handoff=build_pack_handoff(pack_obj),
             execution_state=pack_obj.execution_state,
             concurrent_context=pack_obj.concurrent_context,
             metadata_path=scoped_paths.metadata if scoped_paths else None,
