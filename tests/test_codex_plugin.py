@@ -9,6 +9,8 @@ PLUGIN_JSON = ROOT / ".codex-plugin" / "plugin.json"
 PACKAGED_PLUGIN_JSON = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / ".codex-plugin" / "plugin.json"
 SKILLS_DIR = ROOT / "skills"
 PACKAGED_SKILLS_DIR = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / "skills"
+PLUGIN_ICON = ROOT / "assets" / "icon.svg"
+PACKAGED_PLUGIN_ICON = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / "assets" / "icon.svg"
 
 
 def test_codex_plugin_manifest_points_to_skills() -> None:
@@ -20,6 +22,7 @@ def test_codex_plugin_manifest_points_to_skills() -> None:
     assert manifest["name"] == "agentpack"
     assert manifest["skills"] == "./skills/"
     assert manifest["interface"]["displayName"] == "AgentPack"
+    assert manifest["interface"]["composerIcon"] == "./assets/icon.svg"
     description = " ".join(
         [
             manifest["description"],
@@ -31,6 +34,37 @@ def test_codex_plugin_manifest_points_to_skills() -> None:
     assert "not a coding agent" in description
     prompts = manifest["interface"]["defaultPrompt"]
     assert "@agentpack-learn retry handling in this repo" in prompts
+
+
+def test_codex_plugin_has_distribution_icon() -> None:
+    assert PACKAGED_PLUGIN_ICON.read_text(encoding="utf-8") == PLUGIN_ICON.read_text(encoding="utf-8")
+    assert PLUGIN_ICON.stat().st_size < 50_000
+    assert "<svg" in PLUGIN_ICON.read_text(encoding="utf-8")
+
+
+def test_hol_plugin_scanner_workflow_exists() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "hol-plugin-scanner.yml").read_text(encoding="utf-8")
+
+    assert "hashgraph-online/ai-plugin-scanner-action@v1" in workflow
+    assert 'plugin_dir: "src/agentpack/data/codex_plugin"' in workflow
+    assert "min_score: 80" in workflow
+    assert "fail_on_severity: high" in workflow
+
+
+def test_codexignore_keeps_plugin_scan_focused() -> None:
+    ignore = (ROOT / ".codexignore").read_text(encoding="utf-8")
+
+    assert ".agentpack/" in ignore
+    assert "tests/" in ignore
+    assert ".github/workflows/ci.yml" in ignore
+    assert ".github/workflows/hol-plugin-scanner.yml" not in ignore
+
+
+def test_packaged_codex_plugin_is_self_contained_for_distribution() -> None:
+    bundle = ROOT / "src" / "agentpack" / "data" / "codex_plugin"
+
+    for rel in ("README.md", "LICENSE", "SECURITY.md", ".codexignore"):
+        assert (bundle / rel).exists()
 
 
 def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
