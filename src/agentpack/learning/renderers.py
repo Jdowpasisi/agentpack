@@ -60,9 +60,10 @@ def render_provider_preview_markdown(report: LearningReport) -> str:
         "",
         f"Task: {report.task}",
         f"Scope: {report.scope}",
-        "",
-        "## Changed File Evidence",
     ]
+    if report.issue_references:
+        lines.append("Issue references: " + ", ".join(report.issue_references))
+    lines.extend(["", "## Changed File Evidence"])
     for source in report.source_files:
         concepts = ", ".join(source.concepts) if source.concepts else "none"
         lines.append(f"- `{source.path}` ({source.change_kind}) concepts: {concepts}")
@@ -316,6 +317,8 @@ def render_learning_markdown(report: LearningReport) -> str:
     ]
     if report.since:
         lines.append(f"**Since:** `{report.since}`")
+    if report.issue_references:
+        lines.append("**Issue references:** " + ", ".join(report.issue_references))
     lines.extend(["", "## Summary"])
     lines.extend(f"- {item}" for item in report.summary)
     lines.extend(["", "## Changed Files"])

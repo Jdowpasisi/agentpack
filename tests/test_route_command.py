@@ -143,6 +143,21 @@ def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, mon
     assert not (tmp_path / ".agentpack" / "context.claude.md").exists()
 
 
+def test_route_uses_recent_issue_references_as_hints(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_route_fixture(tmp_path)
+    (tmp_path / ".agentpack" / "session-events.jsonl").write_text(
+        json.dumps({"type": "learn", "task": "fix webhook #77", "issue_references": ["#77"]}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["route", "--task", "continue webhook fix", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "Used recent issue references" in "\n".join(data["routing_notes"])
+
+
 def test_route_short_simple_question_recommends_ask_mode(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".agentpack").mkdir()

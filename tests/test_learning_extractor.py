@@ -19,7 +19,7 @@ def _make_git_repo(tmp_path: Path) -> Path:
 def test_collect_learning_inputs_reads_task_and_changed_files(tmp_path):
     repo = _make_git_repo(tmp_path)
     (repo / ".agentpack").mkdir()
-    (repo / ".agentpack" / "task.md").write_text("Add auth retry handling\n", encoding="utf-8")
+    (repo / ".agentpack" / "task.md").write_text("Add auth retry handling for GH-99\n", encoding="utf-8")
     (repo / "auth.py").write_text("def login():\n    return 'ok'\n", encoding="utf-8")
     _git(repo, "add", ".agentpack/task.md", "auth.py")
     _git(repo, "commit", "-m", "initial")
@@ -28,15 +28,18 @@ def test_collect_learning_inputs_reads_task_and_changed_files(tmp_path):
 
     collected = collect_learning_inputs(repo, since=None, max_changed_files=20, max_diff_chars_per_file=500)
 
-    assert collected.task == "Add auth retry handling"
+    assert collected.task == "Add auth retry handling for GH-99"
+    assert collected.issue_references == ["GH-99"]
     assert collected.changed_files["auth.py"] == "modified"
     assert "retry" in collected.diffs["auth.py"]
 
 
 def test_build_learning_report_extracts_concepts_tests_and_quiz():
     inputs = LearningInputs(
-        task="Add auth retry handling",
+        task="Add auth retry handling for #42",
         since="HEAD~1",
+        issue_references=["#42"],
+        issue_reference_details=[{"ref": "#42", "kind": "github_issue", "title": "Retry bug"}],
         changed_files={
             "src/app/auth.py": "modified",
             "tests/test_auth.py": "modified",
@@ -49,7 +52,9 @@ def test_build_learning_report_extracts_concepts_tests_and_quiz():
 
     report = build_learning_report(inputs, max_cards=5, max_quiz_questions=5)
 
-    assert report.task == "Add auth retry handling"
+    assert report.task == "Add auth retry handling for #42"
+    assert report.issue_references == ["#42"]
+    assert report.issue_reference_details[0]["title"] == "Retry bug"
     assert "authentication" in report.concepts
     assert "retry logic" in report.concepts
     assert report.tests == ["Updated tests/test_auth.py for authentication/retry logic/testing behavior."]
@@ -58,7 +63,7 @@ def test_build_learning_report_extracts_concepts_tests_and_quiz():
     assert report.agent_lessons
     assert report.agent_lessons[0].evidence_files
     assert report.skill_evidence
-    assert report.skill_evidence[0].task == "Add auth retry handling"
+    assert report.skill_evidence[0].task == "Add auth retry handling for #42"
     assert "retry" in report.next_practice.lower()
 
 

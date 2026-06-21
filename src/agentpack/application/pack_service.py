@@ -67,6 +67,7 @@ from agentpack.analysis.tests import find_related_tests
 from agentpack.analysis import dependency_graph as dep_graph_mod
 from agentpack.summaries.base import build_all_summaries
 from agentpack.session.events import record_event
+from agentpack.session.references import collect_repo_issue_references
 
 
 @dataclass
@@ -829,11 +830,14 @@ class PackService:
             output_path=cfg.runtime.pack_registry_output,
             max_records=cfg.runtime.max_registry_records,
         )
+        issue_reference_details = collect_repo_issue_references(root, request.task)
         record_event(
             root,
             "pack",
             {
                 "task": request.task,
+                "issue_references": [item.ref for item in issue_reference_details],
+                "issue_reference_details": [item.to_dict() for item in issue_reference_details],
                 "agent": request.agent,
                 "mode": plan.mode,
                 "packed_tokens": packed_tokens,

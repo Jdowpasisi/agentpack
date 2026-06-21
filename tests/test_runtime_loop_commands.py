@@ -66,7 +66,13 @@ def test_memory_command_outputs_json(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "session-events.jsonl").write_text(
-        json.dumps({"type": "learn", "task": "fix auth", "concepts": ["cli"]}) + "\n",
+        json.dumps({
+            "type": "learn",
+            "task": "fix auth #123",
+            "concepts": ["cli"],
+            "issue_references": ["#123"],
+            "issue_reference_details": [{"ref": "#123", "kind": "github_issue", "title": "Auth bug", "state": "OPEN"}],
+        }) + "\n",
         encoding="utf-8",
     )
 
@@ -74,7 +80,10 @@ def test_memory_command_outputs_json(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["recent_tasks"] == ["fix auth"]
+    assert payload["recent_tasks"] == ["fix auth #123"]
+    assert payload["recent_issue_references"] == ["#123"]
+    assert payload["issue_reference_details"][0]["title"] == "Auth bug"
+    assert payload["top_issue_references"] == [["#123", 1]]
 
 
 def test_wrap_dry_run_packs_without_launching(tmp_path: Path, monkeypatch):

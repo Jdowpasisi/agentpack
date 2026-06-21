@@ -94,6 +94,8 @@ class LearningReport(BaseModel):
     task: str
     scope: str
     since: str | None = None
+    issue_references: list[str] = Field(default_factory=list)
+    issue_reference_details: list[dict] = Field(default_factory=list)
     source_files: list[LearningSourceFile] = Field(default_factory=list)
     summary: list[str] = Field(default_factory=list)
     concepts: list[str] = Field(default_factory=list)

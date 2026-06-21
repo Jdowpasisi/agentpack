@@ -139,6 +139,11 @@ and listings (`ls`, `find`, `tree`). Unknown kinds use the generic fallback.
 ### `agentpack memory`
 
 Show local cross-agent task memory from AgentPack events and learning output.
+When task, branch, commit, or GitHub PR metadata contains issue references,
+memory JSON includes recent refs plus any fetched title/state/label details.
+GitHub enrichment uses `gh` when available. Jira enrichment is optional and
+uses `JIRA_BASE_URL` plus either `JIRA_BEARER_TOKEN` or `JIRA_EMAIL` with
+`JIRA_API_TOKEN`.
 
 ```bash
 agentpack memory

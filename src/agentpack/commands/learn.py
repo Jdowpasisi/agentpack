@@ -248,6 +248,8 @@ def register(app: typer.Typer) -> None:
             "learn",
             {
                 "task": report.task,
+                "issue_references": report.issue_references,
+                "issue_reference_details": report.issue_reference_details,
                 "changed_files": len(report.source_files),
                 "concepts": report.concepts,
                 "selected_hits": len(report.selected_hits),

@@ -89,6 +89,8 @@ def test_learning_report_serializes_to_json_safe_dict():
         task="Add auth retry handling",
         scope="task",
         since="HEAD~1",
+        issue_references=["#123"],
+        issue_reference_details=[{"ref": "#123", "kind": "github_issue", "title": "Auth retry bug"}],
         source_files=[
             LearningSourceFile(
                 path="src/app/auth.py",
@@ -136,6 +138,8 @@ def test_learning_report_serializes_to_json_safe_dict():
     payload = report.model_dump(mode="json")
 
     assert payload["task"] == "Add auth retry handling"
+    assert payload["issue_references"] == ["#123"]
+    assert payload["issue_reference_details"][0]["title"] == "Auth retry bug"
     assert payload["source_files"][0]["path"] == "src/app/auth.py"
     assert payload["learning_cards"][0]["title"] == "Retry Boundaries"
     assert payload["agent_lessons"][0]["rule"].startswith("When changing auth retry")

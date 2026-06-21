@@ -11,6 +11,8 @@ from pathlib import Path
 from agentpack.core import git
 from agentpack.application.pack_service import PackPlanner, PackRequest
 from agentpack.core.config import load_config
+from agentpack.session.events import read_events
+from agentpack.session.references import extract_issue_references, merge_issue_references
 from agentpack.router.discovery import discover_inventory, inventory_for_route
 from agentpack.router.models import (
     AppliedRule,
@@ -52,6 +54,7 @@ class RouteService:
 
     def route_task(self, root: Path, task: str) -> RouteResult:
         task = _normalize_task(task)
+        routing_task = _task_with_recent_issue_context(root, task)
         mode_decision = classify_task_mode(task)
         task_mode = mode_decision.mode
         prompt_quality = assess_prompt_quality(task, task_mode)
@@ -59,7 +62,7 @@ class RouteService:
         plan = PackPlanner().plan(PackRequest(
             root=root,
             agent="generic",
-            task=task,
+            task=routing_task,
             mode="balanced",
             budget=0,
             since=None,
@@ -94,6 +97,8 @@ class RouteService:
         commands = _suggest_commands(task, selected_paths)
         checklist = _evidence_checklist(task_mode)
         notes = _routing_notes(task_mode, pr_paths)
+        if routing_task != task:
+            notes.append("Used recent issue references from AgentPack memory as routing hints.")
 
         result = RouteResult(
             task=task,
@@ -162,6 +167,22 @@ def _normalize_task(task: str) -> str:
     if not normalized:
         raise ValueError("Task is required.")
     return normalized
+
+
+def _task_with_recent_issue_context(root: Path, task: str) -> str:
+    if extract_issue_references(task):
+        return task
+    cfg = load_config(root)
+    events = read_events(root, output_path=cfg.runtime.session_events_output, limit=50)
+    refs = merge_issue_references(
+        ref
+        for event in events
+        for ref in (event.get("issue_references") or [])
+        if isinstance(ref, str)
+    )
+    if not refs:
+        return task
+    return f"{task} issue references {' '.join(refs[-5:])}"
 
 
 def _selected_file_dict(item) -> dict:

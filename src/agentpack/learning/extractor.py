@@ -65,6 +65,8 @@ def build_learning_report(
         task=inputs.task,
         scope="task",
         since=inputs.since,
+        issue_references=inputs.issue_references,
+        issue_reference_details=inputs.issue_reference_details,
         source_files=source_files,
         summary=summary,
         concepts=concepts,

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agentpack.core import git
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.session.references import collect_repo_issue_references
 from agentpack.session.state import TASK_FILE
 
 
@@ -18,6 +19,8 @@ class LearningInputs:
     redaction_warnings: list[str] = field(default_factory=list)
     selected_files: list[str] = field(default_factory=list)
     selected_modes: dict[str, str] = field(default_factory=dict)
+    issue_references: list[str] = field(default_factory=list)
+    issue_reference_details: list[dict] = field(default_factory=list)
 
 
 def collect_learning_inputs(
@@ -46,6 +49,7 @@ def collect_learning_inputs(
         diffs[path] = diff
         warnings.extend(redaction_warnings)
     selected_files, selected_modes = _latest_selected_files(root)
+    issue_reference_details = collect_repo_issue_references(root, task)
     return LearningInputs(
         task=task,
         since=since,
@@ -55,6 +59,8 @@ def collect_learning_inputs(
         redaction_warnings=warnings,
         selected_files=selected_files,
         selected_modes=selected_modes,
+        issue_references=[item.ref for item in issue_reference_details],
+        issue_reference_details=[item.to_dict() for item in issue_reference_details],
     )
 
 
