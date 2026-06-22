@@ -42,6 +42,7 @@ env/
 .agentpack/progress.md
 .agentpack/loop_events.jsonl
 .agentpack/loop_failures.jsonl
+.agent/skills/agentpack/
 .agentignore
 # agentpack:end
 .pytest_cache/

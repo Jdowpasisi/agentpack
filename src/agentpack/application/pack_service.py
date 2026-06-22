@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -477,6 +479,8 @@ class PackPlanner:
 
         t0 = time.perf_counter()
         changes = ChangeDetector().detect(packable, root, request.since, previous_snap=previous_snap)
+        pr_paths = _github_pr_paths(root, request.task) if _is_pr_review_task(request.task) else set()
+        changes = _apply_github_pr_changed_paths(changes, pr_paths, packable)
         changes.current_snap["metadata"] = {
             **scan_metadata,
             "scan_mode": scan_result.scan_mode,
@@ -498,6 +502,8 @@ class PackPlanner:
             workspace_roots=workspace_roots,
             workspace_dependency_edges=workspace_dependency_edges,
         )
+        if pr_paths:
+            rank_result.scored = _boost_github_pr_paths(rank_result.scored, pr_paths)
         rank_result.scored = _apply_scope_penalties(
             rank_result.scored,
             request.task,
@@ -1566,6 +1572,70 @@ def _change_source(root: Path, since: str | None, snapshot_changed: set[str], gi
     if snapshot_changed:
         return "snapshot diff"
     return "no live changes; ranking used task keywords and history"
+
+
+def _is_pr_review_task(task: str) -> bool:
+    lower = task.lower()
+    return any(term in lower for term in ("pr ", "pull request", "review", "diff", "review comment"))
+
+
+def _github_pr_paths(root: Path, task: str) -> set[str]:
+    if shutil.which("gh") is None:
+        return set()
+    pr_number = _pr_number(task)
+    cmd = ["gh", "pr", "view"]
+    if pr_number:
+        cmd.append(pr_number)
+    cmd += ["--json", "files", "--jq", ".files[].path"]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=4,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _pr_number(task: str) -> str | None:
+    match = re.search(r"(?:pr|pull request)\s*#?\s*(\d+)", task, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _apply_github_pr_changed_paths(
+    changes: ChangeSet,
+    pr_paths: set[str],
+    packable: list[FileInfo],
+) -> ChangeSet:
+    packable_paths = {fi.path for fi in packable}
+    pr_packable = pr_paths & packable_paths
+    if not pr_packable:
+        return changes
+    source = "GitHub PR files" if changes.source.startswith("no live changes") else f"{changes.source} + GitHub PR files"
+    return replace(
+        changes,
+        all_changed=changes.all_changed | pr_packable,
+        source=source,
+    )
+
+
+def _boost_github_pr_paths(
+    scored: list[tuple[Any, float, list[str]]],
+    pr_paths: set[str],
+) -> list[tuple[Any, float, list[str]]]:
+    adjusted: list[tuple[Any, float, list[str]]] = []
+    for fi, score, reasons in scored:
+        if fi.path in pr_paths:
+            boosted_reasons = reasons if "GitHub PR file" in reasons else ["GitHub PR file", *reasons]
+            adjusted.append((fi, max(score, 1000.0), boosted_reasons))
+            continue
+        adjusted.append((fi, score, reasons))
+    return adjusted
 
 
 def _task_md_body(root: Path) -> str | None:

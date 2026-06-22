@@ -4,6 +4,7 @@ import json
 
 from typer.testing import CliRunner
 
+from agentpack.application.pack_service import PackPlanner, PackRequest
 from agentpack.cli import app
 
 
@@ -372,3 +373,78 @@ def test_route_pr_review_can_prioritize_github_pr_files(tmp_path, monkeypatch) -
     assert any("pr-review" in signal for signal in data["task_mode_signals"])
     assert paths[0] == "backend/customerio_events.py"
     assert "GitHub PR file" in data["selected_files"][0]["reasons"]
+
+
+def test_route_pr_review_suppresses_secret_fixture_noise_when_pr_files_exist(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+    (tmp_path / "backend").mkdir()
+    (tmp_path / "backend" / "customerio_events.py").write_text("def send(): return True\n", encoding="utf-8")
+    (tmp_path / "tests" / "fixtures" / "secret_repo" / "src").mkdir(parents=True)
+    (tmp_path / "tests" / "fixtures" / "secret_repo" / "src" / "leak.py").write_text(
+        "TOKEN = 'sk-test-secret-fixture'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_redactor.py").write_text(
+        "SECRET = 'sk-test-redactor-fixture'\n",
+        encoding="utf-8",
+    )
+
+    class Result:
+        returncode = 0
+        stdout = "backend/customerio_events.py\n"
+        stderr = ""
+
+    monkeypatch.setattr("agentpack.router.service.shutil.which", lambda name: "/usr/bin/gh" if name == "gh" else None)
+    monkeypatch.setattr("agentpack.router.service.subprocess.run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr("agentpack.application.pack_service.shutil.which", lambda name: "/usr/bin/gh" if name == "gh" else None)
+    monkeypatch.setattr("agentpack.application.pack_service.subprocess.run", lambda *args, **kwargs: Result())
+
+    result = CliRunner().invoke(app, ["route", "--task", "review PR #123 for security and performance", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    paths = [item["path"] for item in data["selected_files"]]
+    assert paths[0] == "backend/customerio_events.py"
+    assert "tests/test_redactor.py" not in paths
+    assert "tests/fixtures/secret_repo/src/leak.py" not in paths
+
+
+def test_pack_planner_uses_github_pr_files_as_changed_context(tmp_path, monkeypatch) -> None:
+    subprocess = __import__("subprocess")
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+    (tmp_path / "backend").mkdir()
+    (tmp_path / "backend" / "customerio_events.py").write_text("def send(): return True\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "noise.md").write_text("review diff notes\n", encoding="utf-8")
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    monkeypatch.setattr(
+        "agentpack.application.pack_service._github_pr_paths",
+        lambda root, task: {"backend/customerio_events.py"},
+    )
+
+    plan = PackPlanner().plan(PackRequest(
+        root=tmp_path,
+        agent="generic",
+        task="review PR #123 for Customer.io events",
+        mode="balanced",
+        budget=4000,
+        since=None,
+        refresh=False,
+    ))
+
+    assert "backend/customerio_events.py" in plan.all_changed
+    assert plan.changed_files_source == "GitHub PR files"
+    selected = {item.path: item for item in plan.selected}
+    assert "backend/customerio_events.py" in selected
+    assert "GitHub PR file" in selected["backend/customerio_events.py"].reasons

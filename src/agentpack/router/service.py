@@ -375,7 +375,7 @@ def _route_selected_files(
             existing.add(path)
     filtered = [
         item for item in selected_files
-        if _keep_route_path(task_mode, task, item["path"], priority_paths)
+        if _keep_route_path(task_mode, task, item["path"], priority_paths, item.get("reasons") or [])
     ]
     if not filtered:
         filtered = selected_files
@@ -407,8 +407,10 @@ def _is_noisy_path(path: str) -> bool:
     return path in _NOISY_PATHS or any(path.startswith(prefix) for prefix in _NOISY_PATH_PREFIXES)
 
 
-def _keep_route_path(task_mode: str, task: str, path: str, priority_paths: set[str]) -> bool:
+def _keep_route_path(task_mode: str, task: str, path: str, priority_paths: set[str], reasons: list[str] | None = None) -> bool:
     if not _is_noisy_path(path) or _task_mentions_path(task, path):
+        if _is_pr_review_secret_fixture_noise(task_mode, task, path, priority_paths, reasons or []):
+            return False
         return True
     if task_mode == "pr_review" and path in priority_paths and _is_review_diff_exception(path):
         return True
@@ -417,6 +419,26 @@ def _keep_route_path(task_mode: str, task: str, path: str, priority_paths: set[s
 
 def _is_review_diff_exception(path: str) -> bool:
     return path.startswith(".github/workflows/")
+
+
+def _is_pr_review_secret_fixture_noise(
+    task_mode: str,
+    task: str,
+    path: str,
+    priority_paths: set[str],
+    reasons: list[str],
+) -> bool:
+    if task_mode != "pr_review" or path in priority_paths:
+        return False
+    if _task_mentions_path(task, path):
+        return False
+    lower = task.lower()
+    if any(term in lower for term in ("redaction", "redactor", "secret scan", "credential leak")):
+        return False
+    has_secret_reason = any(reason.startswith("secret redaction candidate") for reason in reasons)
+    if not has_secret_reason:
+        return False
+    return path.startswith("tests/") or "/fixtures/" in path or path.startswith("fixtures/")
 
 
 def _task_mentions_path(task: str, path: str) -> bool:

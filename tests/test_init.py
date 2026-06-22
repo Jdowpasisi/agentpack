@@ -44,7 +44,7 @@ def test_repo_gitignore_block_ignores_generated_artifacts() -> None:
     assert ".agentpack/progress.md" in lines
     assert ".agentpack/loop_events.jsonl" in lines
     assert ".agentpack/loop_failures.jsonl" in lines
-    assert ".agent/skills/agentpack/" not in lines
+    assert ".agent/skills/agentpack/" in lines
     assert ".vscode/tasks.json" not in lines
     assert "GEMINI.md" not in lines
 
@@ -179,6 +179,7 @@ def test_init_writes_repo_gitignore_block(tmp_path, monkeypatch) -> None:
     assert ".agentpack/progress.md" in content
     assert ".agentpack/loop_events.jsonl" in content
     assert ".agentpack/loop_failures.jsonl" in content
+    assert ".agent/skills/agentpack/" in content
     assert ".vscode/tasks.json" not in content
     assert "GEMINI.md" not in content
 

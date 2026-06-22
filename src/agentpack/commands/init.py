@@ -25,7 +25,7 @@ _INIT_AGENTS = ("auto", "claude", "cursor", "windsurf", "codex", "antigravity", 
 _AGENT_GITIGNORE_ENTRIES = {
     "cursor": (".vscode/tasks.json",),
     "windsurf": (".vscode/tasks.json",),
-    "antigravity": (".agent/skills/agentpack/", ".vscode/tasks.json", "GEMINI.md"),
+    "antigravity": (".vscode/tasks.json", "GEMINI.md"),
 }
 
 
@@ -80,6 +80,7 @@ def _repo_gitignore_entries(share_cache: bool = False, agent: str = "generic") -
             ".agentpack/progress.md",
             ".agentpack/loop_events.jsonl",
             ".agentpack/loop_failures.jsonl",
+            ".agent/skills/agentpack/",
             ".agentignore",
         ]
     )
