@@ -5,6 +5,7 @@ import json
 
 from agentpack.core.models import ContextPack, OmittedRelevantFile, SelectedFile, Symbol
 from agentpack.core.command_surface import refresh_commands
+from agentpack.core.pack_handoff import build_pack_handoff
 from agentpack.core.token_estimator import estimate_tokens
 
 
@@ -182,6 +183,35 @@ def _concurrent_context_lines(context: dict[str, object]) -> list[str]:
     return lines
 
 
+def _pack_handoff_lines(pack: ContextPack) -> list[str]:
+    handoff = build_pack_handoff(pack)
+    budget = handoff["budget"]
+    selected = handoff["selected"]
+    omitted = handoff["omitted_relevant"]
+    freshness = handoff["freshness"]
+    lines = ["## Pack Handoff", ""]
+    lines.append(f"- **Recommended next action:** `{handoff['recommended_action']}`")
+    lines.append(f"- **Reason:** {handoff['reason']}")
+    lines.append(
+        "- **Budget:** "
+        f"{budget['rendered_tokens']:,}/{budget['target_tokens']:,} tokens"
+        + (" (budget pressure)" if budget["pressure"] else "")
+    )
+    lines.append(f"- **Selected files:** {selected['files']} ({selected['tests']} test file(s))")
+    lines.append(
+        f"- **Omitted relevant files:** {omitted['files']} total, {omitted['high_risk']} high-risk"
+    )
+    if omitted["top"]:
+        lines.append("- **Inspect first:** " + ", ".join(f"`{path}`" for path in omitted["top"]))
+    if freshness["refresh_required"]:
+        warning_text = "; ".join(str(item) for item in freshness["warnings"]) or "refresh required"
+        lines.append(f"- **Freshness:** refresh required — {warning_text}")
+    else:
+        lines.append("- **Freshness:** no refresh gate fired")
+    lines.append("")
+    return lines
+
+
 def _machine_freshness_block(pack: ContextPack) -> str:
     stale_task = _has_task_stale_warning(pack)
     refresh_required = pack.stale or stale_task
@@ -336,6 +366,8 @@ def render_claude(pack: ContextPack) -> str:
 
     if pack.concurrent_context:
         sections.extend(_concurrent_context_lines(pack.concurrent_context))
+
+    sections.extend(_pack_handoff_lines(pack))
 
     if pack.agent_lessons:
         sections.append("## Agent Lessons From Prior Work")
