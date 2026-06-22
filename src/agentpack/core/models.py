@@ -121,6 +121,7 @@ class ContextPack(BaseModel):
     selected_files: list[SelectedFile]
     receipts: list[Receipt]
     omitted_relevant_files: list[OmittedRelevantFile] = Field(default_factory=list)
+    pack_handoff_omitted_relevant_files: list[OmittedRelevantFile] = Field(default_factory=list)
     redaction_warnings: list[str] = []
     stale: bool = False
     freshness: dict[str, Any] = Field(default_factory=dict)

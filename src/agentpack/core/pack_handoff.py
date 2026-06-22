@@ -20,7 +20,8 @@ def build_pack_handoff(pack: ContextPack) -> dict[str, Any]:
     summarizes signals AgentPack already computed and recommends the next
     inspection step before code changes.
     """
-    high_risk_omitted = [item for item in pack.omitted_relevant_files if item.risk == "high"]
+    omitted_relevant_files = pack.pack_handoff_omitted_relevant_files or pack.omitted_relevant_files
+    high_risk_omitted = [item for item in omitted_relevant_files if item.risk == "high"]
     stale = pack.stale or bool(pack.freshness_warnings)
     budget_pressure = pack.budget > 0 and pack.token_estimate >= int(pack.budget * 0.95)
 
@@ -58,7 +59,7 @@ def build_pack_handoff(pack: ContextPack) -> dict[str, Any]:
             "tests": sum(1 for item in pack.selected_files if _looks_like_test(item.path)),
         },
         "omitted_relevant": {
-            "files": len(pack.omitted_relevant_files),
+            "files": len(omitted_relevant_files),
             "high_risk": len(high_risk_omitted),
             "top": [item.path for item in high_risk_omitted[:5]],
         },

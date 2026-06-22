@@ -781,6 +781,7 @@ class PackService:
             selected_files=plan.selected,
             receipts=plan.receipts if cfg.context.include_receipts else [],
             omitted_relevant_files=plan.omitted_relevant_files,
+            pack_handoff_omitted_relevant_files=plan.omitted_relevant_files,
             redaction_warnings=all_redaction_warnings,
             stale=False,
             freshness=freshness,

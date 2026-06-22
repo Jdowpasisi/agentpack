@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess
 import json
-from agentpack.application.pack_service import _settle_rendered_token_estimate, _sf_tokens, _summary_cap_for_mode, _summary_score_floor
+from agentpack.application.pack_service import _fit_rendered_budget, _settle_rendered_token_estimate, _sf_tokens, _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
 from agentpack.core.context_pack import enrich_call_site_scores, save_pack_metadata, select_files, _selection_priority
 from agentpack.core.models import ContextPack, FileInfo, OmittedRelevantFile, Receipt, SelectedFile
@@ -2471,6 +2471,58 @@ def test_pack_handoff_inspects_high_risk_omitted_files_first():
     assert handoff["omitted_relevant"]["high_risk"] == 1
     assert "`inspect_omitted_first`" in rendered
     assert "`tests/test_refund.py`" in rendered
+
+
+def test_pack_handoff_preserves_high_risk_omitted_gate_after_budget_fit():
+    omitted = [
+        OmittedRelevantFile(
+            path="api/routes/refund.py",
+            score=240,
+            reasons=["reverse dependency of src/refund.py"],
+            estimated_tokens=900,
+            suggested_mode="summary",
+            risk="high",
+        )
+    ]
+    pack = ContextPack(
+        task="fix refunds",
+        agent="claude",
+        mode="balanced",
+        budget=120,
+        token_estimate=1000,
+        raw_repo_tokens=2000,
+        after_ignore_tokens=1800,
+        estimated_savings_percent=50.0,
+        changed_files=[],
+        selected_files=[
+            SelectedFile(
+                path="src/refund.py",
+                language="python",
+                score=100,
+                include_mode="summary",
+                reasons=["task keyword match"],
+                summary="refund helper" * 20,
+            )
+        ],
+        receipts=[],
+        omitted_relevant_files=list(omitted),
+        pack_handoff_omitted_relevant_files=list(omitted),
+    )
+
+    class Adapter:
+        def render(self, current_pack: ContextPack) -> str:
+            return render_claude(current_pack)
+
+    _fit_rendered_budget(pack, Adapter())
+    handoff = build_pack_handoff(pack)
+    rendered = render_claude(pack)
+
+    assert pack.omitted_relevant_files == []
+    assert handoff["recommended_action"] == "inspect_omitted_first"
+    assert handoff["omitted_relevant"]["high_risk"] == 1
+    assert handoff["omitted_relevant"]["top"] == ["api/routes/refund.py"]
+    assert "`inspect_omitted_first`" in rendered
+    assert "`api/routes/refund.py`" in rendered
 
 
 def test_rendered_token_estimate_includes_markdown_overhead():
