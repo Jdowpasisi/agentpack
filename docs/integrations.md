@@ -54,7 +54,8 @@ about same-worktree, same-branch file overlap. Without `--thread`, global
 
 - AgentPack cannot intercept prompts inside IDEs — Cursor/Windsurf rely on rules being followed.
 - Claude wrapper (`agentpack claude`) is the most deterministic integration.
-- If the task changes drastically mid-session, Claude hooks update `.agentpack/task.md` and block once for fresh hints; plain repo edits still use background repack to keep prompts fast.
+- Prompt hooks stay idle until `.agentpack/task.md` contains a real task.
+- If the task changes drastically mid-session, prompt hooks can update `.agentpack/task.md` and point the agent at `get_context()` or `agentpack pack`; repo edits still refresh through MCP freshness checks or git hooks.
 - AgentPack-selected files are ranked starting points, not absolute truth.
 - Plugin and IDE surfaces are distribution layers. They call AgentPack CLI/MCP behavior and do not reimplement context ranking.
 
@@ -89,7 +90,7 @@ Configures:
 - `CLAUDE.md` — tells Claude to read the context pack before each task
 - `.claude/settings.json` — two hooks:
   - `SessionStart`: clears injection sentinel so first prompt gets context
-  - `UserPromptSubmit`: runs `agentpack hook` — detects repo changes via `root_hash`, detects clear task switches, updates `.agentpack/task.md`, and triggers background repack using your prompt as task. With MCP: emits Option-B hint (~100 tokens, task + top files). Without MCP: emits capped fallback (top 8 files, ≤3k chars)
+  - `UserPromptSubmit`: runs `agentpack hook` — stays silent until `.agentpack/task.md` has a real task, can detect clear task switches, updates `.agentpack/task.md`, and emits a small hint. With MCP: points the agent at `get_context()` or `pack_context()`. Without MCP: emits a capped fallback (top 8 files, ≤3k chars)
 
 After this, context is injected automatically into every Claude Code session. No `/agentpack` command needed — it just happens.
 
@@ -124,7 +125,7 @@ agentpack init --agent codex
 
 Configures:
 - `AGENTS.md` — tells Codex to write current task, repack, and read the context pack before each task
-- `.codex/hooks.json` — Codex app lifecycle hooks for prompt-time AgentPack refresh hints
+- `.codex/hooks.json` — Codex app lifecycle hooks for light prompt-time AgentPack task hints
 - `~/.codex/config.toml` or `$CODEX_HOME/config.toml` — registers `[mcp_servers.agentpack]` for Codex-host MCP exposure
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 
@@ -155,7 +156,7 @@ Configures:
 |---|---|---|---|---|---|
 | Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` + `.codex/hooks.json` | `GEMINI.md` + generated `.agent/skills/agentpack/SKILL.md` after pack |
 | Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` | ✅ Skill auto-activation |
-| Auto-repack when stale | ✅ hook (content hash via `root_hash`, ~1ms when fresh) | ✅ git hooks | ✅ git hooks | ✅ git hooks | ✅ git hooks |
+| Auto-repack when stale | ✅ `get_context()` / `pack_context()` block on demand; git hooks for repo edits | ✅ git hooks | ✅ git hooks | ✅ git hooks | ✅ git hooks |
 | Manual repack shortcut | ✅ `/agentpack` slash cmd; `/agentpack-learn` for local-context learning | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
 
 ---

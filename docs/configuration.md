@@ -33,6 +33,7 @@ summary_chars = 500
 [hooks]
 task_switch_detection = true
 task_switch_min_terms = 1
+blocking_task_refresh = false
 
 [learning]
 markdown_output = ".agentpack/learning.md"
@@ -92,6 +93,10 @@ and failure diagnoses under `.agentpack/`. `runner_adapter` may be `claude`,
 matching executable is present. `acceptance_checks` asks the runner to report
 semantic pass/fail evidence in its final JSON. `risk_sensitive_globs` and
 `risk_high_file_count` tune the high-risk finish gate for a repo.
+
+Hook defaults stay lightweight. Prompt-submit hooks do nothing until
+`.agentpack/task.md` contains a real task, and `blocking_task_refresh = false`
+keeps refresh work off the prompt path unless you explicitly opt in.
 
 ---
 

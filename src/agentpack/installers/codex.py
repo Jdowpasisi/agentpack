@@ -54,7 +54,6 @@ _USER_PROMPT_SUBMIT_HOOK = {
     "type": "command",
     "command": "agentpack hook --event UserPromptSubmit",
     "timeout": 5,
-    "statusMessage": "Checking agentpack index...",
 }
 
 _CODEX_MCP_BLOCK = """\

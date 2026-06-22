@@ -111,6 +111,15 @@ def _load_task_md(root: Path) -> str:
     return (read_task_md(root) or "")[:200]
 
 
+def _emit_additional_context(message: str) -> None:
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": message,
+        }
+    }))
+
+
 def _looks_like_coding_prompt(prompt: str) -> bool:
     """Return True if prompt looks like a coding task (not a slash command or chat)."""
     stripped = prompt.strip()
@@ -219,27 +228,30 @@ def _load_top_files(root: Path, n: int = 5) -> list[dict]:
     return _load_hints(root, n)
 
 
-def _load_pack_task(root: Path) -> str:
+def _load_pack_metadata(root: Path) -> dict:
     meta_path = root / ".agentpack" / "pack_metadata.json"
     if not meta_path.exists():
-        return ""
+        return {}
     try:
-        return json.loads(meta_path.read_text()).get("task", "")
+        return json.loads(meta_path.read_text(encoding="utf-8"))
     except Exception:
-        return ""
+        return {}
+
+
+def _load_pack_task(root: Path) -> str:
+    return str(_load_pack_metadata(root).get("task", "") or "")
 
 
 def _load_delta_summary(root: Path) -> str:
-    meta_path = root / ".agentpack" / "pack_metadata.json"
-    if not meta_path.exists():
-        return ""
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
+    meta = _load_pack_metadata(root)
     freshness = meta.get("freshness") or {}
     delta = freshness.get("delta_summary", "")
     return str(delta).splitlines()[0][:240] if delta else ""
+
+
+def _packed_root_hash(root: Path) -> str | None:
+    value = _load_pack_metadata(root).get("snapshot_root_hash")
+    return str(value) if value else None
 
 
 def _infer_live_task(root: Path) -> str:
@@ -270,6 +282,7 @@ def _run_session_start(root: Path) -> None:
     for sentinel in [
         root / ".agentpack" / ".mcp_reminded",
         root / ".agentpack" / ".context_injected",
+        root / ".agentpack" / ".no_task_reminded",
     ]:
         try:
             sentinel.unlink(missing_ok=True)
@@ -305,8 +318,6 @@ def _run_blocking_pack(root: Path) -> tuple[bool, str]:
 
 
 def _run_user_prompt_submit(root: Path) -> None:
-    snap_sentinel = root / ".agentpack" / ".mcp_reminded"
-
     try:
         hook_data = json.loads(sys.stdin.read())
         prompt = hook_data.get("prompt", "")
@@ -315,6 +326,20 @@ def _run_user_prompt_submit(root: Path) -> None:
 
     cfg = load_config(root)
     task_md = _load_task_md(root)
+    if not task_md:
+        if _looks_like_coding_prompt(prompt):
+            reminder = root / ".agentpack" / ".no_task_reminded"
+            if not reminder.exists():
+                try:
+                    reminder.write_text("1", encoding="utf-8")
+                except Exception:
+                    pass
+                _emit_additional_context(
+                    "AgentPack idle. No active task in `.agentpack/task.md`.\n"
+                    "Run `agentpack start \"describe the task\"` to enable prompt-time hints."
+                )
+        return
+
     task_switched = bool(
         cfg.hooks.task_switch_detection
         and _looks_like_task_switch(
@@ -336,43 +361,36 @@ def _run_user_prompt_submit(root: Path) -> None:
             pass
 
     current_hash = _current_root_hash(root)
-    reminded_hash = snap_sentinel.read_text().strip() if snap_sentinel.exists() else None
-    repo_changed = current_hash != reminded_hash
     packed_task = _load_pack_task(root)
+    packed_root_hash = _packed_root_hash(root)
+    repo_changed = bool(current_hash and packed_root_hash and current_hash != packed_root_hash)
+    pack_missing = not packed_task or not packed_root_hash
     pack_task_changed = bool(task != "auto" and packed_task and packed_task != task)
 
-    should_repack = repo_changed or task_switched or pack_task_changed
-    blocking_refresh = bool(
-        cfg.hooks.blocking_task_refresh and (task_switched or pack_task_changed)
-    )
+    context_stale = pack_missing or repo_changed or task_switched or pack_task_changed
+    blocking_refresh = bool(cfg.hooks.blocking_task_refresh and context_stale)
     refresh_state = "fresh"
     refresh_error = ""
 
-    if should_repack:
-        if task != "auto":
-            try:
-                _write_task_md(root, task)
-            except Exception:
-                pass
+    if context_stale:
+        refresh_state = "refresh pending"
         if blocking_refresh:
             ok, detail = _run_blocking_pack(root)
             refresh_state = "refreshed" if ok else "refresh failed"
             refresh_error = detail
-        else:
-            detached_popen(
-                cli_module_argv("pack", "--task", "auto", "--mode", "balanced", "--since", "HEAD~1"),
-                cwd=root,
-            )
-            refresh_state = "repacking"
-        try:
-            snap_sentinel.write_text(current_hash or "1")
-        except Exception:
-            pass
+            if ok:
+                pack_missing = False
+                pack_task_changed = False
+                repo_changed = False
+                task_switched = False
 
     has_mcp = _mcp_installed(root)
+    current_task = _load_task_md(root) or _infer_live_task(root)
+    delta = _load_delta_summary(root)
+    safe_hints = not pack_missing and not pack_task_changed and not task_switched
+    hints = _load_hints(root, n=5 if has_mcp else 8) if safe_hints else []
 
     if has_mcp:
-        hints = _load_hints(root, n=5)
         if hints:
             files_lines = "\n".join(
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
@@ -382,12 +400,10 @@ def _run_user_prompt_submit(root: Path) -> None:
                 status_note = "(refreshed for current task)"
             elif refresh_state == "refresh failed":
                 status_note = "(refresh failed — call pack_context to retry)"
-            elif refresh_state == "repacking":
-                status_note = "(repacking — call pack_context for fresh results)"
+            elif refresh_state == "refresh pending":
+                status_note = "(refresh pending — call get_context for fresh results)"
             else:
                 status_note = "(index fresh)"
-            current_task = _load_task_md(root) or _infer_live_task(root)
-            delta = _load_delta_summary(root)
             msg = (
                 f"AgentPack {status_note}\n"
                 f"task: {current_task}\n"
@@ -397,16 +413,26 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"top files:\n{files_lines}\n"
                 f"Call agentpack_get_delta_context() for delta or agentpack_pack_context(task=\"...\") for full ranked context."
             )
+        elif refresh_state == "refresh pending":
+            msg = (
+                "AgentPack active (refresh pending)\n"
+                f"task: {current_task}\n"
+                "Call agentpack_get_context() to refresh the current task pack."
+            )
+        elif refresh_state == "refresh failed":
+            msg = (
+                "AgentPack active (refresh failed)\n"
+                f"task: {current_task}\n"
+                + (f"refresh error: {refresh_error}\n" if refresh_error else "")
+                + "Call agentpack_pack_context(task=\"...\") to rebuild the current task pack."
+            )
         else:
             msg = (
                 "AgentPack active. No pack yet — call agentpack_pack_context(task=\"...\") "
                 "to build context for this task."
             )
     else:
-        hints = _load_hints(root, n=8)
-        current_task = _load_task_md(root) or _infer_live_task(root)
         if hints:
-            delta = _load_delta_summary(root)
             files_lines = "\n".join(
                 f"  - {h['path']}" + (f" — {h['why']}" if h.get("why") else "")
                 for h in hints
@@ -415,8 +441,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 changed_note = " (refreshed)"
             elif refresh_state == "refresh failed":
                 changed_note = " (refresh failed)"
-            elif refresh_state == "repacking":
-                changed_note = " (repacking in background)"
+            elif refresh_state == "refresh pending":
+                changed_note = " (refresh pending)"
             else:
                 changed_note = ""
             msg = (
@@ -428,6 +454,19 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"top files:\n{files_lines}\n\n"
                 f"For richer context, install MCP: agentpack install --agent claude"
             )
+        elif refresh_state == "refresh pending":
+            msg = (
+                "AgentPack active (refresh pending)\n"
+                f"task: {current_task}\n"
+                "Run `agentpack pack --task auto` or install MCP and call `agentpack_get_context()`."
+            )
+        elif refresh_state == "refresh failed":
+            msg = (
+                "AgentPack active (refresh failed)\n"
+                f"task: {current_task}\n"
+                + (f"refresh error: {refresh_error}\n" if refresh_error else "")
+                + "Run `agentpack pack --task auto` to rebuild the current task pack."
+            )
         else:
             msg = (
                 "AgentPack active. Write `.agentpack/task.md`, then run `agentpack pack --task auto` to build context.\n"
@@ -437,9 +476,4 @@ def _run_user_prompt_submit(root: Path) -> None:
         if len(msg) > 3000:
             msg = msg[:2970] + "\n... [truncated]"
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": msg,
-        }
-    }))
+    _emit_additional_context(msg)

@@ -38,9 +38,15 @@ def _write_metrics(repo: Path, selected_paths: list[str]) -> None:
     (repo / ".agentpack" / "metrics.jsonl").write_text(json.dumps(rec) + "\n")
 
 
-def _write_metadata(repo: Path, task: str = "fix login") -> None:
+def _write_metadata(repo: Path, task: str = "fix login", root_hash: str | None = None) -> None:
     meta = {"task": task, "token_estimate": 5000}
+    if root_hash is not None:
+        meta["snapshot_root_hash"] = root_hash
     (repo / ".agentpack" / "pack_metadata.json").write_text(json.dumps(meta))
+
+
+def _write_task(repo: Path, task: str = "fix login") -> None:
+    (repo / ".agentpack" / "task.md").write_text(task + "\n", encoding="utf-8")
 
 
 class TestMcpInstalled:
@@ -100,11 +106,21 @@ class TestRunUserPromptSubmit:
         assert outputs, "No output printed"
         return json.loads(outputs[0])
 
+    def _capture_outputs(self, repo: Path, stdin_data: dict, monkeypatch) -> list[str]:
+        import io
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(stdin_data)))
+        outputs = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+        with patch("subprocess.Popen"):
+            _run_user_prompt_submit(repo)
+        return outputs
+
     def test_mcp_installed_hint_format(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
         _write_metrics(repo, ["src/a.py", "src/b.py"])
-        _write_metadata(repo, task="fix login")
+        _write_metadata(repo, task="fix login", root_hash="hash1")
+        _write_task(repo, "fix login")
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
 
         out = self._capture_output(repo, {"prompt": "fix the login bug"}, monkeypatch)
@@ -118,7 +134,8 @@ class TestRunUserPromptSubmit:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
         _write_metrics(repo, ["src/a.py", "src/b.py"])
-        _write_metadata(repo, task="fix login")
+        _write_metadata(repo, task="fix login", root_hash="hash1")
+        _write_task(repo, "fix login")
 
         out = self._capture_output(repo, {"prompt": "fix login"}, monkeypatch)
         ctx = out["hookSpecificOutput"]["additionalContext"]
@@ -133,17 +150,18 @@ class TestRunUserPromptSubmit:
         # Many files to potentially produce long output
         paths = [f"src/module_{i}/very_long_filename_{i}.py" for i in range(50)]
         _write_metrics(repo, paths)
-        _write_metadata(repo, task="x" * 200)
+        _write_metadata(repo, task="x" * 200, root_hash="hash1")
+        _write_task(repo, "x" * 200)
 
         out = self._capture_output(repo, {"prompt": "test"}, monkeypatch)
         ctx = out["hookSpecificOutput"]["additionalContext"]
         assert len(ctx) <= 3000
 
-    def test_repo_changed_triggers_repack(self, repo: Path, monkeypatch) -> None:
+    def test_repo_changed_marks_refresh_pending_without_repack(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "newhash")
-        # Sentinel has old hash
-        (repo / ".agentpack" / ".mcp_reminded").write_text("oldhash")
+        _write_metadata(repo, task="fix login bug", root_hash="oldhash")
+        _write_task(repo, "fix login bug")
 
         import io
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix login bug"})))
@@ -154,20 +172,18 @@ class TestRunUserPromptSubmit:
              patch("agentpack.commands.hook_cmd._infer_live_task", return_value="fix login bug"):
             _run_user_prompt_submit(repo)
 
-        mock_popen.assert_called_once()
-        args = mock_popen.call_args[0][0]
-        assert args[1:4] == ["-m", "agentpack.cli", "pack"]
-        assert "--task" in args
-        assert "pack" in args
+        mock_popen.assert_not_called()
         assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix login bug\n"
+        ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
+        assert "refresh pending" in ctx
 
     def test_repo_unchanged_no_repack(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "samehash")
-        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
         _write_metrics(repo, ["src/a.py"])
-        _write_metadata(repo)
+        _write_metadata(repo, root_hash="samehash")
+        _write_task(repo)
 
         import io
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "test"})))
@@ -180,14 +196,13 @@ class TestRunUserPromptSubmit:
 
         mock_popen.assert_not_called()
 
-    def test_task_switch_updates_task_md_and_repacks(self, repo: Path, monkeypatch) -> None:
+    def test_task_switch_updates_task_md_and_marks_refresh_pending(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "samehash")
-        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
         (repo / ".agentpack" / "task.md").write_text("add production-grade Kundali generation API\n")
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
         _write_metrics(repo, ["src/old.py"])
-        _write_metadata(repo, task="add production-grade Kundali generation API")
+        _write_metadata(repo, task="add production-grade Kundali generation API", root_hash="samehash")
 
         import io
         prompt = "fix numerology dashboard layout"
@@ -199,21 +214,24 @@ class TestRunUserPromptSubmit:
              patch("subprocess.Popen") as mock_popen:
             _run_user_prompt_submit(repo)
 
-        mock_pack.assert_called_once_with(repo)
+        mock_pack.assert_not_called()
         mock_popen.assert_not_called()
         assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == prompt + "\n"
         ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
-        assert "refreshed for current task" in ctx
+        assert "refresh pending" in ctx
         assert f"task: {prompt}" in ctx
 
     def test_task_switch_blocking_refresh_failure_keeps_prompt_context(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "samehash")
-        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
         (repo / ".agentpack" / "task.md").write_text("migrate DB schema\n")
+        (repo / ".agentpack" / "config.toml").write_text(
+            "[hooks]\nblocking_task_refresh = true\n",
+            encoding="utf-8",
+        )
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
         _write_metrics(repo, ["src/old.py"])
-        _write_metadata(repo, task="migrate DB schema")
+        _write_metadata(repo, task="migrate DB schema", root_hash="samehash")
 
         import io
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix login bug"})))
@@ -251,7 +269,6 @@ class TestRunGitAutoRepack:
     def test_task_switch_can_be_disabled_in_config(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "samehash")
-        (repo / ".agentpack" / ".mcp_reminded").write_text("samehash")
         (repo / ".agentpack" / "task.md").write_text("add production-grade Kundali generation API\n")
         (repo / ".agentpack" / "config.toml").write_text(
             "[hooks]\ntask_switch_detection = false\n",
@@ -259,7 +276,7 @@ class TestRunGitAutoRepack:
         )
         (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
         _write_metrics(repo, ["src/old.py"])
-        _write_metadata(repo, task="add production-grade Kundali generation API")
+        _write_metadata(repo, task="add production-grade Kundali generation API", root_hash="samehash")
 
         import io
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix numerology dashboard layout"})))
@@ -276,6 +293,46 @@ class TestRunGitAutoRepack:
         ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
         assert "index fresh" in ctx
         assert "task: add production-grade Kundali generation API" in ctx
+
+    def test_no_task_coding_prompt_only_hints_once(self, repo: Path, monkeypatch) -> None:
+        import io
+
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix login bug"})))
+        first: list[str] = []
+        monkeypatch.setattr("builtins.print", lambda x: first.append(x))
+        with patch("subprocess.Popen"):
+            _run_user_prompt_submit(repo)
+
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "fix login bug"})))
+        second: list[str] = []
+        monkeypatch.setattr("builtins.print", lambda x: second.append(x))
+        with patch("subprocess.Popen"):
+            _run_user_prompt_submit(repo)
+
+        assert len(first) == 1
+        assert "No active task" in json.loads(first[0])["hookSpecificOutput"]["additionalContext"]
+        assert second == []
+
+    def test_no_task_chat_prompt_stays_silent(self, repo: Path, monkeypatch) -> None:
+        import io
+
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": "why is this slow?"})))
+        outputs: list[str] = []
+        monkeypatch.setattr("builtins.print", lambda x: outputs.append(x))
+        with patch("subprocess.Popen"):
+            _run_user_prompt_submit(repo)
+
+        assert outputs == []
+
+    def test_session_start_clears_no_task_reminder(self, repo: Path) -> None:
+        reminder = repo / ".agentpack" / ".no_task_reminded"
+        reminder.write_text("1", encoding="utf-8")
+
+        from agentpack.commands.hook_cmd import _run_session_start
+
+        _run_session_start(repo)
+
+        assert not reminder.exists()
 
 
 class TestLooksLikeCodingPrompt:

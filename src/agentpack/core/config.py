@@ -104,7 +104,7 @@ class RuntimeConfig(BaseModel):
 class HooksConfig(BaseModel):
     task_switch_detection: bool = True
     task_switch_min_terms: int = 1
-    blocking_task_refresh: bool = True
+    blocking_task_refresh: bool = False
 
 
 class SkillsConfig(BaseModel):
@@ -261,12 +261,12 @@ verification_timeout_seconds = 600
 max_repeated_failures = 3
 
 [hooks]
-# Claude UserPromptSubmit can detect a clearly different coding prompt,
-# update .agentpack/task.md, and repack even if files did not change.
+# Prompt hooks only stay active when .agentpack/task.md has a real task.
+# They can still detect a clearly different coding prompt and update task.md.
 task_switch_detection = true
 task_switch_min_terms = 1
-# Block once on task switches so the first prompt sees fresh top-file hints.
-blocking_task_refresh = true
+# Opt in if you want prompt-submit hooks to block for a refresh when context is stale.
+blocking_task_refresh = false
 
 [skills]
 # Skill/rule sources used by `agentpack route` and MCP `route_task`.

@@ -136,10 +136,10 @@ class ClaudeInstaller:
             session_start.append({"hooks": [{"type": "command", "command": session_hook_cmd}]})
 
         # UserPromptSubmit: delegate to `agentpack hook` CLI subcommand.
-        # - Reads prompt from stdin, uses it as pack task keyword.
-        # - With MCP: emits Option-B hint (task + top files list, ~100 tokens).
+        # - Stays silent until .agentpack/task.md has a real task.
+        # - Can update task.md on clear task switches.
+        # - With MCP: emits a small hint toward get_context()/pack_context().
         # - Without MCP: emits capped fallback (top files, hard cap 3k chars).
-        # - Background repacks when root_hash changes (content-addressed, not mtime).
         hook_cmd = "agentpack hook --event UserPromptSubmit"
         user_prompt = hooks.setdefault("UserPromptSubmit", [])
         # Remove stale agentpack hooks (old injection hooks, old inline MCP reminder).
@@ -165,7 +165,6 @@ class ClaudeInstaller:
                     "type": "command",
                     "command": hook_cmd,
                     "timeout": 5,
-                    "statusMessage": "Checking agentpack index...",
                 }]
             })
 
