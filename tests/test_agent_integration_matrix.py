@@ -121,6 +121,27 @@ def test_status_deep_prints_agent_health(tmp_path, monkeypatch) -> None:
     assert "Deep health" in result.output
     assert "Active agent" in result.output
 
+def test_codex_install_disables_stale_marketplace_plugin(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    codex_home.mkdir(parents=True)
+    (codex_home / "config.toml").write_text(
+        '[plugins."agentpack@awesome-codex-plugins"]\n'
+        "enabled = true\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["install", "--agent", "codex"])
+
+    assert result.exit_code == 0, result.output
+    codex_config = (codex_home / "config.toml").read_text(encoding="utf-8")
+    assert '[plugins."agentpack@local"]' in codex_config
+    assert '[plugins."agentpack@awesome-codex-plugins"]' in codex_config
+    assert 'enabled = false' in codex_config
+    assert all(check.ok for check in check_agent_integration(tmp_path, "codex"))
+
 
 def _assert_agent_ready(root: Path, agent: str, *, strict_git: bool = True) -> None:
     for rel in EXPECTED_FILES[agent]:
@@ -140,6 +161,8 @@ def _assert_agent_ready(root: Path, agent: str, *, strict_git: bool = True) -> N
         assert text.count("agentpack hook --event SessionStart") == 1
         assert text.count("agentpack hook --event UserPromptSubmit") == 1
         codex_config = (root / "codex-home" / "config.toml").read_text(encoding="utf-8")
+        assert '[plugins."agentpack@local"]' in codex_config
+        assert "enabled = true" in codex_config
         assert "[mcp_servers.agentpack]" in codex_config
         assert 'args = ["mcp"]' in codex_config
 

@@ -74,6 +74,10 @@ _CODEX_MCP_BLOCK_RE = re.compile(
 _CODEX_MCP_TABLE_RE = re.compile(
     r"(?ms)^\[mcp_servers\.agentpack\]\n.*?(?=^\[[^\n]+\]\n|\Z)",
 )
+_CODEX_PLUGIN_TABLE_RE = re.compile(
+    r'(?ms)^\[plugins\."(agentpack@[^"]+)"\]\n.*?(?=^\[[^\n]+\]\n|\Z)',
+)
+_CODEX_LOCAL_PLUGIN_KEY = "agentpack@local"
 
 
 class CodexInstaller:
@@ -155,6 +159,18 @@ class CodexInstaller:
         config_path.write_text(desired, encoding="utf-8")
         return "updated" if existed else "created"
 
+    def patch_codex_plugin_config(self, *, codex_home: Path | None = None) -> str:
+        """Enable the local AgentPack Codex plugin and disable stale remote copies."""
+        config_path = _codex_config_path(codex_home)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        existed = config_path.exists()
+        content = config_path.read_text(encoding="utf-8") if existed else ""
+        desired = _patch_codex_plugin_config_text(content)
+        if content == desired:
+            return "unchanged"
+        config_path.write_text(desired, encoding="utf-8")
+        return "updated" if existed else "created"
+
     def install_codex_plugin(self, *, codex_home: Path | None = None) -> dict[str, str]:
         """Install AgentPack's thin Codex plugin package into the local Codex cache."""
         source = _codex_plugin_source()
@@ -173,6 +189,71 @@ def _patch_codex_mcp_config_text(content: str) -> str:
     if not prefix:
         return normalized_block
     return prefix + "\n\n" + normalized_block
+
+def _patch_codex_plugin_config_text(content: str) -> str:
+    lines = content.splitlines()
+    lines = _set_table_key(
+        lines,
+        header=f'[plugins."{_CODEX_LOCAL_PLUGIN_KEY}"]',
+        key="enabled",
+        value="true",
+    )
+    normalized = "\n".join(lines)
+    for plugin_key in sorted(_codex_agentpack_plugin_keys(normalized)):
+        if plugin_key == _CODEX_LOCAL_PLUGIN_KEY:
+            continue
+        lines = _set_table_key(
+            lines,
+            header=f'[plugins."{plugin_key}"]',
+            key="enabled",
+            value="false",
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+def _codex_agentpack_plugin_keys(content: str) -> set[str]:
+    return {match.group(1) for match in _CODEX_PLUGIN_TABLE_RE.finditer(content)}
+
+def _set_table_key(
+    lines: list[str],
+    *,
+    header: str,
+    key: str,
+    value: str,
+) -> list[str]:
+    out: list[str] = []
+    inside_target = False
+    seen_target = False
+    target_has_key = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if inside_target and not target_has_key:
+                out.append(f"{key} = {value}")
+            inside_target = stripped == header
+            if inside_target:
+                seen_target = True
+                target_has_key = False
+
+        is_target_key = False
+        if inside_target and "=" in stripped:
+            is_target_key = stripped.split("=", 1)[0].strip() == key
+
+        if is_target_key:
+            out.append(f"{key} = {value}")
+            target_has_key = True
+        else:
+            out.append(line)
+
+    if inside_target and not target_has_key:
+        out.append(f"{key} = {value}")
+
+    if not seen_target:
+        if out and out[-1] != "":
+            out.append("")
+        out.extend([header, f"{key} = {value}"])
+
+    return out
 
 
 def _codex_plugin_target(codex_home: Path | None = None) -> Path:

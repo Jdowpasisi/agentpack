@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from agentpack import __version__
 from agentpack.core.command_surface import refresh_commands
 from agentpack.installers.antigravity import AntigravityInstaller
 from agentpack.installers.claude import ClaudeInstaller
@@ -92,6 +95,7 @@ def install_agent_integration(
         results = {
             "AGENTS.md": installer.patch_agents_md(root),
             "~/.codex/plugins/cache/local/agentpack": next(iter(plugin_result.values())),
+            '~/.codex/config.toml:plugins."agentpack@local"': installer.patch_codex_plugin_config(),
             "~/.codex/config.toml:mcp_servers.agentpack": installer.patch_codex_mcp_config(),
         }
         if not global_install:
@@ -130,6 +134,7 @@ def check_agent_integration(root: Path, agent: str) -> list[AgentCheck]:
     if agent == "codex":
         return [
             _current_rule_file(root, agent, "AGENTS.md", "agentpack repair --agent codex"),
+            _codex_plugin_config(),
             _codex_hooks(root),
             _codex_mcp_config(),
             *_check_git_hooks(root, agent),
@@ -321,9 +326,77 @@ def _codex_hooks(root: Path) -> AgentCheck:
     )
 
 
-def _codex_mcp_config() -> AgentCheck:
-    import os
+_PLUGIN_TABLE_RE = re.compile(
+    r'(?ms)^\[plugins\."(?P<key>agentpack@[^"]+)"\]\n(?P<body>.*?)(?=^\[[^\n]+\]\n|\Z)',
+)
 
+def _codex_plugin_config() -> AgentCheck:
+    codex_home = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser()
+    path = codex_home / "config.toml"
+    if not path.exists():
+        return AgentCheck("codex", "~/.codex/config.toml plugin", False, "missing Codex plugin config", "agentpack repair --agent codex")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return AgentCheck("codex", "~/.codex/config.toml plugin", False, "unreadable", "agentpack repair --agent codex")
+
+    local_enabled = _plugin_enabled(content, "agentpack@local")
+    stale_enabled = sorted(
+        plugin_key
+        for plugin_key in _agentpack_plugin_keys(content)
+        if plugin_key != "agentpack@local" and _plugin_enabled(content, plugin_key)
+    )
+    local_bundle = codex_home / "plugins" / "cache" / "local" / "agentpack" / __version__
+
+    if local_enabled and not stale_enabled and local_bundle.exists():
+        return AgentCheck(
+            "codex",
+            "~/.codex/config.toml plugin",
+            True,
+            f"local Codex plugin enabled (agentpack@local, cache {__version__})",
+        )
+    if stale_enabled:
+        return AgentCheck(
+            "codex",
+            "~/.codex/config.toml plugin",
+            False,
+            f"stale AgentPack plugin source enabled: {', '.join(stale_enabled)}",
+            "agentpack repair --agent codex",
+        )
+    if not local_enabled:
+        return AgentCheck(
+            "codex",
+            "~/.codex/config.toml plugin",
+            False,
+            "local AgentPack Codex plugin not enabled",
+            "agentpack repair --agent codex",
+        )
+    return AgentCheck(
+        "codex",
+        "~/.codex/config.toml plugin",
+        False,
+        f"local AgentPack Codex plugin cache missing for version {__version__}",
+        "agentpack repair --agent codex",
+    )
+
+def _agentpack_plugin_keys(content: str) -> set[str]:
+    return {match.group("key") for match in _PLUGIN_TABLE_RE.finditer(content)}
+
+def _plugin_enabled(content: str, plugin_key: str) -> bool:
+    for match in _PLUGIN_TABLE_RE.finditer(content):
+        if match.group("key") != plugin_key:
+            continue
+        for line in match.group("body").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            if key.strip() == "enabled":
+                return value.strip().lower() == "true"
+        return False
+    return False
+
+def _codex_mcp_config() -> AgentCheck:
     path = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser() / "config.toml"
     if not path.exists():
         return AgentCheck("codex", "~/.codex/config.toml", False, "missing Codex MCP config", "agentpack repair --agent codex")
