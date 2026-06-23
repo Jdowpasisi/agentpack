@@ -11,6 +11,19 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.30] — 2026-06-23
+
+### Added
+- Added `agentpack review` as a local two-stage PR review workflow that writes preflight, understanding, and judgment artifacts for the current branch or PR.
+- Added the `/agentpack-review` Claude slash command and packaged skill/docs updates so the same review entrypoint is available across local and packaged surfaces.
+- Added publishable handoff receipts and persisted understanding/findings outputs so review runs leave stable artifacts for follow-up and distribution.
+
+### Changed
+- Tightened PR-scoped routing and handoff selection so review context prefers the active diff and preserves higher-risk omitted-file signals.
+
+### Fixed
+- Reduced prompt-submit latency by limiting prompt hooks to active task flows instead of firing on every prompt.
+
 ## [0.3.29] — 2026-06-21
 
 ### Added

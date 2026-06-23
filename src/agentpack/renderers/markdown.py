@@ -308,6 +308,22 @@ def _stable_prefix_lines(agent_name: str) -> list[str]:
     ]
 
 
+def _minimal_budget_render(pack: ContextPack) -> bool:
+    return (
+        pack.budget <= 600
+        and not pack.selected_files
+        and not pack.changed_files
+        and not pack.repo_map
+        and not pack.delta_summary
+        and not pack.receipts
+        and not pack.agent_lessons
+        and not pack.redaction_warnings
+        and not pack.omitted_relevant_files
+        and not pack.pack_handoff_omitted_relevant_files
+        and not pack.concurrent_context
+    )
+
+
 def render_claude(pack: ContextPack) -> str:
     sections: list[str] = _stable_prefix_lines("Claude")
 
@@ -360,6 +376,13 @@ def render_claude(pack: ContextPack) -> str:
         sections.append("")
     sections.append(pack.task)
     sections.append("")
+
+    if _minimal_budget_render(pack):
+        sections.append(
+            "> **Budget note:** No files fit within this token budget. Re-run with a higher budget or a narrower task."
+        )
+        sections.append("")
+        return "\n".join(sections)
 
     if pack.execution_state:
         sections.extend(_execution_state_lines(pack.execution_state))
