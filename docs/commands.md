@@ -24,6 +24,7 @@ Command map:
 | `agentpack work` | Convenience wrapper for init, task, context refresh, and next steps |
 | `agentpack work --run` | Advanced optional proof harness around a configured external runner |
 | `agentpack start` | Write a task and run the default guard/refresh workflow |
+| `agentpack review` | Prepare the full two-stage PR review bundle for the current branch or PR |
 | `agentpack finish` | Run finish checks, capture benchmark evidence, and mark state done |
 | `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons from task context and git changes |
 | `agentpack task` | Show, set, or clear global/thread-scoped task files |
@@ -260,10 +261,12 @@ Agent config
   ! ~/.claude/settings.json has no agentpack hooks — run: agentpack install --agent claude --global
   ! Hooks local-only — context won't auto-inject in other repos. Run: agentpack install --agent claude --global
 
-Slash commands (/agentpack, /agentpack-learn)
+Slash commands (/agentpack, /agentpack-review, /agentpack-learn)
   ✓ Slash command installed (local): .claude/commands/agentpack.md
+  ✓ Slash command installed (local): .claude/commands/agentpack-review.md
   ✓ Slash command installed (local): .claude/commands/agentpack-learn.md
   - Slash command not installed globally: ~/.claude/commands/agentpack.md — run: agentpack install --agent claude --global
+  - Slash command not installed globally: ~/.claude/commands/agentpack-review.md — run: agentpack install --agent claude --global
   - Slash command not installed globally: ~/.claude/commands/agentpack-learn.md — run: agentpack install --agent claude --global
 
 Some checks failed. Run the suggested commands above to fix.
@@ -444,7 +447,8 @@ agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
 All installs are idempotent — safe to re-run, merge with existing config, never duplicate.
-Claude installs also refresh `/agentpack` and `/agentpack-learn`; the learning
+Claude installs also refresh `/agentpack`, `/agentpack-review`, and `/agentpack-learn`.
+The review slash command runs the local two-stage review bundle; the learning
 slash command uses current local AgentPack session context and keeps the user
 learning statement at the end for prompt caching.
 
@@ -864,6 +868,35 @@ agentpack quickstart --task "fix auth token expiry" --write
 ```
 
 `quickstart` does not guess at magic. It checks whether `.agentpack/config.toml`, `.agentpack/task.md`, and context packs exist, then prints the next few commands. With `--write`, it writes the supplied task into `.agentpack/task.md`.
+
+---
+
+### `agentpack review`
+
+Prepare the full two-stage PR review bundle for the current branch or checked-out PR.
+
+```bash
+agentpack review
+agentpack review "focus on backward compatibility"
+```
+
+Writes:
+
+- `.agentpack/review-preflight.json`
+- `.agentpack/review.prompt.md`
+- `.agentpack/review-understanding.prompt.md`
+- `.agentpack/review-judge.prompt.md`
+- `<branch-prefix>_understanding.json`
+- `<branch-prefix>_findings.json`
+
+`review` stays local-first. It does not replace `gh pr view`, `git diff`, or
+direct code inspection. Instead it captures the latest available PR metadata,
+selects a diff base, lists changed files and related tests, records stale/dirty
+warnings, and renders the full understanding-plus-judge prompt bundle for a
+host agent to perform the actual review.
+
+The positional argument is optional reviewer context. It shapes prioritization
+only; it must not replace code evidence.
 
 ---
 

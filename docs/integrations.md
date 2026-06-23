@@ -157,7 +157,7 @@ Configures:
 | Config file patched | `CLAUDE.md` + `.claude/settings.json` | `.cursorrules` + `.cursor/rules/*.mdc` | `.windsurfrules` | `AGENTS.md` + `.codex/hooks.json` | `GEMINI.md` + generated `.agent/skills/agentpack/SKILL.md` after pack |
 | Auto-inject on startup | ✅ `UserPromptSubmit` hook | ✅ `alwaysApply` | ✅ rules file | ✅ `AGENTS.md` | ✅ Skill auto-activation |
 | Auto-repack when stale | ✅ `get_context()` / `pack_context()` block on demand; git hooks for repo edits | ✅ git hooks | ✅ git hooks | ✅ git hooks | ✅ git hooks |
-| Manual repack shortcut | ✅ `/agentpack` slash cmd; `/agentpack-learn` for local-context learning | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
+| Manual repack shortcut | ✅ `/agentpack`, `/agentpack-review`, `/agentpack-learn` slash cmds | ✅ VS Code task | ✅ VS Code task | `agentpack pack` | ✅ VS Code task |
 
 ---
 

@@ -17,6 +17,7 @@ EXPECTED_FILES = {
         ".claude/settings.json",
         ".mcp.json",
         ".claude/commands/agentpack.md",
+        ".claude/commands/agentpack-review.md",
         ".claude/commands/agentpack-learn.md",
     ),
     "cursor": (".cursorrules", ".cursor/rules/agentpack.mdc", ".vscode/tasks.json"),

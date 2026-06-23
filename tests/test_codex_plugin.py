@@ -87,14 +87,17 @@ def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
 
     combined = "\n".join(path.read_text(encoding="utf-8") for path in SKILLS_DIR.glob("*.md"))
     assert "agentpack route --task" in combined
+    assert 'agentpack review "$ARGUMENTS"' in combined
     assert "agentpack task set" in combined
     assert "agentpack pack --task auto" in combined
     assert "agentpack guard --agent codex --repair-stale --refresh-context" not in combined
-    assert "agentpack benchmark capture --since main --task" in combined
     assert "agentpack-learn" in combined
     assert "current local AgentPack session context" in combined
     assert "agentpack status" in combined
     assert ".agentpack/learning.md" in combined
+    assert ".agentpack/review.prompt.md" in combined
+    assert "understanding json" in combined.lower()
+    assert "findings json" in combined.lower()
     assert "Reveal answer only after at least two tries" in combined
     assert "not a coding agent" in combined.lower()
     assert "map, not proof" in combined.lower()
@@ -108,7 +111,10 @@ def test_codex_plugin_docs_keep_local_first_boundary() -> None:
     assert "does not reimplement ranking, scanning, packing, mcp, or benchmarking" in docs
     assert "@agentpack-route" in docs
     assert "@agentpack-pack" in docs
+    assert "@agentpack-review" in docs
     assert "@agentpack-learn" in docs
+    assert "_understanding.json" in docs
+    assert "_findings.json" in docs
 
 
 def test_agentpack_learn_slash_command_keeps_user_statement_last() -> None:
@@ -139,6 +145,18 @@ def test_agentpack_learn_slash_command_keeps_user_statement_last() -> None:
         assert "Learning Curve Destroyer" in text
         assert "Reveal answer only after at least two tries" in text
         assert ".agentpack/session-events.jsonl" in text
+
+
+def test_agentpack_review_slash_command_matches_tracked_copy() -> None:
+    command = (ROOT / "src" / "agentpack" / "data" / "agentpack-review.md").read_text(encoding="utf-8")
+    local = (ROOT / ".claude" / "commands" / "agentpack-review.md").read_text(encoding="utf-8")
+
+    assert command == local
+    assert "/agentpack-review" in command
+    assert 'agentpack review "$ARGUMENTS"' in command
+    assert ".agentpack/review.prompt.md" in command
+    assert "understanding json" in command.lower()
+    assert "findings json" in command.lower()
 
 
 def test_agent_plugin_distribution_docs_cover_supported_hosts() -> None:

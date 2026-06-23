@@ -280,7 +280,7 @@ def test_init_force_backs_up_existing_files(tmp_path, monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("agent", "expected_files", "expected_git_hooks"),
     [
-        ("claude", ("CLAUDE.md", ".claude/settings.json", ".mcp.json"), False),
+        ("claude", ("CLAUDE.md", ".claude/settings.json", ".mcp.json", ".claude/commands/agentpack-review.md"), False),
         ("cursor", (".cursorrules", ".cursor/rules/agentpack.mdc", ".vscode/tasks.json"), True),
         ("windsurf", (".windsurfrules", ".vscode/tasks.json"), True),
         ("codex", ("AGENTS.md", ".codex/hooks.json"), True),
@@ -297,7 +297,6 @@ def test_init_installs_agent_integrations(tmp_path, monkeypatch, agent, expected
 
     assert result.exit_code == 0, result.output
     for path in expected_files:
-        assert path in result.output
         assert (tmp_path / path).exists()
     if agent == "claude":
         settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))

@@ -73,6 +73,7 @@ def test_doctor_release_hygiene_warning_does_not_fail_summary(tmp_path: Path, mo
     )
     (tmp_path / ".claude" / "commands").mkdir()
     (tmp_path / ".claude" / "commands" / "agentpack.md").write_text("agentpack\n", encoding="utf-8")
+    (tmp_path / ".claude" / "commands" / "agentpack-review.md").write_text("agentpack review\n", encoding="utf-8")
     (tmp_path / ".claude" / "commands" / "agentpack-learn.md").write_text("agentpack learn\n", encoding="utf-8")
 
     monkeypatch.setattr("agentpack.commands.doctor.installed_cli_status", lambda: {
@@ -100,6 +101,7 @@ def test_doctor_release_hygiene_warning_does_not_fail_summary(tmp_path: Path, mo
 
     assert result.exit_code == 0, result.output
     assert "generated/local artifacts present" in result.output
+    assert "agentpack-review.md" in result.output
     assert "agentpack-learn.md" in result.output
     assert "warning only" in result.output
     assert "All checks passed" in result.output

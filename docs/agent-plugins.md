@@ -41,6 +41,7 @@ Use these local commands from any agent or IDE:
 
 ```bash
 agentpack route --task "<task>"
+agentpack review "<review context>"
 agentpack task set "<task>"
 agentpack pack --task auto
 agentpack upgrade --agent auto

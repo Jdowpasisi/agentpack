@@ -14,7 +14,7 @@ This is the first concrete packaged plugin. The broader plugin and IDE distribut
 - `@agentpack-route <task>` runs read-only task routing.
 - `@agentpack-pack <task>` writes the task and builds `.agentpack/context.md`.
 - `@agentpack-refresh [task]` refreshes stale context through the Codex guard path.
-- `@agentpack-review` inspects the diff and suggests benchmark capture or missing checks.
+- `@agentpack-review [reviewer context]` runs the local `agentpack review` wrapper, then uses the generated runbook plus staged prompts to inspect the current PR or diff.
 - `@agentpack-learn <statement>` turns current local AgentPack session context into an interactive learning prompt.
 
 ## Install
@@ -73,10 +73,12 @@ Then Codex should read `.agentpack/context.md`, inspect selected files, and veri
 After edits:
 
 ```text
-@agentpack-review
+@agentpack-review focus on backward compatibility
 ```
 
-Review should inspect `git diff`, run or recommend checks, and optionally capture a benchmark case.
+Review should use `.agentpack/review.prompt.md`, inspect `git diff`, and report only grounded findings plus exact validation status.
+The workflow writes branch-scoped `*_understanding.json` and `*_findings.json`
+outputs so repeated reviews on different branches can coexist.
 
 For learning from the current local context:
 
