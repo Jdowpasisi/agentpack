@@ -442,12 +442,15 @@ agentpack install                      # auto-detect IDE
 agentpack install --agent claude       # CLAUDE.md + .claude/settings.json hooks
 agentpack install --agent cursor       # .cursorrules + .mdc + git hooks + VS Code tasks
 agentpack install --agent windsurf     # .windsurfrules + git hooks + VS Code tasks
-agentpack install --agent codex        # AGENTS.md + .codex/hooks.json + Codex MCP config + git hooks
+agentpack install --agent codex        # AGENTS.md + hooks + MCP config + agentpack@local + git hooks
 agentpack install --agent antigravity  # GEMINI.md + git hooks + VS Code tasks
 ```
 
 All installs are idempotent — safe to re-run, merge with existing config, never duplicate.
 Claude installs also refresh `/agentpack`, `/agentpack-review`, and `/agentpack-learn`.
+Codex installs refresh the local plugin cache, enable `agentpack@local`, and
+disable stale enabled AgentPack marketplace entries so Codex loads the same
+version as the installed CLI.
 The review slash command runs the local two-stage review bundle; the learning
 slash command uses current local AgentPack session context and keeps the user
 learning statement at the end for prompt caching.
@@ -464,7 +467,7 @@ machine into new global automation unless AgentPack hooks were already present.
 
 ```bash
 agentpack upgrade                 # auto-detect the current IDE/agent
-agentpack upgrade --agent codex   # AGENTS.md + .codex/hooks.json + Codex MCP config + local plugin cache
+agentpack upgrade --agent codex   # AGENTS.md + hooks + MCP config + agentpack@local + local plugin cache
 agentpack upgrade --agent cursor  # Cursor rules/hooks
 agentpack upgrade --agent all     # refresh every supported repo integration
 agentpack upgrade --no-repair-existing-global-hooks
@@ -472,7 +475,9 @@ agentpack upgrade --no-repair-existing-global-hooks
 
 `--agent auto` does not default to Codex. It uses the same host detection as
 `agentpack init`. The Codex plugin package is installed only when the resolved
-agent is `codex` or when `--agent codex` is passed explicitly.
+agent is `codex` or when `--agent codex` is passed explicitly. Codex doctor
+checks that `agentpack@local` is enabled and that older AgentPack plugin sources
+are not still active.
 
 ---
 
@@ -482,7 +487,7 @@ Repair missing or drifted integration files. It uses the same installer contract
 
 ```bash
 agentpack repair                 # repair auto-detected agent
-agentpack repair --agent codex   # AGENTS.md + .codex/hooks.json + Codex MCP config + git hooks
+agentpack repair --agent codex   # AGENTS.md + hooks + MCP config + agentpack@local + git hooks
 agentpack repair --agent all     # repair every supported integration
 ```
 

@@ -14,7 +14,7 @@ This is the first concrete packaged plugin. The broader plugin and IDE distribut
 - `@agentpack-route <task>` runs read-only task routing.
 - `@agentpack-pack <task>` writes the task and builds `.agentpack/context.md`.
 - `@agentpack-refresh [task]` refreshes stale context through the Codex guard path.
-- `@agentpack-review [reviewer context]` runs the local `agentpack review` wrapper, then uses the generated runbook plus staged prompts to inspect the current PR or diff.
+- `@agentpack-review [reviewer context]` runs the local `agentpack review` wrapper, then uses the generated runbook plus staged understanding and judge prompts to inspect the current PR or diff.
 - `@agentpack-learn <statement>` turns current local AgentPack session context into an interactive learning prompt.
 
 ## Install
@@ -42,9 +42,24 @@ agentpack init --agent auto
 ```
 
 When auto-detection resolves to Codex, this writes `AGENTS.md`,
-`.codex/hooks.json`, git hooks, and a local Codex plugin package under
-`~/.codex/plugins/cache/local/agentpack/<version>/`. Auto-detection does not
-default to Codex; pass `--agent codex` only when you want to force Codex setup.
+`.codex/hooks.json`, git hooks, Codex MCP config, and a local Codex plugin
+package under `~/.codex/plugins/cache/local/agentpack/<version>/`.
+
+Codex install, repair, and upgrade also enable the local plugin entry:
+
+```toml
+[plugins."agentpack@local"]
+enabled = true
+```
+
+If an older marketplace copy such as `agentpack@awesome-codex-plugins` is
+already enabled, AgentPack disables that stale entry so Codex loads the local
+bundle that matches the installed CLI. This matters for newly added skills such
+as `@agentpack-review`; copying the cache package alone is not enough if Codex
+is still pointed at an older plugin source.
+
+Auto-detection does not default to Codex; pass `--agent codex` only when you
+want to force Codex setup.
 
 For existing repos after upgrading AgentPack:
 
@@ -53,6 +68,15 @@ agentpack upgrade --agent auto
 ```
 
 The plugin commands stay thin and call the same local engine.
+
+To verify the active Codex surface:
+
+```bash
+agentpack doctor --agent codex
+```
+
+The Codex audit should report the local plugin as enabled, for example
+`agentpack@local, cache <version>`, plus the MCP server and repo hooks.
 
 ## Codex Workflow
 
@@ -76,9 +100,24 @@ After edits:
 @agentpack-review focus on backward compatibility
 ```
 
-Review should use `.agentpack/review.prompt.md`, inspect `git diff`, and report only grounded findings plus exact validation status.
-The workflow writes branch-scoped `*_understanding.json` and `*_findings.json`
-outputs so repeated reviews on different branches can coexist.
+Review should use `.agentpack/review.prompt.md`, inspect `gh pr view`, `git
+diff`, and exact changed code, then report only grounded findings plus exact
+validation status. The reviewer context is only a prioritization lens; it must
+not replace source evidence.
+
+The workflow writes:
+
+- `.agentpack/review-preflight.json`
+- `.agentpack/review.prompt.md`
+- `.agentpack/review-understanding.prompt.md`
+- `.agentpack/review-judge.prompt.md`
+- `<branch-prefix>_understanding.json`
+- `<branch-prefix>_findings.json`
+
+The understanding stage records the factual model of the PR. The judge stage
+uses that model plus direct repository reads to produce evidence-backed
+findings. Repeated reviews on different branches can coexist because the final
+JSON files are branch-scoped.
 
 For learning from the current local context:
 

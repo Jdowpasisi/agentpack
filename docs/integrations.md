@@ -126,7 +126,7 @@ agentpack init --agent codex
 Configures:
 - `AGENTS.md` — tells Codex to write current task, repack, and read the context pack before each task
 - `.codex/hooks.json` — Codex app lifecycle hooks for light prompt-time AgentPack task hints
-- `~/.codex/config.toml` or `$CODEX_HOME/config.toml` — registers `[mcp_servers.agentpack]` for Codex-host MCP exposure
+- `~/.codex/config.toml` or `$CODEX_HOME/config.toml` — registers `[mcp_servers.agentpack]` for Codex-host MCP exposure and enables `agentpack@local`
 - `.git/hooks/post-commit`, `post-merge`, `post-checkout` — background repack on tree change
 
 Optional plugin packaging lives in `.codex-plugin/plugin.json` and `skills/`.
@@ -134,8 +134,9 @@ It adds `@agentpack-route`, `@agentpack-pack`, `@agentpack-refresh`,
 `@agentpack-review`, and `@agentpack-learn` as thin Codex-facing skills that call the same local
 AgentPack CLI/MCP behavior. `agentpack init --agent codex`, `agentpack repair
 --agent codex`, and `agentpack upgrade --agent codex` install or refresh the
-local plugin package under Codex's plugin cache. See [`Codex
-plugin`](codex-plugin.md).
+local plugin package under Codex's plugin cache. They also disable older enabled
+AgentPack marketplace copies so Codex loads the local bundle that matches the
+installed CLI. See [`Codex plugin`](codex-plugin.md).
 
 ### Antigravity
 

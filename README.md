@@ -180,10 +180,19 @@ Inside Codex:
 ```text
 @agentpack-route fix auth token expiry
 @agentpack-pack fix auth token expiry
-@agentpack-review
+@agentpack-review focus on backward compatibility
 ```
 
-The plugin calls the local AgentPack engine. It does not upload code and does not turn AgentPack into a coding agent.
+The Codex plugin calls the local AgentPack engine. Codex setup enables the
+local `agentpack@local` bundle so commands like `@agentpack-review` match the
+installed CLI version. Verify with `agentpack doctor --agent codex` after
+upgrades.
+
+The review flow prepares a local two-stage PR review bundle: preflight metadata,
+a runbook, stage prompts, and branch-scoped understanding/findings JSON files.
+It does not replace `gh pr view`, `git diff`, direct code reads, or tests.
+
+AgentPack does not upload code and does not turn AgentPack into a coding agent.
 
 See [`docs/agent-plugins.md`](docs/agent-plugins.md) and [`docs/codex-plugin.md`](docs/codex-plugin.md).
 
