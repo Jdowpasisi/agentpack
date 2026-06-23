@@ -42,6 +42,8 @@ agentpack pack --agent claude --task auto
 Then read `.agentpack/context.claude.md`.
 
 If AgentPack tools are unavailable or context looks stale/wrong-worktree, do not trust old pack output. Use direct `rg`, PR diff inspection, and target-file reads, then run focused validation.
+
+Prompt hygiene: for agent-mode coding work, prefer `Task`, `Files`, `Acceptance criteria`, `Constraints`, `Validation`, and `Output` sections. For short/simple questions, use Ask/Chat mode instead of agent mode. Keep routine responses concise unless the user asks for detail.
 For multiple agent threads in one repo, stay in legacy global mode unless a thread is explicit. Use
 `AGENTPACK_THREAD_ID=<stable-id> agentpack guard --agent claude --repair-stale --refresh-context --thread auto`
 or pass `thread_id` to AgentPack MCP tools to use `.agentpack/threads/<id>/...` and get overlap warnings.

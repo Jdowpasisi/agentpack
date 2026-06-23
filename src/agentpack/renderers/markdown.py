@@ -324,6 +324,15 @@ def _minimal_budget_render(pack: ContextPack) -> bool:
     )
 
 
+def _minimal_budget_lines(pack: ContextPack) -> list[str]:
+    handoff = build_pack_handoff(pack)
+    return [
+        "> **Budget note:** No files fit within this token budget. Re-run with a higher budget or a narrower task.",
+        f"> **Next:** `{handoff['recommended_action']}` — {handoff['reason']}.",
+        "",
+    ]
+
+
 def render_claude(pack: ContextPack) -> str:
     sections: list[str] = _stable_prefix_lines("Claude")
 
@@ -378,10 +387,7 @@ def render_claude(pack: ContextPack) -> str:
     sections.append("")
 
     if _minimal_budget_render(pack):
-        sections.append(
-            "> **Budget note:** No files fit within this token budget. Re-run with a higher budget or a narrower task."
-        )
-        sections.append("")
+        sections.extend(_minimal_budget_lines(pack))
         return "\n".join(sections)
 
     if pack.execution_state:

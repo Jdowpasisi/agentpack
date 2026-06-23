@@ -16,8 +16,7 @@
           {
             "type": "command",
             "command": "agentpack hook --event UserPromptSubmit",
-            "timeout": 5,
-            "statusMessage": "Checking agentpack index..."
+            "timeout": 5
           }
         ]
       }

@@ -2525,6 +2525,28 @@ def test_pack_handoff_preserves_high_risk_omitted_gate_after_budget_fit():
     assert "`api/routes/refund.py`" in rendered
 
 
+def test_minimal_budget_render_preserves_compact_handoff_action():
+    pack = ContextPack(
+        task="fix refunds",
+        agent="claude",
+        mode="balanced",
+        budget=500,
+        token_estimate=490,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+    )
+
+    rendered = render_claude(pack)
+
+    assert "**Budget note:**" in rendered
+    assert "`deepen_pack`" in rendered
+    assert "## Pack Handoff" not in rendered
+
+
 def test_rendered_token_estimate_includes_markdown_overhead():
     pack = ContextPack(
         task="fix auth",
