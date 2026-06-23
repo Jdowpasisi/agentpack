@@ -189,9 +189,21 @@ def _pack_handoff_lines(pack: ContextPack) -> list[str]:
     selected = handoff["selected"]
     omitted = handoff["omitted_relevant"]
     freshness = handoff["freshness"]
-    lines = ["## Pack Handoff", ""]
-    lines.append(f"- **Recommended next action:** `{handoff['recommended_action']}`")
+    repo_ref = handoff.get("repo_ref") if isinstance(handoff.get("repo_ref"), dict) else {}
+    snapshot = handoff.get("pack_snapshot") if isinstance(handoff.get("pack_snapshot"), dict) else {}
+    skipped = handoff.get("skipped_uncertain") if isinstance(handoff.get("skipped_uncertain"), dict) else {}
+    before_editing = handoff.get("before_editing") if isinstance(handoff.get("before_editing"), dict) else {}
+    lines = ["## Pack Sufficiency Receipt", ""]
+    lines.append(f"- **Before editing:** `{handoff['recommended_action']}`")
+    if before_editing.get("verifier_hint"):
+        lines.append(f"- **Verifier hint:** {before_editing['verifier_hint']}")
     lines.append(f"- **Reason:** {handoff['reason']}")
+    if repo_ref.get("branch") or repo_ref.get("sha"):
+        sha = str(repo_ref.get("sha") or "")[:12]
+        lines.append(f"- **Repo ref:** {repo_ref.get('branch') or 'unknown'} @ {sha or 'unknown'}")
+    if snapshot.get("generated_at") or snapshot.get("snapshot_hash"):
+        snap_hash = str(snapshot.get("snapshot_hash") or "")[:12]
+        lines.append(f"- **Pack snapshot:** {snapshot.get('generated_at') or 'unknown'} ({snap_hash or 'no hash'})")
     lines.append(
         "- **Budget:** "
         f"{budget['rendered_tokens']:,}/{budget['target_tokens']:,} tokens"
@@ -203,6 +215,14 @@ def _pack_handoff_lines(pack: ContextPack) -> list[str]:
     )
     if omitted["top"]:
         lines.append("- **Inspect first:** " + ", ".join(f"`{path}`" for path in omitted["top"]))
+    if omitted.get("reason_counts"):
+        omitted_counts = list(omitted["reason_counts"].items())[:5]
+        reason_counts = ", ".join(f"{reason}={count}" for reason, count in omitted_counts)
+        lines.append(f"- **Omitted reason counts:** {reason_counts}")
+    if skipped.get("excluded_reason_counts"):
+        excluded_counts = list(skipped["excluded_reason_counts"].items())[:5]
+        reason_counts = ", ".join(f"{reason}={count}" for reason, count in excluded_counts)
+        lines.append(f"- **Excluded receipt counts:** {reason_counts}")
     if freshness["refresh_required"]:
         warning_text = "; ".join(str(item) for item in freshness["warnings"]) or "refresh required"
         lines.append(f"- **Freshness:** refresh required — {warning_text}")

@@ -2374,7 +2374,9 @@ def test_pack_handoff_ready_when_pack_has_selected_files():
     rendered = render_claude(pack)
 
     assert handoff["recommended_action"] == "ready_to_inspect_selected"
-    assert "## Pack Handoff" in rendered
+    assert handoff["schema_version"] == 2
+    assert handoff["before_editing"]["verifier_hint"] == "inspect selected files before editing"
+    assert "## Pack Sufficiency Receipt" in rendered
     assert "`ready_to_inspect_selected`" in rendered
 
 
@@ -2429,6 +2431,7 @@ def test_pack_handoff_deepens_under_budget_pressure():
 
     assert handoff["recommended_action"] == "deepen_pack"
     assert handoff["budget"]["pressure"] is True
+    assert handoff["before_editing"]["verifier_hint"].startswith("increase the budget")
 
 
 def test_pack_handoff_inspects_high_risk_omitted_files_first():
@@ -2469,8 +2472,10 @@ def test_pack_handoff_inspects_high_risk_omitted_files_first():
 
     assert handoff["recommended_action"] == "inspect_omitted_first"
     assert handoff["omitted_relevant"]["high_risk"] == 1
+    assert handoff["omitted_relevant"]["reason_counts"] == {"related test for src/refund.py": 1}
     assert "`inspect_omitted_first`" in rendered
     assert "`tests/test_refund.py`" in rendered
+    assert "Omitted reason counts" in rendered
 
 
 def test_pack_handoff_preserves_high_risk_omitted_gate_after_budget_fit():
@@ -2544,7 +2549,7 @@ def test_minimal_budget_render_preserves_compact_handoff_action():
 
     assert "**Budget note:**" in rendered
     assert "`deepen_pack`" in rendered
-    assert "## Pack Handoff" not in rendered
+    assert "## Pack Sufficiency Receipt" not in rendered
 
 
 def test_rendered_token_estimate_includes_markdown_overhead():
