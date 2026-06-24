@@ -189,10 +189,10 @@ def _pack_handoff_lines(pack: ContextPack) -> list[str]:
     selected = handoff["selected"]
     omitted = handoff["omitted_relevant"]
     freshness = handoff["freshness"]
-    repo_ref = handoff.get("repo_ref") if isinstance(handoff.get("repo_ref"), dict) else {}
-    snapshot = handoff.get("pack_snapshot") if isinstance(handoff.get("pack_snapshot"), dict) else {}
-    skipped = handoff.get("skipped_uncertain") if isinstance(handoff.get("skipped_uncertain"), dict) else {}
-    before_editing = handoff.get("before_editing") if isinstance(handoff.get("before_editing"), dict) else {}
+    repo_ref = handoff["repo_ref"]
+    snapshot = handoff["pack_snapshot"]
+    skipped = handoff["skipped_uncertain"]
+    before_editing = handoff["before_editing"]
     lines = ["## Pack Sufficiency Receipt", ""]
     lines.append(f"- **Before editing:** `{handoff['recommended_action']}`")
     if before_editing.get("verifier_hint"):

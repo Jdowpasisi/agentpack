@@ -26,8 +26,8 @@ def build_pack_handoff(pack: ContextPack) -> dict[str, Any]:
     excluded_receipts = [receipt for receipt in pack.receipts if receipt.action == "excluded"]
     stale = pack.stale or bool(pack.freshness_warnings)
     budget_pressure = pack.budget > 0 and pack.token_estimate >= int(pack.budget * 0.95)
-    omitted_reason_counts = Counter(_omitted_reason(item) for item in omitted_relevant_files)
-    excluded_reason_counts = Counter(receipt.reason for receipt in excluded_receipts)
+    omitted_reason_counts = Counter(_omitted_reason_bucket(_omitted_reason(item)) for item in omitted_relevant_files)
+    excluded_reason_counts = Counter(_excluded_reason_bucket(receipt.reason) for receipt in excluded_receipts)
     freshness_warnings = list(pack.freshness_warnings)
 
     if stale:
@@ -82,11 +82,11 @@ def build_pack_handoff(pack: ContextPack) -> dict[str, Any]:
             "files": len(omitted_relevant_files),
             "high_risk": len(high_risk_omitted),
             "top": [item.path for item in high_risk_omitted[:5]],
-            "reason_counts": dict(sorted(omitted_reason_counts.items())),
+            "reason_counts": _sorted_counts(omitted_reason_counts),
         },
         "skipped_uncertain": {
             "excluded_files": len(excluded_receipts),
-            "excluded_reason_counts": dict(sorted(excluded_reason_counts.items())),
+            "excluded_reason_counts": _sorted_counts(excluded_reason_counts),
             "freshness_warnings": freshness_warnings,
         },
         "freshness": {
@@ -107,6 +107,44 @@ def _omitted_reason(item: OmittedRelevantFile) -> str:
     if item.reasons:
         return item.reasons[0]
     return item.omission_reason
+
+
+def _sorted_counts(counts: Counter[str]) -> dict[str, int]:
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
+def _omitted_reason_bucket(reason: str) -> str:
+    lower = reason.lower()
+    if lower.startswith(("related test", "test for")) or "has related tests" in lower:
+        return "related_test"
+    if lower.startswith(("caller of selected symbol", "reverse dependency")):
+        return "caller_or_reverse_dependency"
+    if lower.startswith(("direct dependency", "direct content evidence")):
+        return "direct_evidence"
+    if lower.startswith(("keyword phrase match:", "literal definition match:", "quoted literal match:")):
+        return "literal_or_phrase_match"
+    if lower.startswith(("matched call:", "matched define:", "matched entrypoint:")):
+        return "symbol_or_entrypoint_match"
+    if lower.startswith(("matched env read:", "matched external system:", "matched side effect:")):
+        return "side_effect_or_external_match"
+    if lower.startswith("multi-term path match"):
+        return "multi_term_path_match"
+    if lower.startswith("api route owner match"):
+        return "api_route_owner_match"
+    if lower.startswith(("matched domain:", "matched naming keyword:", "matched ranking keyword:", "matched role keyword:")):
+        return "broad_keyword_match"
+    if lower.startswith(("workspace match", "release/version metadata", "build/dependency metadata")):
+        return "repo_metadata_match"
+    if lower.startswith("budget"):
+        return "budget"
+    return reason
+
+
+def _excluded_reason_bucket(reason: str) -> str:
+    lower = reason.lower()
+    if lower.startswith("marginal slot replaced by"):
+        return "marginal_slot_replaced"
+    return _omitted_reason_bucket(reason)
 
 
 def _verifier_hint(action: NextAction) -> str:
