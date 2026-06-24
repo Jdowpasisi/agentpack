@@ -93,6 +93,8 @@ def build_pack_handoff(pack: ContextPack) -> dict[str, Any]:
             "refresh_required": stale,
             "warnings": freshness_warnings,
         },
+        # Machine-readable extension point for non-markdown consumers. The
+        # markdown renderer already prints the same verifier hint inline.
         "suggested_checks": [verifier_hint] if verifier_hint else [],
     }
 
@@ -131,6 +133,14 @@ def _omitted_reason_bucket(reason: str) -> str:
         return "multi_term_path_match"
     if lower.startswith("api route owner match"):
         return "api_route_owner_match"
+    if lower.startswith("api endpoint pair with"):
+        return "api_endpoint_pair"
+    if lower.startswith("api producer for frontend call"):
+        return "api_producer_for_frontend_call"
+    if lower.startswith("generic public api penalty"):
+        return "generic_public_api_penalty"
+    if lower.startswith("weak filename-only match"):
+        return "weak_filename_only_match"
     if lower.startswith(("matched domain:", "matched naming keyword:", "matched ranking keyword:", "matched role keyword:")):
         return "broad_keyword_match"
     if lower.startswith(("workspace match", "release/version metadata", "build/dependency metadata")):
