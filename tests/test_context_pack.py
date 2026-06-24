@@ -2368,14 +2368,26 @@ def test_pack_handoff_ready_when_pack_has_selected_files():
             )
         ],
         receipts=[],
+        freshness={
+            "generated_at": "2026-05-13T00:00:00+00:00",
+            "git_branch": "main",
+            "git_sha": "abc123def456",
+            "snapshot_root_hash": "root123",
+        },
     )
 
     handoff = build_pack_handoff(pack)
     rendered = render_claude(pack)
 
     assert handoff["recommended_action"] == "ready_to_inspect_selected"
-    assert "## Pack Handoff" in rendered
+    assert handoff["schema_version"] == 2
+    assert handoff["before_editing"]["verifier_hint"] == "inspect selected files before editing"
+    assert "## Pack Sufficiency Receipt" in rendered
     assert "`ready_to_inspect_selected`" in rendered
+    assert "Repo ref" in rendered
+    assert "main @ abc123def456" in rendered
+    assert "Pack snapshot" in rendered
+    assert "2026-05-13T00:00:00+00:00 (root123)" in rendered
 
 
 def test_pack_handoff_refreshes_stale_metadata():
@@ -2429,6 +2441,7 @@ def test_pack_handoff_deepens_under_budget_pressure():
 
     assert handoff["recommended_action"] == "deepen_pack"
     assert handoff["budget"]["pressure"] is True
+    assert handoff["before_editing"]["verifier_hint"].startswith("increase the budget")
 
 
 def test_pack_handoff_inspects_high_risk_omitted_files_first():
@@ -2469,8 +2482,89 @@ def test_pack_handoff_inspects_high_risk_omitted_files_first():
 
     assert handoff["recommended_action"] == "inspect_omitted_first"
     assert handoff["omitted_relevant"]["high_risk"] == 1
+    assert handoff["omitted_relevant"]["reason_counts"] == {"related_test": 1}
     assert "`inspect_omitted_first`" in rendered
     assert "`tests/test_refund.py`" in rendered
+    assert "Omitted reason counts" in rendered
+
+
+def test_pack_handoff_buckets_and_sorts_omitted_reason_counts():
+    pack = ContextPack(
+        task="fix refunds",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=400,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[],
+        omitted_relevant_files=[
+            OmittedRelevantFile(
+                path="tests/test_refund.py",
+                score=200,
+                reasons=["related test for src/refund.py"],
+                estimated_tokens=900,
+                suggested_mode="summary",
+                risk="high",
+            ),
+            OmittedRelevantFile(
+                path="tests/test_payments.py",
+                score=190,
+                reasons=["test for src/payments.py"],
+                estimated_tokens=800,
+                suggested_mode="summary",
+                risk="medium",
+            ),
+            OmittedRelevantFile(
+                path="api/routes/refund.py",
+                score=180,
+                reasons=["caller of selected symbol `refund_user`"],
+                estimated_tokens=700,
+                suggested_mode="summary",
+                risk="medium",
+            ),
+        ],
+    )
+
+    handoff = build_pack_handoff(pack)
+
+    assert list(handoff["omitted_relevant"]["reason_counts"].items()) == [
+        ("related_test", 2),
+        ("caller_or_reverse_dependency", 1),
+    ]
+
+
+def test_pack_handoff_counts_excluded_receipts_by_bucket():
+    pack = ContextPack(
+        task="fix refunds",
+        agent="claude",
+        mode="balanced",
+        budget=1000,
+        token_estimate=400,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[],
+        receipts=[
+            Receipt(path="src/noise.py", action="excluded", reason="marginal slot replaced by src/refund.py"),
+            Receipt(path="src/noise2.py", action="excluded", reason="marginal slot replaced by src/payments.py"),
+            Receipt(path="dist/app.js", action="excluded", reason="generated artifact"),
+        ],
+    )
+
+    handoff = build_pack_handoff(pack)
+    rendered = render_claude(pack)
+
+    assert handoff["skipped_uncertain"]["excluded_files"] == 3
+    assert list(handoff["skipped_uncertain"]["excluded_reason_counts"].items()) == [
+        ("marginal_slot_replaced", 2),
+        ("generated artifact", 1),
+    ]
+    assert "Excluded receipt counts" in rendered
 
 
 def test_pack_handoff_preserves_high_risk_omitted_gate_after_budget_fit():
@@ -2544,7 +2638,7 @@ def test_minimal_budget_render_preserves_compact_handoff_action():
 
     assert "**Budget note:**" in rendered
     assert "`deepen_pack`" in rendered
-    assert "## Pack Handoff" not in rendered
+    assert "## Pack Sufficiency Receipt" not in rendered
 
 
 def test_rendered_token_estimate_includes_markdown_overhead():
@@ -2664,6 +2758,59 @@ def test_save_pack_metadata_persists_freshness(tmp_path):
     assert '"path": "src/auth.py"' in meta
     assert '"pack_handoff": {' in meta
     assert '"recommended_action": "ready_to_inspect_selected"' in meta
+
+
+def test_save_pack_metadata_persists_real_pack_handoff_v2_fields(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+    pack = ContextPack(
+        task="fix auth",
+        agent="generic",
+        mode="balanced",
+        budget=1000,
+        token_estimate=100,
+        raw_repo_tokens=1000,
+        after_ignore_tokens=800,
+        estimated_savings_percent=90.0,
+        changed_files=[],
+        selected_files=[
+            SelectedFile(
+                path="src/auth.py",
+                language="python",
+                score=100,
+                include_mode="full",
+                reasons=["modified"],
+            )
+        ],
+        receipts=[],
+        freshness={
+            "generated_at": "2026-05-13T00:00:00+00:00",
+            "git_branch": "main",
+            "git_sha": "abc123def456",
+            "snapshot_root_hash": "root123",
+        },
+    )
+
+    save_pack_metadata(
+        tmp_path,
+        context_path=".agentpack/context.md",
+        snapshot_root_hash="root123",
+        task=pack.task,
+        agent=pack.agent,
+        mode=pack.mode,
+        budget=pack.budget,
+        token_estimate=pack.token_estimate,
+        freshness=pack.freshness,
+        selected_files=[],
+        pack_handoff=build_pack_handoff(pack),
+    )
+    meta = json.loads((tmp_path / ".agentpack" / "pack_metadata.json").read_text())
+
+    assert meta["pack_handoff"]["schema_version"] == 2
+    assert meta["pack_handoff"]["repo_ref"] == {"branch": "main", "sha": "abc123def456"}
+    assert meta["pack_handoff"]["pack_snapshot"] == {
+        "generated_at": "2026-05-13T00:00:00+00:00",
+        "snapshot_hash": "root123",
+    }
 
 
 def test_generic_task_tightens_summary_floor_and_cap():
