@@ -110,9 +110,18 @@ function installOrUpdateVenv(systemPython, paths) {
   fs.writeFileSync(paths.marker, `${PACKAGE_VERSION}\n`);
 }
 
-function main(argv = process.argv.slice(2)) {
-  const root = cacheRoot();
-  const paths = venvPaths(root);
+function main(
+  argv = process.argv.slice(2),
+  {
+    cacheRootFn = cacheRoot,
+    venvPathsFn = venvPaths,
+    findPythonFn = findPython,
+    installOrUpdateVenvFn = installOrUpdateVenv,
+    spawnSyncFn = spawnSync,
+  } = {},
+) {
+  const root = cacheRootFn();
+  const paths = venvPathsFn(root);
 
   if (process.env.AGENTPACK_NPM_DRY_RUN === "1") {
     console.log(JSON.stringify({
@@ -121,28 +130,28 @@ function main(argv = process.argv.slice(2)) {
       cacheRoot: root,
       venv: paths.venv,
     }));
-    return;
+    return 0;
   }
 
-  const python = findPython();
+  const python = findPythonFn();
   if (!python) {
     fail("Python >=3.10 is required. Install Python, set AGENTPACK_PYTHON=/path/to/python, or use the Windows py launcher.");
   }
 
-  installOrUpdateVenv(python.command, paths);
+  installOrUpdateVenvFn(python, paths);
 
-  const result = spawnSync(paths.agentpack, argv, {
+  const result = spawnSyncFn(paths.agentpack, argv, {
     stdio: "inherit",
     env: process.env,
   });
   if (result.error) {
     fail(`failed to run ${paths.agentpack}: ${result.error.message}`);
   }
-  process.exit(typeof result.status === "number" ? result.status : 1);
+  return typeof result.status === "number" ? result.status : 1;
 }
 
 if (require.main === module) {
-  main();
+  process.exit(main());
 }
 
 module.exports = {
@@ -151,6 +160,8 @@ module.exports = {
   cacheRoot,
   compareVersions,
   findPython,
+  installOrUpdateVenv,
+  main,
   pythonVersion,
   venvPaths,
 };

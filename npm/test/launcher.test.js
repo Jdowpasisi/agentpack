@@ -48,3 +48,29 @@ test("venvPaths uses Windows layout on win32", () => {
     Object.defineProperty(process, "platform", original);
   }
 });
+
+test("main passes the full python descriptor into venv setup", () => {
+  const python = { command: "python3", args: ["-X", "utf8"], version: "3.11" };
+  const paths = {
+    venv: "/tmp/agentpack/venv",
+    agentpack: "/tmp/agentpack/venv/bin/agentpack",
+  };
+
+  let installedPython = null;
+  let installedPaths = null;
+
+  const status = launcher.main(["--version"], {
+    cacheRootFn: () => "/tmp/agentpack",
+    venvPathsFn: () => paths,
+    findPythonFn: () => python,
+    installOrUpdateVenvFn: (candidate, resolvedPaths) => {
+      installedPython = candidate;
+      installedPaths = resolvedPaths;
+    },
+    spawnSyncFn: () => ({ status: 0 }),
+  });
+
+  assert.equal(status, 0);
+  assert.deepEqual(installedPython, python);
+  assert.equal(installedPaths, paths);
+});
