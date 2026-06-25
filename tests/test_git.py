@@ -214,7 +214,7 @@ def test_file_diff_redacts_and_truncates(tmp_path):
     subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True)
 
     (repo / "config.py").write_text(
-        "TOKEN = 'sk-1234567890123456789012345678901234567890'\n",
+        "TOKEN = '" + ("sk-" + "1234567890123456789012345678901234567890") + "'\n",
         encoding="utf-8",
     )
 

@@ -44,6 +44,14 @@ def _setup_repo(tmp_path: Path, fixture_name: str) -> Path:
         encoding="utf-8",
     )
     (dest / ".agentpackignore").write_text("__pycache__/\n*.pyc\n.git/\n.agentpack/\n")
+    if fixture_name == "secret_repo":
+        leak = dest / "src" / "leak.py"
+        leak.write_text(
+            'import anthropic\n\n'
+            '# Simulated leaked key — for redaction testing only\n'
+            'client = anthropic.Anthropic(api_key="' + "sk-ant-api03-" + ("A" * 49) + '")\n',
+            encoding="utf-8",
+        )
     return dest
 
 

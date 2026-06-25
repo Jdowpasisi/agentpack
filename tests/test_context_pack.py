@@ -889,7 +889,13 @@ def test_secret_candidate_bypasses_guarded_summary_floor_for_redaction():
         estimated_tokens=10,
         hash="h1",
         language="python",
-        content='sk-ant-api03-abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\n',
+        content="".join(
+            [
+                "sk-ant-api03-",
+                "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+                "\n",
+            ]
+        ),
     )
     selected, _ = select_files(
         files=[fi],

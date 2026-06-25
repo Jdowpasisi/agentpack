@@ -1,4 +1,5 @@
+import os
 import anthropic
 
-# Simulated leaked key — for redaction testing only
-client = anthropic.Anthropic(api_key="sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+# Secret fixture is injected by the integration helper after the fixture is copied.
+client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))

@@ -11,6 +11,8 @@ SKILLS_DIR = ROOT / "skills"
 PACKAGED_SKILLS_DIR = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / "skills"
 PLUGIN_ICON = ROOT / "assets" / "icon.svg"
 PACKAGED_PLUGIN_ICON = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / "assets" / "icon.svg"
+PLUGIN_SCREENSHOT = ROOT / "assets" / "route-demo.svg"
+PACKAGED_PLUGIN_SCREENSHOT = ROOT / "src" / "agentpack" / "data" / "codex_plugin" / "assets" / "route-demo.svg"
 
 
 def test_codex_plugin_manifest_points_to_skills() -> None:
@@ -23,6 +25,10 @@ def test_codex_plugin_manifest_points_to_skills() -> None:
     assert manifest["skills"] == "./skills/"
     assert manifest["interface"]["displayName"] == "AgentPack"
     assert manifest["interface"]["composerIcon"] == "./assets/icon.svg"
+    assert manifest["interface"]["logo"] == "./assets/icon.svg"
+    assert manifest["interface"]["screenshots"] == ["./assets/route-demo.svg"]
+    assert manifest["interface"]["privacyPolicyURL"].endswith("/docs/privacy.md")
+    assert manifest["interface"]["termsOfServiceURL"].endswith("/docs/terms.md")
     description = " ".join(
         [
             manifest["description"],
@@ -42,10 +48,19 @@ def test_codex_plugin_has_distribution_icon() -> None:
     assert "<svg" in PLUGIN_ICON.read_text(encoding="utf-8")
 
 
+def test_codex_plugin_has_distribution_screenshot() -> None:
+    assert PACKAGED_PLUGIN_SCREENSHOT.read_text(encoding="utf-8") == PLUGIN_SCREENSHOT.read_text(
+        encoding="utf-8"
+    )
+    text = PLUGIN_SCREENSHOT.read_text(encoding="utf-8")
+    assert "<svg" in text
+    assert "AgentPack route demo" in text
+
+
 def test_hol_plugin_scanner_workflow_exists() -> None:
     workflow = (ROOT / ".github" / "workflows" / "hol-plugin-scanner.yml").read_text(encoding="utf-8")
 
-    assert "hashgraph-online/ai-plugin-scanner-action@v1" in workflow
+    assert "hashgraph-online/ai-plugin-scanner-action@b7d8b3299327f03f6e0a4a1eccbc5e3ee748151d" in workflow
     assert 'plugin_dir: "src/agentpack/data/codex_plugin"' in workflow
     assert "min_score: 80" in workflow
     assert "fail_on_severity: high" in workflow
