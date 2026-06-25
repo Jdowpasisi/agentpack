@@ -65,6 +65,9 @@ class SkillInventory(BaseModel):
 class RouteResult(BaseModel):
     task: str
     recommended_interaction_mode: str = "agent"
+    mode_reason: str = ""
+    current_agent: str = "generic"
+    reviewer_agent: str = "codex"
     task_mode: str = "broad_feature"
     task_mode_confidence: float = 0.0
     task_mode_signals: list[str] = Field(default_factory=list)

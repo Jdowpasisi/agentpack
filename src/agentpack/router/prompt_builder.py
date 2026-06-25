@@ -9,6 +9,9 @@ def build_agent_prompt(result: RouteResult) -> str:
         "",
         f"Task: {result.task}",
         f"Recommended interaction mode: {result.recommended_interaction_mode}",
+        f"Mode reason: {result.mode_reason}",
+        f"Current agent: {result.current_agent}",
+        f"Reviewer agent: {result.reviewer_agent}",
         f"Task mode: {result.task_mode} (confidence {result.task_mode_confidence:.2f})",
         "",
         "Read these files first:",
@@ -124,6 +127,9 @@ def render_plain(result: RouteResult) -> str:
 
     lines += ["", "Routing:"]
     lines.append(f"- recommended_interaction_mode: {result.recommended_interaction_mode}")
+    lines.append(f"- mode_reason: {result.mode_reason}")
+    lines.append(f"- current_agent: {result.current_agent}")
+    lines.append(f"- reviewer_agent: {result.reviewer_agent}")
     lines.append(f"- task_mode: {result.task_mode} (confidence {result.task_mode_confidence:.2f})")
     if result.task_mode_signals:
         lines.append(f"- signals: {', '.join(result.task_mode_signals[:4])}")

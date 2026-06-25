@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agentpack.core import git
+from agentpack.adapters.detect import detect_agent
 from agentpack.application.pack_service import PackPlanner, PackRequest
 from agentpack.core.config import load_config
 from agentpack.session.events import read_events
@@ -40,6 +41,7 @@ class TaskModeDecision:
 @dataclass(frozen=True)
 class PromptQualityDecision:
     recommended_interaction_mode: str
+    mode_reason: str
     warnings: list[str]
     template: list[str]
 
@@ -58,6 +60,8 @@ class RouteService:
         mode_decision = classify_task_mode(task)
         task_mode = mode_decision.mode
         prompt_quality = assess_prompt_quality(task, task_mode)
+        current_agent = detect_agent(root)
+        reviewer_agent = _recommended_reviewer_agent(current_agent)
         cfg = load_config(root)
         plan = PackPlanner().plan(PackRequest(
             root=root,
@@ -103,6 +107,9 @@ class RouteService:
         result = RouteResult(
             task=task,
             recommended_interaction_mode=prompt_quality.recommended_interaction_mode,
+            mode_reason=prompt_quality.mode_reason,
+            current_agent=current_agent,
+            reviewer_agent=reviewer_agent,
             task_mode=task_mode,
             task_mode_confidence=mode_decision.confidence,
             task_mode_signals=mode_decision.signals,
@@ -240,11 +247,27 @@ def assess_prompt_quality(task: str, task_mode: str) -> PromptQualityDecision:
         warnings.append("Multiple task types detected. Start a fresh focused session when switching between review, debug, release, docs, and feature work.")
 
     mode = "ask" if simple_question and not has_file_context else "agent"
+    if mode == "ask":
+        mode_reason = "short explanatory prompt; no repo file context, command execution, or code edits detected"
+    elif has_file_context:
+        mode_reason = "repo-specific context detected; use agent mode for file inspection, commands, or edits"
+    elif task_mode in {"pr_review", "runtime_debugging", "integration_readiness", "release_docs"}:
+        mode_reason = "task requires environment evidence or multi-step coordination better suited to agent mode"
+    else:
+        mode_reason = "task looks like actionable repo work rather than a simple explanatory question"
     return PromptQualityDecision(
         recommended_interaction_mode=mode,
+        mode_reason=mode_reason,
         warnings=warnings,
         template=_prompt_template() if warnings else [],
     )
+
+def _recommended_reviewer_agent(current_agent: str) -> str:
+    if current_agent == "codex":
+        return "claude"
+    if current_agent == "claude":
+        return "codex"
+    return "codex"
 
 
 def _task_words(task: str) -> list[str]:

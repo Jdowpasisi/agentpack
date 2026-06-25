@@ -120,6 +120,9 @@ def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, mon
     assert set(data) >= {
         "task",
         "recommended_interaction_mode",
+        "mode_reason",
+        "current_agent",
+        "reviewer_agent",
         "task_mode",
         "task_mode_confidence",
         "task_mode_signals",
@@ -163,12 +166,16 @@ def test_route_short_simple_question_recommends_ask_mode(tmp_path, monkeypatch) 
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("OPENAI_CODEX", "1")
 
     result = CliRunner().invoke(app, ["route", "--task", "what does this error mean?", "--format", "json"])
 
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert data["recommended_interaction_mode"] == "ask"
+    assert "short explanatory prompt" in data["mode_reason"]
+    assert data["current_agent"] == "codex"
+    assert data["reviewer_agent"] == "claude"
     assert any("Ask/Chat mode" in warning for warning in data["prompt_quality_warnings"])
     assert data["recommended_prompt_template"]
 
@@ -177,6 +184,7 @@ def test_route_vague_agent_prompt_recommends_spec_and_files(tmp_path, monkeypatc
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".agentpack").mkdir()
     (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("CLAUDECODE", "1")
 
     result = CliRunner().invoke(app, ["route", "--task", "can you fix these gaps..", "--format", "json"])
 
@@ -184,6 +192,9 @@ def test_route_vague_agent_prompt_recommends_spec_and_files(tmp_path, monkeypatc
     data = json.loads(result.output)
     warnings = "\n".join(data["prompt_quality_warnings"])
     assert data["recommended_interaction_mode"] == "agent"
+    assert "repo work" in data["mode_reason"] or "actionable repo work" in data["mode_reason"]
+    assert data["current_agent"] == "claude"
+    assert data["reviewer_agent"] == "codex"
     assert "No file context detected" in warnings
     assert "acceptance criteria" in warnings
     assert "Short prompt has no output constraint" in warnings

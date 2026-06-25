@@ -40,6 +40,9 @@ def test_mcp_route_task_returns_json_and_does_not_write_context(tmp_path):
     data = json.loads(_route_task_impl(tmp_path, "fix flaky payment webhook test"))
 
     assert data["selected_files"]
+    assert data["current_agent"] == "claude"
+    assert data["reviewer_agent"] == "codex"
+    assert data["mode_reason"]
     assert data["selected_skills"][0]["skill"]["name"] == "django-pytest"
     assert data["selected_skills"][0]["skill"]["raw_text"] == ""
     assert data["applied_rules"][0]["rule"]["path"] == "AGENTS.md"
