@@ -115,13 +115,13 @@ The workflow writes:
 - `.agentpack/reviews/<branch-prefix>/<run_id>/runbook.md`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.prompt.md`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/judge.prompt.md`
-- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.json`
-- `.agentpack/reviews/<branch-prefix>/<run_id>/findings.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.toon`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/findings.toon`
 
-The run-scoped JSON artifact names remain `understanding.json` and
-`findings.json`; only their location moved out of the repo root and into the
+The run-scoped preflight artifact remains JSON, while the LLM-stage artifacts are `understanding.toon` and
+`findings.toon`; only their location moved out of the repo root and into the
 review run directory. This replaces the legacy root outputs
-`<branch-prefix>_understanding.json` and `<branch-prefix>_findings.json`.
+`<branch-prefix>_understanding.toon` and `<branch-prefix>_findings.toon`.
 
 The understanding stage records the factual model of the PR. The judge stage
 uses that model plus direct repository reads to produce evidence-backed

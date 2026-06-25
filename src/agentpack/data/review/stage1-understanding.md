@@ -43,7 +43,7 @@ You are running in the checked-out repository at the PR head commit, with shell,
 
 ## Output
 
-Write a **single JSON object** to the exact output path declared in the AgentPack stage header. Write nothing else to stdout. Before finishing, confirm the file parses as valid JSON. Match this schema exactly:
+Write a **single TOON object** to the exact output path declared in the AgentPack stage header. Write nothing else to stdout. Use JSON programmatically when you need local validation, but the final file written for the next LLM stage must be TOON. Match this schema exactly:
 
 ```json
 {

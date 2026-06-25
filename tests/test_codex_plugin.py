@@ -111,8 +111,8 @@ def test_codex_plugin_skills_delegate_to_existing_cli() -> None:
     assert "agentpack status" in combined
     assert ".agentpack/learning.md" in combined
     assert ".agentpack/review.prompt.md" in combined
-    assert "understanding json" in combined.lower()
-    assert "findings json" in combined.lower()
+    assert "understanding toon" in combined.lower()
+    assert "findings toon" in combined.lower()
     assert "Reveal answer only after at least two tries" in combined
     assert "not a coding agent" in combined.lower()
     assert "map, not proof" in combined.lower()
@@ -128,8 +128,8 @@ def test_codex_plugin_docs_keep_local_first_boundary() -> None:
     assert "@agentpack-pack" in docs
     assert "@agentpack-review" in docs
     assert "@agentpack-learn" in docs
-    assert "_understanding.json" in docs
-    assert "_findings.json" in docs
+    assert "_understanding.toon" in docs
+    assert "_findings.toon" in docs
 
 
 def test_agentpack_learn_slash_command_keeps_user_statement_last() -> None:
@@ -170,8 +170,8 @@ def test_agentpack_review_slash_command_matches_tracked_copy() -> None:
     assert "/agentpack-review" in command
     assert 'agentpack review "$ARGUMENTS"' in command
     assert ".agentpack/review.prompt.md" in command
-    assert "understanding json" in command.lower()
-    assert "findings json" in command.lower()
+    assert "understanding toon" in command.lower()
+    assert "findings toon" in command.lower()
 
 
 def test_agent_plugin_distribution_docs_cover_supported_hosts() -> None:
@@ -217,4 +217,5 @@ def test_portable_agent_rules_exist_for_common_hosts() -> None:
         assert "agentpack" in lower
         assert ".agentpack/context.md" in text or "agentpack route --task" in text
         assert "agentpack pack --task auto" in text or "agentpack guard --agent" in text
+        assert "TOON" in text
         assert "starting map, not proof" in lower or "starting points" in lower

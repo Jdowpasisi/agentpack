@@ -55,7 +55,7 @@ Use `<agent>` values such as `codex`, `claude`, `cursor`, `windsurf`, `antigravi
 
 `agentpack review` prepares the local two-stage PR review bundle. It writes a
 preflight file, a runbook, stage prompts, and branch-scoped
-`*_understanding.json` / `*_findings.json` outputs. The optional review context
+`*_understanding.toon` / `*_findings.toon` outputs. The optional review context
 is a lens, not source evidence; reviewers still need `gh pr view`, `git diff`,
 and direct code reads.
 

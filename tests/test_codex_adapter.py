@@ -17,6 +17,7 @@ class TestCodexAdapter:
         assert "agentpack guard --agent codex --repair-stale --refresh-context" in content
         assert "MCP is the active path" in content
         assert "agentpack:freshness" in content
+        assert "TOON" in content
         assert ".agentpack/task.md" in content
         assert ".agentpack/context.md" in content
         assert "When the user switches to a different coding task" in content

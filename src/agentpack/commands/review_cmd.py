@@ -13,12 +13,14 @@ import typer
 from agentpack.analysis.tests import find_related_tests
 from agentpack.commands._shared import _atomic_write, _now_iso, _root, console
 from agentpack.core import git as git_core
+from agentpack.core.toon_parser import ToonParseError, load_toon
 
 _PREFLIGHT_PATH = Path(".agentpack/review-preflight.json")
 _RUNBOOK_PATH = Path(".agentpack/review.prompt.md")
 _UNDERSTANDING_PROMPT_PATH = Path(".agentpack/review-understanding.prompt.md")
 _JUDGE_PROMPT_PATH = Path(".agentpack/review-judge.prompt.md")
 _REVIEW_RUNS_DIR = Path(".agentpack/reviews")
+_LLM_REVIEW_FORMAT = "TOON"
 
 
 def register(app: typer.Typer) -> None:
@@ -163,8 +165,8 @@ def _review_output_paths(
         "runbook": run_dir / "runbook.md",
         "understanding_prompt": run_dir / "understanding.prompt.md",
         "judge_prompt": run_dir / "judge.prompt.md",
-        "understanding": run_dir / "understanding.json",
-        "findings": run_dir / "findings.json",
+        "understanding": run_dir / "understanding.toon",
+        "findings": run_dir / "findings.toon",
     }
 
 
@@ -183,6 +185,16 @@ def _load_review_run(root: Path, run_id: str) -> dict[str, Any]:
         preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         console.print(f"[red]Review run preflight is invalid JSON:[/] {preflight_path}")
+        raise typer.Exit(1)
+    understanding_path = preflight_path.parent / "understanding.toon"
+    findings_path = preflight_path.parent / "findings.toon"
+    try:
+        if understanding_path.exists():
+            _validate_review_artifact(understanding_path, kind="understanding")
+        if findings_path.exists():
+            _validate_review_artifact(findings_path, kind="findings")
+    except ValueError as exc:
+        console.print(f"[red]Review run artifact invalid:[/] {exc}")
         raise typer.Exit(1)
     preflight.setdefault("review", {})
     preflight["review"]["mode"] = "resume"
@@ -213,13 +225,13 @@ def _render_review_runbook(preflight: dict[str, Any]) -> str:
         f"- Preflight JSON: `{preflight['paths']['preflight']}`\n"
         f"- Stage 1 prompt: `{preflight['paths']['understanding_prompt']}`\n"
         f"- Stage 2 prompt: `{preflight['paths']['judge_prompt']}`\n"
-        f"- Stage 1 output: `{preflight['paths']['understanding_output']}`\n"
-        f"- Stage 2 output: `{preflight['paths']['findings_output']}`\n\n"
+        f"- Stage 1 output ({_LLM_REVIEW_FORMAT}): `{preflight['paths']['understanding_output']}`\n"
+        f"- Stage 2 output ({_LLM_REVIEW_FORMAT}): `{preflight['paths']['findings_output']}`\n\n"
         "## Workflow\n\n"
-        "1. Read the Stage 1 prompt file completely and produce the understanding JSON at the declared output path.\n"
-        "2. Confirm the understanding JSON parses before moving on.\n"
-        "3. Read the Stage 2 prompt file completely and produce the findings JSON at the declared output path.\n"
-        "4. Confirm the findings JSON parses before reporting back.\n"
+        f"1. Read the Stage 1 prompt file completely and produce the understanding {_LLM_REVIEW_FORMAT} at the declared output path.\n"
+        f"2. Confirm the understanding {_LLM_REVIEW_FORMAT} file exists and follows the declared schema before moving on.\n"
+        f"3. Read the Stage 2 prompt file completely and produce the findings {_LLM_REVIEW_FORMAT} at the declared output path.\n"
+        f"4. Confirm the findings {_LLM_REVIEW_FORMAT} file exists and follows the declared schema before reporting back.\n"
         "5. In the final user-facing response, summarize findings and validation gaps without exposing internal stage names.\n"
     )
 
@@ -246,6 +258,7 @@ def _render_stage_prompt(
             f"- Diff range: {preflight['diff']['range']}",
             f"- Diff source: {preflight['diff']['source']}",
             f"- Output path: {_rel_to_root(abs_output, root)}",
+            f"- Structured output format: {_LLM_REVIEW_FORMAT}",
         ]
     )
     if prior_path is not None:
@@ -387,14 +400,43 @@ def _incomplete_review_run_warnings(root: Path) -> list[str]:
         return []
     warnings: list[str] = []
     for run_dir in sorted((path for path in branch_dir.iterdir() if path.is_dir()), reverse=True):
-        understanding = run_dir / "understanding.json"
-        findings = run_dir / "findings.json"
+        understanding = run_dir / "understanding.toon"
+        findings = run_dir / "findings.toon"
+        if understanding.exists():
+            try:
+                _validate_review_artifact(understanding, kind="understanding")
+            except ValueError as exc:
+                warnings.append(f"invalid understanding TOON in {run_dir.name}: {exc}")
+                break
+        if findings.exists():
+            try:
+                _validate_review_artifact(findings, kind="findings")
+            except ValueError as exc:
+                warnings.append(f"invalid findings TOON in {run_dir.name}: {exc}")
+                break
         if understanding.exists() and not findings.exists():
             warnings.append(
                 f"incomplete previous review run {run_dir.name}; start fresh by default or resume with `agentpack review --resume {run_dir.name}`"
             )
             break
     return warnings
+
+
+def _validate_review_artifact(path: Path, *, kind: str) -> dict[str, Any]:
+    try:
+        payload = load_toon(path)
+    except (OSError, ToonParseError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{path.name} is not valid TOON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path.name} must decode to an object")
+    if kind == "understanding":
+        required = ("intent", "change_units", "open_questions")
+    else:
+        required = ("findings", "coverage")
+    missing = [key for key in required if key not in payload]
+    if missing:
+        raise ValueError(f"{path.name} missing required key(s): {', '.join(missing)}")
+    return payload
 
 
 def _rel_to_root(path: Path, root: Path) -> str:

@@ -28,6 +28,7 @@ At the start of every coding task:
 4. Call `agentpack_pack_context(task="<task>")` only when full packed context is needed, or `agentpack_get_context()` for current context.
 5. If MCP is unavailable, read `.agent/skills/agentpack/SKILL.md`. Treat it as fallback; if its `agentpack:freshness` block says `refresh_required: true` or the task does not match, {stale_refresh} before using selected files.
 6. Use files listed in context as starting points, but verify with actual code before editing.
+7. Use JSON programmatically for configs, storage, hooks, and tool protocols. Use TOON for agent-facing structured context or prompt payloads unless an external contract requires JSON.
 
 When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the refresh command before editing.
 

@@ -24,7 +24,7 @@ the exposed skills match the installed CLI.
 
 Use `@agentpack-review <reviewer context>` to prepare and run the local
 two-stage PR review workflow. It writes preflight metadata, a runbook, stage
-prompts, and branch-scoped understanding/findings JSON files. The reviewer
+prompts, and branch-scoped understanding/findings TOON files. The reviewer
 context is only a lens; the review still depends on direct `gh pr view`,
 `git diff`, code reads, and validation.
 

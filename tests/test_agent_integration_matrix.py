@@ -91,6 +91,7 @@ def test_repair_updates_stale_agent_rule_blocks(tmp_path, monkeypatch, agent, re
     assert result.exit_code == 0, result.output
     content = path.read_text(encoding="utf-8")
     assert marker in content
+    assert "TOON" in content
     if agent != "claude":
         assert "agentpack:freshness" in content
     assert all(check.ok for check in check_agent_integration(tmp_path, agent))

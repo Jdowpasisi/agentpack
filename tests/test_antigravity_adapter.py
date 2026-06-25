@@ -15,6 +15,7 @@ class TestAntigravityAdapter:
         assert "agentpack guard --agent antigravity --repair-stale --refresh-context" in content
         assert "MCP is the active path" in content
         assert "agentpack:freshness" in content
+        assert "TOON" in content
         assert ".agent/skills/agentpack/SKILL.md" in content
         assert "When the user switches to a different coding task" in content
 

@@ -128,6 +128,12 @@ class AgentConfig(BaseModel):
     patch_claude_md: bool = False
 
 
+class AgenticConfig(BaseModel):
+    llm_structured_format: str = "auto"
+    enforce_llm_toon: bool = True
+    toon_fallback_when_larger: bool = True
+
+
 class AgentsConfig(BaseModel):
     claude: AgentConfig = Field(
         default_factory=lambda: AgentConfig(
@@ -175,6 +181,7 @@ class Config(BaseModel):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    agentic: AgenticConfig = Field(default_factory=AgenticConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scoring: ScoringWeights = Field(default_factory=ScoringWeights)
 
@@ -274,6 +281,11 @@ paths = ["skills", ".claude-plugin", ".claude/skills", "~/.claude/skills", "~/.c
 max_selected = 3
 always_recommend = ["karpathy-guidelines"]
 allow_external_side_effects = false
+
+[agentic]
+llm_structured_format = "auto"
+enforce_llm_toon = true
+toon_fallback_when_larger = true
 
 [scoring]
 # Scoring weights — higher wins budget allocation.

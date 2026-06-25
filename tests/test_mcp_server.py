@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 
 from agentpack.mcp_server import (
     _repo_root,
+    _readiness_impl,
     _truncate_to_budget,
     _get_context_impl,
     _get_delta_context_impl,
@@ -18,6 +19,7 @@ from agentpack.mcp_server import (
     _get_related_files_impl,
     _resolve_mcp_task,
     _pack_context_impl,
+    _route_task_impl,
 )
 
 
@@ -84,6 +86,46 @@ def test_truncate_no_truncation_marker_when_fits():
     small = _make_pack(n_files=1, chars_per_file=10)
     result = _truncate_to_budget(small, max_tokens=10000)
     assert "Truncated" not in result
+
+
+def test_readiness_impl_defaults_to_toon(tmp_path):
+    result = _readiness_impl(tmp_path)
+
+    assert "@format toon" in result
+    assert "mcp_server: agentpack" in result
+    assert "latest_context:" in result
+
+
+def test_readiness_impl_can_emit_json(tmp_path):
+    result = _readiness_impl(tmp_path, "json")
+
+    payload = json.loads(result)
+    assert payload["mcp_server"] == "agentpack"
+
+
+def test_route_task_impl_can_emit_toon(tmp_path):
+    mocked = MagicMock()
+    mocked.model_dump.return_value = {"task": "fix auth", "selected_files": [{"path": "src/auth.py", "score": 10}]}
+
+    with patch("agentpack.router.service.RouteService") as MockService:
+        MockService.return_value.route_task.return_value = mocked
+        result = _route_task_impl(tmp_path, "fix auth", "toon")
+
+    assert "@format toon" in result
+    assert "task: fix auth" in result
+    assert "selected_files[path|score]:" in result
+
+
+def test_route_task_impl_can_emit_json(tmp_path):
+    mocked = MagicMock()
+    mocked.model_dump.return_value = {"task": "fix auth"}
+
+    with patch("agentpack.router.service.RouteService") as MockService:
+        MockService.return_value.route_task.return_value = mocked
+        result = _route_task_impl(tmp_path, "fix auth", "json")
+
+    payload = json.loads(result)
+    assert payload["task"] == "fix auth"
 
 
 def test_mcp_compress_output_preserves_error(tmp_path):

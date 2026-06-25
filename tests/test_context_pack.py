@@ -2162,15 +2162,15 @@ def test_render_includes_freshness_metadata():
 
     assert "## Freshness" in rendered
     assert "<!-- agentpack:freshness" in rendered
-    freshness_json = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
-    freshness = json.loads(freshness_json)
-    assert freshness["active_context"] == "mcp"
-    assert freshness["fallback_context"] == "markdown"
-    assert freshness["snapshot_root_hash"] == "root123"
-    assert freshness["refresh_required"] is False
-    assert freshness["cli_refresh_command"].startswith("agentpack ")
-    assert freshness["agentpack_version"] == "0.test"
-    assert freshness["git_root"] == "/repo"
+    freshness_block = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
+    assert "@format toon" in freshness_block
+    assert "active_context: mcp" in freshness_block
+    assert "fallback_context: markdown" in freshness_block
+    assert "snapshot_root_hash: root123" in freshness_block
+    assert "refresh_required: false" in freshness_block
+    assert "cli_refresh_command: agentpack guard --agent claude --repair-stale --refresh-context" in freshness_block
+    assert "agentpack_version: 0.test" in freshness_block
+    assert "git_root: /repo" in freshness_block
     assert "**Generated:** 2026-05-13T00:00:00+00:00" in rendered
     assert "**Source command:** agentpack pack --agent claude --task auto" in rendered
     assert "**Task source:** task.md" in rendered
@@ -2693,10 +2693,9 @@ def test_render_loud_stale_task_warning():
     rendered = render_claude(pack)
 
     assert "STALE TASK CONTEXT" in rendered
-    freshness_json = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
-    freshness = json.loads(freshness_json)
-    assert freshness["stale_task_context"] is True
-    assert freshness["refresh_required"] is True
+    freshness_block = rendered.split("<!-- agentpack:freshness", 1)[1].split("-->", 1)[0]
+    assert "stale_task_context: true" in freshness_block
+    assert "refresh_required: true" in freshness_block
     assert "Do not trust selected files until refreshed" in rendered
     assert "agentpack_get_context()" in rendered
     assert "agentpack_pack_context()" in rendered

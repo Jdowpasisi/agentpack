@@ -38,6 +38,7 @@ from agentpack import __version__
 from agentpack.core import git
 from agentpack.core.command_surface import available_cli_commands, refresh_commands
 from agentpack.core.context_pack import load_pack_metadata
+from agentpack.core.structured_format import StructuredFormat, to_llm
 from agentpack.core.task_freshness import read_task_md, task_freshness, write_task_md
 from agentpack.core.thread_context import resolve_thread_option, thread_paths
 from agentpack.core.token_estimator import estimate_tokens
@@ -71,7 +72,7 @@ MCP_TOOL_NAMES = (
 )
 
 
-def _readiness_impl(root: Path) -> str:
+def _readiness_impl(root: Path, output_format: StructuredFormat = "auto") -> str:
     metadata = load_pack_metadata(root) or {}
     freshness = metadata.get("freshness") or {}
     payload = {
@@ -93,7 +94,7 @@ def _readiness_impl(root: Path) -> str:
             "worktree_path": freshness.get("worktree_path"),
         },
     }
-    return json.dumps(payload, indent=2, sort_keys=True)
+    return to_llm(root, payload, requested=output_format, root_name="agentpack_readiness")
 
 
 def _truncate_to_budget(text: str, max_tokens: int = 20000) -> str:
@@ -530,20 +531,20 @@ def _compress_output_impl(root: Path, content: str, kind: str = "auto") -> str:
     return result
 
 
-def _route_task_impl(root: Path, task: str) -> str:
-    """Return read-only task route JSON; does not write task/context files."""
+def _route_task_impl(root: Path, task: str, output_format: StructuredFormat = "auto") -> str:
+    """Return read-only task route payload; does not write task/context files."""
     from agentpack.router.service import RouteService
 
     result = RouteService().route_task(root, task)
-    return result.model_dump_json(indent=2)
+    return to_llm(root, result.model_dump(mode="json"), requested=output_format, root_name="agentpack_route")
 
 
-def _get_skills_impl(root: Path) -> str:
-    """Return discovered skill/rule inventory JSON."""
+def _get_skills_impl(root: Path, output_format: StructuredFormat = "auto") -> str:
+    """Return discovered skill/rule inventory payload."""
     from agentpack.router.service import RouteService
 
     inventory = RouteService().inventory(root)
-    return inventory.model_dump_json(indent=2)
+    return to_llm(root, inventory.model_dump(mode="json"), requested=output_format, root_name="agentpack_skills")
 
 
 def _get_skill_impl(root: Path, name_or_path: str) -> str:
@@ -553,12 +554,17 @@ def _get_skill_impl(root: Path, name_or_path: str) -> str:
     return RouteService().get_skill(root, name_or_path)
 
 
-def _explain_route_impl(root: Path, task: str) -> str:
-    """Return task route JSON including all positive skill scores."""
+def _explain_route_impl(root: Path, task: str, output_format: StructuredFormat = "auto") -> str:
+    """Return task route payload including all positive skill scores."""
     from agentpack.router.service import RouteService
 
     result = RouteService().explain_route(root, task)
-    return result.model_dump_json(indent=2)
+    return to_llm(
+        root,
+        result.model_dump(mode="json"),
+        requested=output_format,
+        root_name="agentpack_route_explanation",
+    )
 
 
 def serve() -> None:
@@ -575,13 +581,13 @@ def serve() -> None:
     mcp = FastMCP("agentpack")
 
     @mcp.tool()
-    def readiness() -> str:
+    def readiness(format: str = "auto") -> str:
         """Prove this host exposes AgentPack MCP tools and report server/CLI status.
 
         If an agent can call this tool and read the response, live MCP exposure is confirmed.
         CLI doctor can only verify registration/config; this tool verifies the active host path.
         """
-        return _readiness_impl(_repo_root())
+        return _readiness_impl(_repo_root(), format)
 
     @mcp.tool()
     def start_task(task: str, mode: str = "balanced", budget: int = 0, max_tokens: int = 20000, thread_id: str = "") -> str:
@@ -621,18 +627,18 @@ def serve() -> None:
         )
 
     @mcp.tool()
-    def route_task(task: str) -> str:
+    def route_task(task: str, format: str = "auto") -> str:
         """Route a task to files, rules, skills, command suggestions, and safety warnings.
 
         Read-only: does not write task.md or context files. Use pack_context when full
         context content is needed.
         """
-        return _route_task_impl(_repo_root(), task)
+        return _route_task_impl(_repo_root(), task, format)
 
     @mcp.tool()
-    def get_skills() -> str:
-        """Return the discovered Agentpack skill/rule inventory as JSON."""
-        return _get_skills_impl(_repo_root())
+    def get_skills(format: str = "auto") -> str:
+        """Return the discovered Agentpack skill/rule inventory as TOON or JSON."""
+        return _get_skills_impl(_repo_root(), format)
 
     @mcp.tool()
     def get_skill(name_or_path: str) -> str:
@@ -643,9 +649,9 @@ def serve() -> None:
         return _get_skill_impl(_repo_root(), name_or_path)
 
     @mcp.tool()
-    def explain_route(task: str) -> str:
-        """Return a route_task-style JSON result with skill scoring reasons."""
-        return _explain_route_impl(_repo_root(), task)
+    def explain_route(task: str, format: str = "auto") -> str:
+        """Return a route_task-style payload with skill scoring reasons."""
+        return _explain_route_impl(_repo_root(), task, format)
 
     @mcp.tool()
     def get_context(thread_id: str = "") -> str:

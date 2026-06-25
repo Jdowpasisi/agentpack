@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-import json
 
 from agentpack.core.models import ContextPack, OmittedRelevantFile, SelectedFile, Symbol
 from agentpack.core.command_surface import refresh_commands
 from agentpack.core.pack_handoff import build_pack_handoff
 from agentpack.core.token_estimator import estimate_tokens
+from agentpack.renderers.toon import render_toon
 
 
 def _lang_fence(lang: str | None) -> str:
@@ -254,7 +254,7 @@ def _machine_freshness_block(pack: ContextPack) -> str:
         "mcp_refresh_tool": "agentpack_get_context",
         "cli_refresh_command": refresh_commands(pack.agent).primary,
     }
-    return "<!-- agentpack:freshness\n" + json.dumps(fields, indent=2, sort_keys=True) + "\n-->"
+    return "<!-- agentpack:freshness\n" + render_toon(fields, root_name="agentpack_freshness").rstrip() + "\n-->"
 
 
 def _file_section(sf: SelectedFile) -> str:

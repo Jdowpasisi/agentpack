@@ -127,7 +127,7 @@ def test_review_command_starts_fresh_and_warns_about_incomplete_previous_run(tmp
     first_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
     first_understanding = repo / first_preflight["paths"]["understanding_output"]
     first_understanding.parent.mkdir(parents=True, exist_ok=True)
-    first_understanding.write_text('{"intent": {}, "change_units": [], "open_questions": []}\n', encoding="utf-8")
+    first_understanding.write_text("@format toon\n@root review_understanding\nintent:\n  requirement: placeholder\nchange_units[]:\n  []\nopen_questions[]:\n  []\n", encoding="utf-8")
 
     second = runner.invoke(app, ["review", "second pass"])
     assert second.exit_code == 0, second.output
@@ -156,3 +156,41 @@ def test_review_command_resume_reuses_existing_run(tmp_path, monkeypatch) -> Non
     assert resumed_preflight["review"]["run_id"] == run_id
     assert resumed_preflight["review"]["mode"] == "resume"
     assert resumed_preflight["review_context"] == "first pass"
+
+def test_review_command_warns_on_invalid_understanding_toon(tmp_path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root: None)
+    runner = CliRunner()
+
+    first = runner.invoke(app, ["review", "first pass"])
+    assert first.exit_code == 0, first.output
+    first_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
+    first_understanding = repo / first_preflight["paths"]["understanding_output"]
+    first_understanding.parent.mkdir(parents=True, exist_ok=True)
+    first_understanding.write_text("@format toon\nbroken\n", encoding="utf-8")
+
+    second = runner.invoke(app, ["review", "second pass"])
+    assert second.exit_code == 0, second.output
+    second_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
+
+    assert any("invalid understanding TOON" in warning for warning in second_preflight["warnings"])
+
+def test_review_command_resume_fails_cleanly_on_invalid_understanding_toon(tmp_path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root: None)
+    runner = CliRunner()
+
+    first = runner.invoke(app, ["review", "first pass"])
+    assert first.exit_code == 0, first.output
+    first_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
+    run_id = first_preflight["review"]["run_id"]
+    first_understanding = repo / first_preflight["paths"]["understanding_output"]
+    first_understanding.parent.mkdir(parents=True, exist_ok=True)
+    first_understanding.write_text("@format toon\nbroken\n", encoding="utf-8")
+
+    resumed = runner.invoke(app, ["review", "--resume", run_id])
+
+    assert resumed.exit_code == 1
+    assert "Review run artifact invalid" in resumed.output

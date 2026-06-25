@@ -25,7 +25,8 @@ agentpack pack --task auto
 6. Use normal repo search when AgentPack output looks incomplete.
 7. Prefer the smallest correct diff.
 8. Run relevant checks after editing.
-9. After completed edits, consider:
+9. Use JSON programmatically for configs, storage, hooks, and tool protocols. Use TOON for agent-facing structured context or prompt payloads unless an external contract requires JSON.
+10. After completed edits, consider:
 
 ```bash
 agentpack benchmark capture --since main --task "<task>"

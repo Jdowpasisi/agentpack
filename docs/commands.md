@@ -896,8 +896,8 @@ Writes:
 - `.agentpack/reviews/<branch-prefix>/<run_id>/runbook.md`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.prompt.md`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/judge.prompt.md`
-- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.json`
-- `.agentpack/reviews/<branch-prefix>/<run_id>/findings.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.toon`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/findings.toon`
 
 `review` stays local-first. It does not replace `gh pr view`, `git diff`, or
 direct code inspection. Instead it captures the latest available PR metadata,
@@ -1026,13 +1026,13 @@ Static markdown cannot refresh itself, so rendered packs include a machine-reada
 
 ```text
 <!-- agentpack:freshness
-{
-  "active_context": "mcp",
-  "fallback_context": "markdown",
-  "refresh_required": false,
-  "mcp_refresh_tool": "agentpack_get_context",
-  "cli_refresh_command": "agentpack pack --task auto"
-}
+@format toon
+@root agentpack_freshness
+active_context: mcp
+fallback_context: markdown
+refresh_required: false
+mcp_refresh_tool: agentpack_get_context
+cli_refresh_command: agentpack guard --agent auto --repair-stale --refresh-context
 -->
 ```
 

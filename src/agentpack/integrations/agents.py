@@ -177,6 +177,7 @@ def _current_rule_file(root: Path, agent: str, rel: str, fix: str) -> AgentCheck
         "MCP is the active path",
         "agentpack_get_context",
         "agentpack:freshness",
+        "TOON",
         commands.primary,
     )
     missing = [needle for needle in required if needle.lower() not in content.lower()]
@@ -289,7 +290,7 @@ def _current_claude_md(root: Path) -> AgentCheck:
         content = path.read_text(encoding="utf-8")
     except OSError:
         return AgentCheck("claude", "CLAUDE.md", False, "unreadable", "agentpack repair --agent claude")
-    required = ("agentpack", "Prefer MCP", "mcp__agentpack__readiness", "mcp__agentpack__get_context", "agentpack pack")
+    required = ("agentpack", "Prefer MCP", "mcp__agentpack__readiness", "mcp__agentpack__get_context", "TOON", "agentpack pack")
     missing = [needle for needle in required if needle.lower() not in content.lower()]
     if not missing:
         return AgentCheck("claude", "CLAUDE.md", True, "current MCP-first AgentPack block present")

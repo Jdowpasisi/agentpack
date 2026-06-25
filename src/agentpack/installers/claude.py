@@ -59,6 +59,8 @@ agentpack pack --agent claude --task auto
 
 Then read `.agentpack/context.claude.md`.
 
+Use JSON programmatically for configs, storage, hooks, and tool protocols. Use TOON for agent-facing structured context or prompt payloads unless an external contract requires JSON.
+
 {fallback_agent_guidance()}
 
 {prompt_quality_guidance()}{thread_line}
