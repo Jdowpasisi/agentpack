@@ -27,8 +27,10 @@ def test_codex_plugin_manifest_points_to_skills() -> None:
     assert manifest["interface"]["composerIcon"] == "./assets/icon.svg"
     assert manifest["interface"]["logo"] == "./assets/icon.svg"
     assert manifest["interface"]["screenshots"] == ["./assets/route-demo.svg"]
-    assert manifest["interface"]["privacyPolicyURL"].endswith("/docs/privacy.md")
-    assert manifest["interface"]["termsOfServiceURL"].endswith("/docs/terms.md")
+    assert manifest["homepage"] == "https://vishal2612200.github.io/agentpack/codex-plugin/"
+    assert manifest["interface"]["websiteURL"] == "https://vishal2612200.github.io/agentpack/"
+    assert manifest["interface"]["privacyPolicyURL"] == "https://vishal2612200.github.io/agentpack/privacy/"
+    assert manifest["interface"]["termsOfServiceURL"] == "https://vishal2612200.github.io/agentpack/terms/"
     description = " ".join(
         [
             manifest["description"],
@@ -78,7 +80,14 @@ def test_codexignore_keeps_plugin_scan_focused() -> None:
 def test_packaged_codex_plugin_is_self_contained_for_distribution() -> None:
     bundle = ROOT / "src" / "agentpack" / "data" / "codex_plugin"
 
-    for rel in ("README.md", "LICENSE", "SECURITY.md", ".codexignore"):
+    for rel in (
+        "README.md",
+        "LICENSE",
+        "SECURITY.md",
+        ".codexignore",
+        ".github/dependabot.yml",
+        ".github/workflows/hol-plugin-scanner.yml",
+    ):
         assert (bundle / rel).exists()
 
 

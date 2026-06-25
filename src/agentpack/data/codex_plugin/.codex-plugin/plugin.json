@@ -6,7 +6,7 @@
     "name": "AgentPack",
     "url": "https://github.com/vishal2612200/agentpack"
   },
-  "homepage": "https://github.com/vishal2612200/agentpack/blob/main/docs/codex-plugin.md",
+  "homepage": "https://vishal2612200.github.io/agentpack/codex-plugin/",
   "repository": "https://github.com/vishal2612200/agentpack",
   "license": "MIT",
   "keywords": [
@@ -30,9 +30,9 @@
     "capabilities": [
       "Interactive"
     ],
-    "websiteURL": "https://github.com/vishal2612200/agentpack",
-    "privacyPolicyURL": "https://github.com/vishal2612200/agentpack/blob/main/docs/privacy.md",
-    "termsOfServiceURL": "https://github.com/vishal2612200/agentpack/blob/main/docs/terms.md",
+    "websiteURL": "https://vishal2612200.github.io/agentpack/",
+    "privacyPolicyURL": "https://vishal2612200.github.io/agentpack/privacy/",
+    "termsOfServiceURL": "https://vishal2612200.github.io/agentpack/terms/",
     "defaultPrompt": [
       "@agentpack-route fix auth token expiry",
       "@agentpack-pack fix auth token expiry",
