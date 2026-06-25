@@ -87,6 +87,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: python -m pip install -e ".[dev]" build
-      - run: python -m agentpack.cli release-check --profile auto
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m agentpack.cli release-check --profile ci
 """

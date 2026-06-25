@@ -49,7 +49,7 @@ def register(app: typer.Typer) -> None:
         profile: str = typer.Option(
             "auto",
             "--profile",
-            help="Release profile: auto, full, fast, or docs. auto uses docs profile only for docs/plugin-only diffs.",
+            help="Release profile: auto, full, ci, fast, or docs. auto uses docs profile only for docs/plugin-only diffs.",
         ),
         tag: str | None = typer.Option(None, "--tag", help="Verify a release tag such as v1.2.3 matches package versions."),
         check_release_branch: bool = typer.Option(False, "--check-release-branch", help="Require HEAD to be present on an origin/release/* branch."),
@@ -65,7 +65,7 @@ def register(app: typer.Typer) -> None:
         if release_profile == "docs":
             skip_build = True
             skip_benchmark = True
-        elif release_profile == "fast":
+        elif release_profile in {"ci", "fast"}:
             skip_build = True
             skip_benchmark = True
         expected_version = _version_from_tag(tag) if tag else None
@@ -125,8 +125,8 @@ _DOCS_TESTS = [
 
 def _resolve_release_profile(root: Path, profile: str, *, skip_build: bool, skip_benchmark: bool) -> str:
     normalized = profile.strip().lower()
-    if normalized not in {"auto", "full", "fast", "docs"}:
-        raise typer.BadParameter("profile must be one of: auto, full, fast, docs")
+    if normalized not in {"auto", "full", "ci", "fast", "docs"}:
+        raise typer.BadParameter("profile must be one of: auto, full, ci, fast, docs")
     if normalized != "auto":
         return normalized
     if skip_build and skip_benchmark:
@@ -141,6 +141,8 @@ def _pytest_args_for_profile(root: Path, profile: str) -> list[str]:
     if profile == "docs":
         existing = [path for path in _DOCS_TESTS if (root / path).exists()]
         return [*existing, "-q"] if existing else ["tests/test_docs_links.py", "-q"]
+    if profile == "ci":
+        return ["tests/", "-q", "-m", "not slow"]
     return ["tests/", "-q", "--cov", "--cov-report=term-missing", "-m", "not slow"]
 
 

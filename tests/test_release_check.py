@@ -87,6 +87,43 @@ def test_release_check_docs_profile_skips_build_benchmark_and_uses_focused_tests
     assert "--cov" not in pytest_call
 
 
+def test_release_check_ci_profile_skips_build_benchmark_and_coverage(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [1.2.3] — 2026-05-26\n", encoding="utf-8")
+
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        calls.append(([str(part) for part in command], kwargs))
+        return Result()
+
+    monkeypatch.setattr("agentpack.commands.release_check.subprocess.run", fake_run)
+
+    result = CliRunner().invoke(app, ["release-check", "--profile", "ci", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["profile"] == "ci"
+    assert [stage["name"] for stage in payload["stages"]] == [
+        "changelog",
+        "version-sync",
+        "pytest-plugin-deps",
+        "ruff",
+        "pytest",
+        "npm-launcher-tests",
+    ]
+    assert "build" not in {stage["name"] for stage in payload["stages"]}
+    assert "benchmark-release-gate" not in {stage["name"] for stage in payload["stages"]}
+    pytest_call, _pytest_kwargs = next((call, kwargs) for call, kwargs in calls if "pytest" in call)
+    assert pytest_call == ["python", "-m", "pytest", "tests/", "-q", "-m", "not slow"] or pytest_call[1:] == ["-m", "pytest", "tests/", "-q", "-m", "not slow"]
+
+
 def test_release_check_auto_uses_docs_profile_for_docs_plugin_only_diff(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")

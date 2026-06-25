@@ -323,7 +323,9 @@ def test_ci_init_writes_workflow_and_refuses_overwrite(tmp_path: Path, monkeypat
     workflow_text = workflow.read_text(encoding="utf-8")
     assert "python -m agentpack.cli loop-smoke --json" in workflow_text
     assert "fetch-depth: 0" in workflow_text
-    assert "python -m agentpack.cli release-check --profile auto" in workflow_text
+    assert 'python -m pip install -e ".[dev]"' in workflow_text
+    assert 'python -m pip install -e ".[dev]" build' not in workflow_text
+    assert "python -m agentpack.cli release-check --profile ci" in workflow_text
     assert second.exit_code == 0, second.output
     assert json.loads(second.output)["written"] is False
 
