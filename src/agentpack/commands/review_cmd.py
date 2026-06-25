@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import typer
 
@@ -17,12 +18,14 @@ _PREFLIGHT_PATH = Path(".agentpack/review-preflight.json")
 _RUNBOOK_PATH = Path(".agentpack/review.prompt.md")
 _UNDERSTANDING_PROMPT_PATH = Path(".agentpack/review-understanding.prompt.md")
 _JUDGE_PROMPT_PATH = Path(".agentpack/review-judge.prompt.md")
+_REVIEW_RUNS_DIR = Path(".agentpack/reviews")
 
 
 def register(app: typer.Typer) -> None:
     @app.command("review")
     def review(
         review_context: str = typer.Argument("", help="Optional reviewer or developer context for this PR review."),
+        resume: str = typer.Option("", "--resume", help="Resume a previous review run by run id."),
     ) -> None:
         """Prepare the full two-stage PR review bundle for the current branch or PR."""
         root = _root()
@@ -30,8 +33,17 @@ def register(app: typer.Typer) -> None:
             console.print("[red]agentpack review requires a git repository.[/]")
             raise typer.Exit(1)
 
-        outputs = _review_output_paths(root)
-        preflight = _build_review_preflight(root, review_context.strip(), outputs)
+        if resume.strip():
+            preflight = _load_review_run(root, resume.strip())
+            outputs = _review_output_paths(
+                root,
+                branch_prefix=preflight["review"]["branch_prefix"],
+                run_id=preflight["review"]["run_id"],
+            )
+        else:
+            outputs = _review_output_paths(root)
+            preflight = _build_review_preflight(root, review_context.strip(), outputs)
+
         runbook = _render_review_runbook(preflight)
         understanding_prompt = _render_stage_prompt(
             "stage1-understanding.md",
@@ -46,16 +58,23 @@ def register(app: typer.Typer) -> None:
             prior_path=outputs["understanding"],
         )
 
-        for rel_path, content in {
+        artifacts = {
+            outputs["preflight"]: json.dumps(preflight, indent=2) + "\n",
+            outputs["runbook"]: runbook,
+            outputs["understanding_prompt"]: understanding_prompt,
+            outputs["judge_prompt"]: judge_prompt,
             _PREFLIGHT_PATH: json.dumps(preflight, indent=2) + "\n",
             _RUNBOOK_PATH: runbook,
             _UNDERSTANDING_PROMPT_PATH: understanding_prompt,
             _JUDGE_PROMPT_PATH: judge_prompt,
-        }.items():
+        }
+        for rel_path, content in artifacts.items():
             abs_path = root / rel_path
             abs_path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(abs_path, content)
 
+        console.print(f"[green]✓[/] Review run id: [bold]{preflight['review']['run_id']}[/]")
+        console.print(f"[green]✓[/] Review run dir: [bold]{preflight['paths']['run_dir']}[/]")
         console.print(f"[green]✓[/] Review preflight: [bold]{_PREFLIGHT_PATH}[/]")
         console.print(f"[green]✓[/] Review runbook: [bold]{_RUNBOOK_PATH}[/]")
         console.print(f"[green]✓[/] Stage 1 prompt: [bold]{_UNDERSTANDING_PROMPT_PATH}[/]")
@@ -69,8 +88,8 @@ def register(app: typer.Typer) -> None:
         console.print("Use the runbook from your agent host; it drives understanding, then judge, against exact diff and code evidence.")
 
 
-def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, Path]) -> dict[str, Any]:
-    branch = git_core.current_branch(root) or "HEAD"
+def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, Any]) -> dict[str, Any]:
+    branch = outputs["branch"]
     sha = git_core.current_sha(root) or ""
     pr = _gh_pr_metadata(root)
     all_paths = _repo_paths(root)
@@ -88,6 +107,12 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
     return {
         "generated_at": _now_iso(),
         "review_context": review_context,
+        "review": {
+            "mode": "fresh",
+            "run_id": outputs["run_id"],
+            "branch": branch,
+            "branch_prefix": outputs["branch_prefix"],
+        },
         "git": {
             "branch": branch,
             "branch_prefix": outputs["branch_prefix"],
@@ -102,28 +127,66 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
             "changed_files_count": len(changed_files),
         },
         "paths": {
-            "preflight": str(_PREFLIGHT_PATH),
-            "runbook": str(_RUNBOOK_PATH),
-            "understanding_prompt": str(_UNDERSTANDING_PROMPT_PATH),
-            "judge_prompt": str(_JUDGE_PROMPT_PATH),
+            "run_dir": _rel_to_root(outputs["run_dir"], root),
+            "preflight": _rel_to_root(outputs["preflight"], root),
+            "runbook": _rel_to_root(outputs["runbook"], root),
+            "understanding_prompt": _rel_to_root(outputs["understanding_prompt"], root),
+            "judge_prompt": _rel_to_root(outputs["judge_prompt"], root),
             "understanding_output": _rel_to_root(outputs["understanding"], root),
             "findings_output": _rel_to_root(outputs["findings"], root),
+            "active_preflight": str(_PREFLIGHT_PATH),
+            "active_runbook": str(_RUNBOOK_PATH),
+            "active_understanding_prompt": str(_UNDERSTANDING_PROMPT_PATH),
+            "active_judge_prompt": str(_JUDGE_PROMPT_PATH),
         },
         "changed_files": changed_files,
         "warnings": warnings,
     }
 
 
-def _review_output_paths(root: Path) -> dict[str, Any]:
+def _review_output_paths(
+    root: Path,
+    *,
+    branch_prefix: str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    branch = git_core.current_branch(root) or "HEAD"
+    branch_prefix = branch_prefix or branch.replace("/", "-")
+    run_id = run_id or _new_review_run_id()
+    run_dir = root / _REVIEW_RUNS_DIR / branch_prefix / run_id
+    return {
+        "branch": branch,
+        "branch_prefix": branch_prefix,
+        "run_id": run_id,
+        "run_dir": run_dir,
+        "preflight": run_dir / "preflight.json",
+        "runbook": run_dir / "runbook.md",
+        "understanding_prompt": run_dir / "understanding.prompt.md",
+        "judge_prompt": run_dir / "judge.prompt.md",
+        "understanding": run_dir / "understanding.json",
+        "findings": run_dir / "findings.json",
+    }
+
+
+def _new_review_run_id() -> str:
+    return f"{_now_iso().replace(':', '').replace('-', '').replace('.', '')}-{uuid4().hex[:8]}"
+
+
+def _load_review_run(root: Path, run_id: str) -> dict[str, Any]:
     branch = git_core.current_branch(root) or "HEAD"
     branch_prefix = branch.replace("/", "-")
-    understanding = root / f"{branch_prefix}_understanding.json"
-    findings = root / f"{branch_prefix}_findings.json"
-    return {
-        "branch_prefix": branch_prefix,
-        "understanding": understanding,
-        "findings": findings,
-    }
+    preflight_path = root / _REVIEW_RUNS_DIR / branch_prefix / run_id / "preflight.json"
+    if not preflight_path.exists():
+        console.print(f"[red]Review run not found:[/] {preflight_path}")
+        raise typer.Exit(1)
+    try:
+        preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        console.print(f"[red]Review run preflight is invalid JSON:[/] {preflight_path}")
+        raise typer.Exit(1)
+    preflight.setdefault("review", {})
+    preflight["review"]["mode"] = "resume"
+    return preflight
 
 
 def _render_review_runbook(preflight: dict[str, Any]) -> str:
@@ -135,6 +198,9 @@ def _render_review_runbook(preflight: dict[str, Any]) -> str:
         "## Reviewer Context\n\n"
         f"{preflight['review_context'] or '(none)'}\n\n"
         "## Preflight\n\n"
+        f"- Review mode: {preflight['review'].get('mode', 'fresh')}\n"
+        f"- Review run id: {preflight['review']['run_id']}\n"
+        f"- Review run dir: {preflight['paths']['run_dir']}\n"
         f"- Branch: {preflight['git']['branch']}\n"
         f"- Branch prefix: {preflight['git']['branch_prefix']}\n"
         f"- Head SHA: {preflight['git']['head_sha']}\n"
@@ -167,23 +233,27 @@ def _render_stage_prompt(
 ) -> str:
     root = _root().resolve()
     abs_output = output_path.resolve()
-    lines = [
-        "# AgentPack Review Stage",
-        "",
-        "## AgentPack Context",
-        "",
-        f"- Reviewer context: {preflight['review_context'] or '(none)'}",
-        f"- Preflight JSON: {preflight['paths']['preflight']}",
-        f"- Diff range: {preflight['diff']['range']}",
-        f"- Diff source: {preflight['diff']['source']}",
-        f"- Output path: {_rel_to_root(abs_output, root)}",
-    ]
+    lines = [_load_review_template(template_name)]
+    lines.extend(
+        [
+            "",
+            "## AgentPack Run Inputs",
+            "",
+            f"- Review run id: {preflight['review']['run_id']}",
+            f"- Review mode: {preflight['review'].get('mode', 'fresh')}",
+            f"- Preflight JSON: {preflight['paths']['preflight']}",
+            f"- Head SHA: {preflight['git']['head_sha']}",
+            f"- Diff range: {preflight['diff']['range']}",
+            f"- Diff source: {preflight['diff']['source']}",
+            f"- Output path: {_rel_to_root(abs_output, root)}",
+        ]
+    )
     if prior_path is not None:
         lines.append(f"- Input path: {_rel_to_root(prior_path.resolve(), root)}")
     if preflight["warnings"]:
         lines.extend(["", "## Warnings", ""])
         lines.extend(f"- {warning}" for warning in preflight["warnings"])
-    lines.extend(["", "## Stage Prompt", "", _load_review_template(template_name)])
+    lines.extend(["", "Reviewer context:", preflight["review_context"] or "(none)"])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -296,6 +366,7 @@ def _warnings(root: Path, pr: dict[str, Any] | None, diff_info: dict[str, str], 
     dirty = sorted(git_core.dirty_files(root))
     if dirty:
         warnings.append(f"dirty tree has {len(dirty)} path(s); review the checked-out PR head, not local edits")
+    warnings.extend(_incomplete_review_run_warnings(root))
     if not pr:
         warnings.append("gh PR metadata unavailable; review is using local git context only")
     if diff_info["source"] != "pr-base":
@@ -305,6 +376,24 @@ def _warnings(root: Path, pr: dict[str, Any] | None, diff_info: dict[str, str], 
     generated = [path for path in changed_paths if path.startswith(".agentpack/")]
     if generated:
         warnings.append("generated AgentPack artifacts are in the diff; keep them low priority unless the change is about distribution or docs")
+    return warnings
+
+
+def _incomplete_review_run_warnings(root: Path) -> list[str]:
+    branch = git_core.current_branch(root) or "HEAD"
+    branch_prefix = branch.replace("/", "-")
+    branch_dir = root / _REVIEW_RUNS_DIR / branch_prefix
+    if not branch_dir.exists():
+        return []
+    warnings: list[str] = []
+    for run_dir in sorted((path for path in branch_dir.iterdir() if path.is_dir()), reverse=True):
+        understanding = run_dir / "understanding.json"
+        findings = run_dir / "findings.json"
+        if understanding.exists() and not findings.exists():
+            warnings.append(
+                f"incomplete previous review run {run_dir.name}; start fresh by default or resume with `agentpack review --resume {run_dir.name}`"
+            )
+            break
     return warnings
 
 

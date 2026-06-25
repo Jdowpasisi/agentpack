@@ -883,6 +883,7 @@ Prepare the full two-stage PR review bundle for the current branch or checked-ou
 ```bash
 agentpack review
 agentpack review "focus on backward compatibility"
+agentpack review --resume <run_id>
 ```
 
 Writes:
@@ -891,8 +892,12 @@ Writes:
 - `.agentpack/review.prompt.md`
 - `.agentpack/review-understanding.prompt.md`
 - `.agentpack/review-judge.prompt.md`
-- `<branch-prefix>_understanding.json`
-- `<branch-prefix>_findings.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/preflight.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/runbook.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.prompt.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/judge.prompt.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/findings.json`
 
 `review` stays local-first. It does not replace `gh pr view`, `git diff`, or
 direct code inspection. Instead it captures the latest available PR metadata,
@@ -902,6 +907,8 @@ host agent to perform the actual review.
 
 The positional argument is optional reviewer context. It shapes prioritization
 only; it must not replace code evidence.
+Fresh runs are the default. Interrupted work is resumed only when
+`--resume <run_id>` is passed explicitly.
 
 ---
 

@@ -111,13 +111,23 @@ The workflow writes:
 - `.agentpack/review.prompt.md`
 - `.agentpack/review-understanding.prompt.md`
 - `.agentpack/review-judge.prompt.md`
-- `<branch-prefix>_understanding.json`
-- `<branch-prefix>_findings.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/preflight.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/runbook.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.prompt.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/judge.prompt.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.json`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/findings.json`
+
+The run-scoped JSON artifact names remain `understanding.json` and
+`findings.json`; only their location moved out of the repo root and into the
+review run directory. This replaces the legacy root outputs
+`<branch-prefix>_understanding.json` and `<branch-prefix>_findings.json`.
 
 The understanding stage records the factual model of the PR. The judge stage
 uses that model plus direct repository reads to produce evidence-backed
-findings. Repeated reviews on different branches can coexist because the final
-JSON files are branch-scoped.
+findings. Fresh runs are the default, and interrupted work is resumed only with
+`agentpack review --resume <run_id>`, so an abandoned partial review does not
+silently become the next run's input.
 
 For learning from the current local context:
 
