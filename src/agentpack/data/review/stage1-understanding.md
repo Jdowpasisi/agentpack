@@ -45,6 +45,8 @@ You are running in the checked-out repository at the PR head commit, with shell,
 
 Write a **single TOON object** to the exact output path declared in the AgentPack stage header. Write nothing else to stdout. Use JSON programmatically when you need local validation, but the final file written for the next LLM stage must be TOON. Match this schema exactly:
 
+Do not answer inline from this stage. If you cannot write the output file, stop and report blocked instead of continuing in chat.
+
 ```json
 {
   "intent": {

@@ -51,6 +51,8 @@ For anything that rests on an `open_question`, keep the finding conditional and 
 
 Write a single TOON object to the exact output path declared in the AgentPack stage header. Nothing else to stdout. Use JSON programmatically when useful for local validation, but emit TOON for the final file. Schema:
 
+Do not answer inline from this stage. Read the understanding TOON from disk first. If you cannot read the input file or write the findings file, stop and report blocked instead of continuing in chat.
+
 ```json
 {
   "findings": [

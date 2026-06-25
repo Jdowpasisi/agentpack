@@ -115,6 +115,14 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
             "branch": branch,
             "branch_prefix": outputs["branch_prefix"],
         },
+        "execution_contract": {
+            "structured_format": _LLM_REVIEW_FORMAT,
+            "requires_write_to_file": True,
+            "requires_read_file_between_stages": True,
+            "forbid_inline_review": True,
+            "blocked_without_stage_artifact": True,
+            "stage_order": ["understanding", "judge"],
+        },
         "git": {
             "branch": branch,
             "branch_prefix": outputs["branch_prefix"],
@@ -227,6 +235,12 @@ def _render_review_runbook(preflight: dict[str, Any]) -> str:
         f"- Stage 2 prompt: `{preflight['paths']['judge_prompt']}`\n"
         f"- Stage 1 output ({_LLM_REVIEW_FORMAT}): `{preflight['paths']['understanding_output']}`\n"
         f"- Stage 2 output ({_LLM_REVIEW_FORMAT}): `{preflight['paths']['findings_output']}`\n\n"
+        "## Hard Gates\n\n"
+        "1. Do not perform the review inline from these prompts or this runbook.\n"
+        "2. If you cannot write the Stage 1 output file at the declared path, stop and report blocked.\n"
+        "3. Do not start Stage 2 until the Stage 1 output file exists and validates against the declared schema.\n"
+        "4. If you cannot write the Stage 2 output file at the declared path, stop and report blocked.\n"
+        "5. Do not produce a final review summary unless the Stage 2 output file exists and validates against the declared schema.\n\n"
         "## Workflow\n\n"
         f"1. Read the Stage 1 prompt file completely and produce the understanding {_LLM_REVIEW_FORMAT} at the declared output path.\n"
         f"2. Confirm the understanding {_LLM_REVIEW_FORMAT} file exists and follows the declared schema before moving on.\n"
@@ -263,6 +277,18 @@ def _render_stage_prompt(
     )
     if prior_path is not None:
         lines.append(f"- Input path: {_rel_to_root(prior_path.resolve(), root)}")
+    lines.extend(
+        [
+            "",
+            "## Execution Gates",
+            "",
+            "- Do not answer inline from this stage prompt.",
+            "- Write the required TOON artifact to the declared output path and nothing else.",
+            "- If you cannot write the file or validate that it exists, stop and report blocked.",
+        ]
+    )
+    if prior_path is not None:
+        lines.append("- Do not continue until the declared input TOON exists and has been read from disk.")
     if preflight["warnings"]:
         lines.extend(["", "## Warnings", ""])
         lines.extend(f"- {warning}" for warning in preflight["warnings"])

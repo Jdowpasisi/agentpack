@@ -49,6 +49,14 @@ def test_build_review_preflight_uses_pr_base_and_related_tests(tmp_path, monkeyp
     assert preflight["review_context"] == "focus on backward compatibility"
     assert preflight["review"]["mode"] == "fresh"
     assert preflight["review"]["branch_prefix"] == "feature-review"
+    assert preflight["execution_contract"] == {
+        "structured_format": "TOON",
+        "requires_write_to_file": True,
+        "requires_read_file_between_stages": True,
+        "forbid_inline_review": True,
+        "blocked_without_stage_artifact": True,
+        "stage_order": ["understanding", "judge"],
+    }
     assert preflight["diff"]["base_ref"] == "main"
     assert preflight["diff"]["source"] == "pr-base"
     assert preflight["paths"]["run_dir"].startswith(".agentpack/reviews/feature-review/")
@@ -98,11 +106,18 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     assert preflight["review"]["run_id"] in runbook
     assert preflight["paths"]["understanding_output"] in runbook
     assert preflight["paths"]["findings_output"] in runbook
+    assert "## Hard Gates" in runbook
+    assert "Do not perform the review inline" in runbook
+    assert "If you cannot write the Stage 1 output file" in runbook
+    assert "Do not start Stage 2 until the Stage 1 output file exists" in runbook
+    assert "Do not produce a final review summary unless the Stage 2 output file exists" in runbook
 
     understanding_prompt = understanding_prompt_path.read_text(encoding="utf-8")
     template = _load_review_template("stage1-understanding.md")
     assert understanding_prompt.startswith(template)
     assert "## AgentPack Run Inputs" in understanding_prompt
+    assert "## Execution Gates" in understanding_prompt
+    assert "Do not answer inline from this stage prompt." in understanding_prompt
     assert f"Output path: {preflight['paths']['understanding_output']}" in understanding_prompt
     assert understanding_prompt.rstrip().endswith("reviewer is worried about prompt latency")
     assert '"change_units"' in understanding_prompt
@@ -110,6 +125,9 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     judge_prompt = judge_prompt_path.read_text(encoding="utf-8")
     template = _load_review_template("stage2-judge.md")
     assert judge_prompt.startswith(template)
+    assert "## Execution Gates" in judge_prompt
+    assert "Do not answer inline from this stage prompt." in judge_prompt
+    assert "Do not continue until the declared input TOON exists and has been read from disk." in judge_prompt
     assert f"Input path: {preflight['paths']['understanding_output']}" in judge_prompt
     assert f"Output path: {preflight['paths']['findings_output']}" in judge_prompt
     assert judge_prompt.rstrip().endswith("reviewer is worried about prompt latency")
