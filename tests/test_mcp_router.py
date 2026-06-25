@@ -81,7 +81,7 @@ def test_mcp_explain_route_includes_skill_scores(tmp_path):
 def test_mcp_readiness_proves_live_tool_exposure(tmp_path):
     (tmp_path / ".agentpack").mkdir()
 
-    data = json.loads(_readiness_impl(tmp_path))
+    data = json.loads(_readiness_impl(tmp_path, "json"))
 
     assert data["ok"] is True
     assert "proves" in data["proof"]

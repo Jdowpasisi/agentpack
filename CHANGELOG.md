@@ -11,6 +11,23 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.31] — 2026-06-25
+
+### Added
+- Added TOON structured rendering/parsing support so AgentPack can emit lower-token structured context and prompt payloads.
+- Added routed task-mode and reviewer guidance for coding, PR review, release/docs, integration, and debugging workflows.
+- Added Codex local plugin activation docs and packaged plugin metadata so Codex installs can expose AgentPack surfaces more reliably.
+
+### Changed
+- Enriched pack sufficiency receipts with clearer freshness, omitted-file, and verifier hints for follow-up agents and reviewers.
+- Hardened distribution surfaces across agent rules, workflows, plugin assets, and HOL registry metadata.
+- Optimized bundled SVG/PNG assets for smaller documentation and plugin payloads.
+
+### Contributors
+- `caioribeiroclw-pixel` / Caio Ribeiro contributed the pack sufficiency receipt work in PR #13.
+- `imgbot` contributed asset optimization in PR #12.
+- `yashkumar2603`, `heyvishalsharma`, and `vishal2612200` reviewed or commented on release changes in PR #13.
+
 ## [0.3.30] — 2026-06-23
 
 ### Added
