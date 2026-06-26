@@ -18,6 +18,12 @@ _CODING_PROMPT_RE = re.compile(
     r"(?:fix|add|refactor|impl|implement|update|write|debug|test|build|migrate|remove|delete|rename|optimize)\b",
     re.IGNORECASE,
 )
+_REVIEW_PROMPT_RE = re.compile(
+    r"(?:\b(?:review|findings?|comments?)\b.*\b(?:pr|pull request|diff|code|branch|change|changes|github|gh)\b"
+    r"|\b(?:pr|pull request|diff|github|gh)\b.*\b(?:review|findings?|comments?)\b"
+    r"|@agentpack-review|/agentpack-review|gh\s+pr)",
+    re.IGNORECASE,
+)
 _TASK_STOPWORDS = {
     "add",
     "all",
@@ -125,7 +131,28 @@ def _looks_like_coding_prompt(prompt: str) -> bool:
     stripped = prompt.strip()
     if stripped.startswith("/"):
         return False
-    return bool(_CODING_PROMPT_RE.search(stripped))
+    return bool(_CODING_PROMPT_RE.search(stripped) or _looks_like_review_prompt(stripped))
+
+def _looks_like_review_prompt(prompt: str) -> bool:
+    stripped = prompt.strip()
+    if not stripped:
+        return False
+    return bool(_REVIEW_PROMPT_RE.search(stripped))
+
+def _review_preflight_note(*, review_intent: bool, context_stale: bool, has_mcp: bool, task: str) -> str:
+    if not review_intent:
+        return ""
+    if has_mcp:
+        refresh = f'Call agentpack_pack_context(task="{task}") before PR diff/code review.'
+    else:
+        refresh = "Run `agentpack guard --agent auto --repair-stale --refresh-context` before PR diff/code review."
+    lines = [
+        "REVIEW DETECTED: refresh AgentPack context before PR diff/code review.",
+        refresh,
+    ]
+    if context_stale:
+        lines.append("BYPASS REQUIRED: if reviewing without refreshed AgentPack context, state why.")
+    return "\n".join(lines) + "\n"
 
 
 def _prompt_task(prompt: str) -> str:
@@ -386,9 +413,16 @@ def _run_user_prompt_submit(root: Path) -> None:
 
     has_mcp = _mcp_installed(root)
     current_task = _load_task_md(root) or _infer_live_task(root)
+    review_intent = _looks_like_review_prompt(prompt)
     delta = _load_delta_summary(root)
-    safe_hints = not pack_missing and not pack_task_changed and not task_switched
+    safe_hints = not pack_missing and not pack_task_changed and not task_switched and not repo_changed
     hints = _load_hints(root, n=5 if has_mcp else 8) if safe_hints else []
+    review_note = _review_preflight_note(
+        review_intent=review_intent,
+        context_stale=context_stale,
+        has_mcp=has_mcp,
+        task=current_task,
+    )
 
     if has_mcp:
         if hints:
@@ -407,6 +441,7 @@ def _run_user_prompt_submit(root: Path) -> None:
             msg = (
                 f"AgentPack {status_note}\n"
                 f"task: {current_task}\n"
+                + review_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
@@ -415,14 +450,18 @@ def _run_user_prompt_submit(root: Path) -> None:
             )
         elif refresh_state == "refresh pending":
             msg = (
-                "AgentPack active (refresh pending)\n"
+                "AgentPack STALE (refresh pending)\n"
                 f"task: {current_task}\n"
-                "Call agentpack_get_context() to refresh the current task pack."
+                + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
+                + review_note
+                + "Call agentpack_get_context() to refresh the current task pack."
             )
         elif refresh_state == "refresh failed":
             msg = (
-                "AgentPack active (refresh failed)\n"
+                "AgentPack STALE (refresh failed)\n"
                 f"task: {current_task}\n"
+                + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
+                + review_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + "Call agentpack_pack_context(task=\"...\") to rebuild the current task pack."
             )
@@ -448,6 +487,7 @@ def _run_user_prompt_submit(root: Path) -> None:
             msg = (
                 f"AgentPack context{changed_note}\n"
                 f"task: {current_task}\n"
+                + review_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
@@ -456,14 +496,18 @@ def _run_user_prompt_submit(root: Path) -> None:
             )
         elif refresh_state == "refresh pending":
             msg = (
-                "AgentPack active (refresh pending)\n"
+                "AgentPack STALE (refresh pending)\n"
                 f"task: {current_task}\n"
-                "Run `agentpack pack --task auto` or install MCP and call `agentpack_get_context()`."
+                + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
+                + review_note
+                + "Run `agentpack pack --task auto` or install MCP and call `agentpack_get_context()`."
             )
         elif refresh_state == "refresh failed":
             msg = (
-                "AgentPack active (refresh failed)\n"
+                "AgentPack STALE (refresh failed)\n"
                 f"task: {current_task}\n"
+                + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
+                + review_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + "Run `agentpack pack --task auto` to rebuild the current task pack."
             )

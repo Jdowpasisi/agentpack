@@ -14,6 +14,7 @@ from agentpack.commands.hook_cmd import (
     _run_git_auto_repack,
     _run_user_prompt_submit,
     _looks_like_coding_prompt,
+    _looks_like_review_prompt,
     _looks_like_task_switch,
     _resolve_task,
 )
@@ -130,6 +131,40 @@ class TestRunUserPromptSubmit:
         assert "src/a.py" in ctx
         assert len(ctx) < 1000  # tiny hint, not full injection
 
+    def test_stale_review_context_suppresses_file_hints(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["src/old.py"])
+        _write_metadata(repo, task="fix login", root_hash="hash1")
+        _write_task(repo, "fix login")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+
+        out = self._capture_output(repo, {"prompt": "review PR 1127 load test changes"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+
+        assert "AgentPack STALE" in ctx
+        assert "REVIEW DETECTED" in ctx
+        assert "BYPASS REQUIRED" in ctx
+        assert 'agentpack_pack_context(task="review PR 1127 load test changes")' in ctx
+        assert "packed task: fix login" in ctx
+        assert "src/old.py" not in ctx
+
+    def test_fresh_review_context_keeps_file_hints_and_preflight(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["src/reviewed.py"])
+        _write_metadata(repo, task="review PR 1127 load test changes", root_hash="hash1")
+        _write_task(repo, "review PR 1127 load test changes")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+
+        out = self._capture_output(repo, {"prompt": "review PR 1127 load test changes"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+
+        assert "index fresh" in ctx
+        assert "REVIEW DETECTED" in ctx
+        assert "BYPASS REQUIRED" not in ctx
+        assert "src/reviewed.py" in ctx
+
     def test_no_mcp_capped_fallback(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
@@ -143,6 +178,20 @@ class TestRunUserPromptSubmit:
         assert len(ctx) <= 3000
         assert "src/a.py" in ctx
         assert "agentpack install" in ctx  # nudge toward MCP
+
+    def test_no_mcp_review_preflight_uses_guard_fallback(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["src/reviewed.py"])
+        _write_metadata(repo, task="review PR 1127 load test changes", root_hash="hash1")
+        _write_task(repo, "review PR 1127 load test changes")
+
+        out = self._capture_output(repo, {"prompt": "review PR 1127 load test changes"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+
+        assert "REVIEW DETECTED" in ctx
+        assert "agentpack guard --agent auto --repair-stale --refresh-context" in ctx
+        assert "src/reviewed.py" in ctx
 
     def test_hard_cap_enforced(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
@@ -345,6 +394,7 @@ class TestLooksLikeCodingPrompt:
         assert _looks_like_coding_prompt("add pagination to the API")
         assert _looks_like_coding_prompt("refactor auth module")
         assert _looks_like_coding_prompt("implement OAuth flow")
+        assert _looks_like_coding_prompt("review PR 1127 load test changes")
 
     def test_chat_prompt_rejected(self):
         assert not _looks_like_coding_prompt("why does this work?")
@@ -352,6 +402,16 @@ class TestLooksLikeCodingPrompt:
 
     def test_empty_rejected(self):
         assert not _looks_like_coding_prompt("")
+
+class TestLooksLikeReviewPrompt:
+    def test_review_pr_accepted(self):
+        assert _looks_like_review_prompt("review PR 1127 load test changes")
+        assert _looks_like_review_prompt("gh pr diff 1127 then review findings")
+        assert _looks_like_review_prompt("@agentpack-review focus on backward compatibility")
+
+    def test_review_chatter_rejected(self):
+        assert not _looks_like_review_prompt("did we use agentpack-review in the review process?")
+        assert not _looks_like_review_prompt("why did this work?")
 
 
 class TestResolveTask:
