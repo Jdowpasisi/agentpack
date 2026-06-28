@@ -107,6 +107,8 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     assert preflight["paths"]["understanding_output"] in runbook
     assert preflight["paths"]["findings_output"] in runbook
     assert "## Hard Gates" in runbook
+    assert "AgentPack Context Preflight" in runbook
+    assert "agentpack_pack_context" in runbook
     assert "Do not perform the review inline" in runbook
     assert "If you cannot write the Stage 1 output file" in runbook
     assert "Do not start Stage 2 until the Stage 1 output file exists" in runbook
@@ -116,6 +118,8 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     template = _load_review_template("stage1-understanding.md")
     assert understanding_prompt.startswith(template)
     assert "## AgentPack Run Inputs" in understanding_prompt
+    assert "AgentPack context" in understanding_prompt
+    assert "agentpack_pack_context" in understanding_prompt
     assert "## Execution Gates" in understanding_prompt
     assert "Do not answer inline from this stage prompt." in understanding_prompt
     assert f"Output path: {preflight['paths']['understanding_output']}" in understanding_prompt
@@ -126,6 +130,7 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     template = _load_review_template("stage2-judge.md")
     assert judge_prompt.startswith(template)
     assert "## Execution Gates" in judge_prompt
+    assert "AgentPack context" in judge_prompt
     assert "Do not answer inline from this stage prompt." in judge_prompt
     assert "Do not continue until the declared input TOON exists and has been read from disk." in judge_prompt
     assert f"Input path: {preflight['paths']['understanding_output']}" in judge_prompt

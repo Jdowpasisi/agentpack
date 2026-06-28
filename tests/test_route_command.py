@@ -279,6 +279,7 @@ def test_route_small_direct_edit_recommends_targeted_search(tmp_path, monkeypatc
     data = json.loads(result.output)
     assert data["task_mode"] == "small_direct_edit"
     assert any("targeted `rg`" in note for note in data["routing_notes"])
+    assert any("orientation only" in note for note in data["routing_notes"])
     assert data["evidence_checklist"]
 
 
@@ -295,6 +296,7 @@ def test_route_runtime_debugging_returns_evidence_checklist(tmp_path, monkeypatc
     data = json.loads(result.output)
     assert data["task_mode"] == "runtime_debugging"
     assert "inspect runtime/tool evidence for the exact failing session" in data["evidence_checklist"]
+    assert any("Do not route by repo ranking alone" in note for note in data["routing_notes"])
 
 
 def test_route_pr_review_suppresses_noisy_metadata(tmp_path, monkeypatch) -> None:

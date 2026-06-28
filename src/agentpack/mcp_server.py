@@ -36,7 +36,7 @@ from pathlib import Path
 
 from agentpack import __version__
 from agentpack.core import git
-from agentpack.core.command_surface import available_cli_commands, refresh_commands
+from agentpack.core.command_surface import available_cli_commands, fallback_agent_guidance, refresh_commands
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.structured_format import StructuredFormat, to_llm
 from agentpack.core.task_freshness import read_task_md, task_freshness, write_task_md
@@ -95,6 +95,51 @@ def _readiness_impl(root: Path, output_format: StructuredFormat = "auto") -> str
         },
     }
     return to_llm(root, payload, requested=output_format, root_name="agentpack_readiness")
+
+
+def _metadata_provenance(root: Path, metadata: dict | None) -> dict[str, object]:
+    freshness = (metadata or {}).get("freshness") or {}
+    return {
+        "task": (metadata or {}).get("task"),
+        "generated_at": (metadata or {}).get("generated_at") or freshness.get("generated_at"),
+        "agentpack_version": freshness.get("agentpack_version") or __version__,
+        "cwd": freshness.get("cwd"),
+        "git_root": freshness.get("git_root") or str(root),
+        "worktree_path": freshness.get("worktree_path"),
+        "git_branch": freshness.get("git_branch") or (git.current_branch(root) if git.is_git_repo(root) else None),
+        "git_sha": freshness.get("git_sha") or (git.current_sha(root) if git.is_git_repo(root) else None),
+        "source_command": freshness.get("source_command"),
+        "available_cli_commands": list(available_cli_commands()),
+        "refresh_command": refresh_commands("auto").primary,
+    }
+
+
+def _stale_context_notice(
+    root: Path,
+    metadata: dict | None,
+    reason: str,
+    *,
+    refresh_failed: str = "",
+) -> str:
+    lines = [
+        "> **STALE AgentPack context. Do not trust selected files until refreshed.**",
+        f"> Reason: {reason}",
+    ]
+    if refresh_failed:
+        lines.append(f"> Auto-refresh failed: {refresh_failed}")
+    lines.extend(["", "## Stale Context Provenance", ""])
+    for label, value in _metadata_provenance(root, metadata).items():
+        if value:
+            lines.append(f"- **{label}:** {value}")
+    lines.extend([
+        "",
+        "## Fallback",
+        "",
+        f"- Run `pack_context()` to retry or `{refresh_commands('auto').primary}` from the CLI.",
+        f"- {fallback_agent_guidance()}",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def _truncate_to_budget(text: str, max_tokens: int = 20000) -> str:
@@ -183,11 +228,7 @@ def _get_context_impl(root: Path, thread_id: str | None = None) -> str:
             return f"> Context auto-refreshed because {auto_refresh_reason}.\n\n{refreshed}"
         except Exception as exc:
             content = pack_path.read_text(encoding="utf-8")
-            return (
-                f"> **Stale context** — {auto_refresh_reason}, but auto-refresh failed: {exc}. "
-                "Run pack_context() to retry.\n\n"
-                f"{content}"
-            )
+            return _stale_context_notice(root, metadata, auto_refresh_reason, refresh_failed=str(exc)) + content
 
     content = pack_path.read_text(encoding="utf-8")
 
@@ -208,10 +249,7 @@ def _get_context_impl(root: Path, thread_id: str | None = None) -> str:
 
     if stale_reasons:
         reason_text = ", ".join(stale_reasons)
-        header = (
-            f"> **Stale context** — {reason_text} since last pack "
-            f"(generated: {generated_at}). Run pack_context() to refresh.\n\n"
-        )
+        header = _stale_context_notice(root, metadata, f"{reason_text} since last pack (generated: {generated_at})")
     else:
         header = f"> Context is fresh (generated: {generated_at}, {token_estimate:,} tokens).\n\n"
 

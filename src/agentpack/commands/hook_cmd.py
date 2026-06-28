@@ -10,6 +10,7 @@ import typer
 
 from agentpack.commands._shared import _root
 from agentpack.core import git as _git
+from agentpack.core.command_surface import refresh_commands
 from agentpack.core.config import load_config
 from agentpack.core.task_freshness import read_task_md, write_task_md
 from agentpack.integrations.platform import cli_module_argv, detached_popen
@@ -145,7 +146,7 @@ def _review_preflight_note(*, review_intent: bool, context_stale: bool, has_mcp:
     if has_mcp:
         refresh = f'Call agentpack_pack_context(task="{task}") before PR diff/code review.'
     else:
-        refresh = "Run `agentpack guard --agent auto --repair-stale --refresh-context` before PR diff/code review."
+        refresh = f"Run `{refresh_commands('auto').primary}` before PR diff/code review."
     lines = [
         "REVIEW DETECTED: refresh AgentPack context before PR diff/code review.",
         refresh,

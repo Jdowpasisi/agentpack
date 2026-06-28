@@ -514,12 +514,18 @@ def _pr_number(task: str) -> str | None:
 
 def _routing_notes(task_mode: str, pr_paths: set[str] | None = None) -> list[str]:
     if task_mode == "small_direct_edit":
-        return ["Small/direct task: prefer targeted `rg`, target-file inspection, and focused validation over full context packing."]
+        return [
+            "Small/direct task: prefer targeted `rg`, target-file inspection, and focused validation over full context packing.",
+            "Use AgentPack as orientation only unless target files are unclear.",
+        ]
     if task_mode == "pr_review":
         source = "GitHub PR files, local changed files, and diff files" if pr_paths else "local changed files and diff files"
         return [f"PR/review task: {source} outrank generic config or generated metadata."]
     if task_mode in {"runtime_debugging", "integration_readiness"}:
-        return ["Repo context is only a map; verify live/runtime/tool state before concluding."]
+        return [
+            "Repo context is only a map; verify live/runtime/tool state before concluding.",
+            "Do not route by repo ranking alone; inspect exact logs, payloads, tool exposure, or runtime state first.",
+        ]
     if task_mode == "release_docs":
         return ["Release/docs task: keep claims tied to existing benchmark scope; avoid outcome claims without E2E evidence."]
     return ["Broad feature task: use ranked files as starting map, then verify data flow in code."]

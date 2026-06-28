@@ -257,6 +257,31 @@ def _machine_freshness_block(pack: ContextPack) -> str:
     return "<!-- agentpack:freshness\n" + render_toon(fields, root_name="agentpack_freshness").rstrip() + "\n-->"
 
 
+def _stale_provenance_lines(pack: ContextPack) -> list[str]:
+    lines = ["## Stale Context Provenance", ""]
+    lines.append("Ignore selected files until this context is refreshed if any value mismatches the current session.")
+    rows = [
+        ("Packed task", pack.task),
+        ("Generated", pack.freshness.get("generated_at")),
+        ("AgentPack version", pack.freshness.get("agentpack_version")),
+        ("CWD", pack.freshness.get("cwd")),
+        ("Git root", pack.freshness.get("git_root")),
+        ("Worktree path", pack.freshness.get("worktree_path")),
+        ("Git branch", pack.freshness.get("git_branch")),
+        ("Git SHA", pack.freshness.get("git_sha")),
+        ("Refresh command", refresh_commands(pack.agent).primary),
+    ]
+    for label, value in rows:
+        if value:
+            lines.append(f"- **{label}:** {_freshness_value(value)}")
+    lines.append(
+        "- **Fallback:** if AgentPack tools are unavailable, use direct `rg`, target-file reads, "
+        "PR diff inspection, and focused validation."
+    )
+    lines.append("")
+    return lines
+
+
 def _file_section(sf: SelectedFile) -> str:
     # Content is already redacted at materialization time (context_pack.select_files)
     parts = [f"### {sf.path}", ""]
@@ -369,6 +394,8 @@ def render_claude(pack: ContextPack) -> str:
             "or call `agentpack_pack_context()` / `agentpack_get_context()` before using this pack."
         )
         sections.append("")
+    if pack.stale or _has_task_stale_warning(pack):
+        sections.extend(_stale_provenance_lines(pack))
 
     sections.append("## Task")
     sections.append("")

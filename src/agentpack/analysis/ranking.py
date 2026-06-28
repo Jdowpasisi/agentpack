@@ -283,6 +283,11 @@ _FILENAME_CORROBORATION_PREFIXES = (
     "workspace match",
 )
 
+_GENERATED_AGENT_ARTIFACT_PREFIXES = (
+    ".agentpack/",
+    ".agent/",
+)
+
 
 def _add_keyword_weight(weights: dict[str, float], keyword: str, weight: float) -> None:
     weights[keyword] = max(weights.get(keyword, 0.0), weight)
@@ -1277,6 +1282,16 @@ def _has_strong_structural_reason(reasons: list[str]) -> bool:
     )
 
 
+def _is_generated_agent_artifact(path: str) -> bool:
+    return path.startswith(_GENERATED_AGENT_ARTIFACT_PREFIXES)
+
+
+def _generated_agent_artifact_score(score: float, *, changed: bool) -> float:
+    if changed:
+        return min(score, 160.0)
+    return min(score * 0.25, 80.0)
+
+
 def _keyword_only_false_positive(path: str, reasons: list[str], content_hits: int) -> bool:
     if _is_test_file(path):
         return False
@@ -1616,6 +1631,10 @@ def score_files(
         if _keyword_only_false_positive(fi.path, reasons, content_hits):
             score = max(0.0, score * 0.72)
             reasons.append("likely false positive: keyword-only match")
+
+        if _is_generated_agent_artifact(fi.path):
+            score = _generated_agent_artifact_score(score, changed=fi.path in changed_paths)
+            reasons.append("generated agent artifact dampening")
 
         results.append((fi, score, reasons))
 

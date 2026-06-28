@@ -2685,6 +2685,15 @@ def test_render_loud_stale_task_warning():
         changed_files=[],
         selected_files=[],
         receipts=[],
+        freshness={
+            "generated_at": "2026-01-01T00:00:00+00:00",
+            "agentpack_version": "0.1.0",
+            "cwd": "/tmp/old",
+            "git_root": "/tmp/repo",
+            "worktree_path": "/tmp/repo",
+            "git_branch": "main",
+            "git_sha": "abc123",
+        },
         freshness_warnings=[
             ".agentpack/task.md differs from the packed task; AgentPack-controlled context reads should auto-refresh."
         ],
@@ -2697,6 +2706,10 @@ def test_render_loud_stale_task_warning():
     assert "stale_task_context: true" in freshness_block
     assert "refresh_required: true" in freshness_block
     assert "Do not trust selected files until refreshed" in rendered
+    assert "Stale Context Provenance" in rendered
+    assert "Packed task" in rendered
+    assert "/tmp/old" in rendered
+    assert "direct `rg`, target-file reads" in rendered
     assert "agentpack_get_context()" in rendered
     assert "agentpack_pack_context()" in rendered
 

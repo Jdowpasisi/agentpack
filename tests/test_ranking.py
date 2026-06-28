@@ -1103,3 +1103,27 @@ def test_changed_noise_file_is_labeled_workspace_context_only():
     )
 
     assert "modified workspace context only" in scored[0][2]
+
+
+def test_generated_agent_artifacts_are_quiet_without_direct_need():
+    artifact = _fi(".agentpack/context.md", language="markdown")
+    source = _fi("src/auth/session.py")
+    source.content = "def auth_session():\n    return True\n"
+
+    scored = score_files(
+        [artifact, source],
+        changed_paths=set(),
+        staged_paths=set(),
+        recently_modified=[],
+        dep_graph={},
+        keywords=build_keyword_plan("fix auth session context"),
+        summaries={
+            artifact.path: {"ranking_keywords": ["context", "auth", "session"]},
+            source.path: {"defines": ["auth_session"], "ranking_keywords": ["auth", "session"]},
+        },
+    )
+
+    scores = {fi.path: score for fi, score, _reasons in scored}
+    reasons = {fi.path: reasons for fi, _score, reasons in scored}
+    assert scores[source.path] > scores[artifact.path]
+    assert "generated agent artifact dampening" in reasons[artifact.path]

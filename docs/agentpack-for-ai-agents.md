@@ -21,6 +21,7 @@ AgentPack ranks relevant repository files and builds compact task-focused contex
 
 - It is not a coding agent.
 - It does not replace source inspection, tests, or review.
+- It should be treated as a ranked starting map, not a correctness oracle.
 - It does not upload repository code for core scan, rank, pack, stats, or benchmark workflows.
 - It does not require embeddings, a hosted index, or a vector database for core workflows.
 - It does not claim a universal coding-agent success improvement.

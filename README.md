@@ -134,7 +134,7 @@ It reuses cached file summaries and snapshot metadata so repeated packs do not s
 
 ## Proof So Far
 
-AgentPack's current public benchmark checks one narrow thing: whether selected context overlaps with files actually changed in historical commits.
+AgentPack's current public benchmark checks one narrow thing: whether selected context overlaps with files actually changed in historical commits. Treat it as evidence for a ranked starting map, not proof that any agent will finish every task faster or better.
 
 Current scoped result:
 
@@ -148,7 +148,7 @@ Current scoped result:
 
 Source: [`benchmarks/results/2026-06-14-public.md`](benchmarks/results/2026-06-14-public.md). Benchmark guide: [`docs/benchmarking.md`](docs/benchmarking.md).
 
-This is useful but not magic. It says AgentPack often gets meaningful files into a small pack. It does not claim every agent finishes faster or writes better code. Agent success A/B benchmarks should report task success, tool calls, token cost, and time-to-first-correct-file.
+This is useful but not magic. It says AgentPack often gets meaningful files into a small pack. It does not replace source inspection, tests, runtime evidence, or review. Agent success A/B benchmarks should report task success, tool calls, token cost, validation quality, and time-to-first-correct-file.
 
 ## What We Want To Prove Next
 

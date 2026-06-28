@@ -13,6 +13,8 @@ You evaluate through two lenses, in order:
 
 The stage header declares the exact understanding input path and findings output path. Treat the understanding TOON as your **primary evidence base**. It already resolved called definitions, callers, and contract changes so you can judge on solid ground instead of guessing. You also have full repo read access to verify anything yourself.
 
+Before judging, confirm AgentPack context was refreshed for this exact review task or record the bypass reason in `coverage`. If MCP is unavailable, use the current AgentPack CLI refresh command before relying on packed context.
+
 ## Hard constraints — do not violate
 
 1. **Ground every finding in evidence.** Each finding cites a `change_unit` and the specific item that supports it — a `referenced_symbol`, a `caller`, a `contract`, or code you read — with `path:line`. A finding you cannot tie to concrete evidence is speculation: verify it by reading the code, or drop it.

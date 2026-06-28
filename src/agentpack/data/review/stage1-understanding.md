@@ -22,6 +22,7 @@ A later stage produces the actual review, and its accuracy depends entirely on t
 
 You are running in the checked-out repository at the PR head commit, with shell, git, `gh`, and ripgrep available.
 
+- **AgentPack context:** before reading diff or code, refresh AgentPack context for this exact review task. Prefer MCP `agentpack_pack_context(task="review current PR ...")`; if MCP is unavailable, use the current AgentPack CLI refresh command. If you bypass this, record why in `open_questions`.
 - **Diff:** use the diff range from the preflight JSON.
 - **PR + linked issue:** use `gh pr view` when preflight says PR metadata is available, then resolve linked issues if needed.
 - **Codebase:** full read access via your tools — read files, `rg` for symbols and call sites, run git.

@@ -254,9 +254,41 @@ def test_get_context_falls_back_when_task_auto_refresh_fails(tmp_path):
     with patch("agentpack.mcp_server._pack_context_impl", side_effect=RuntimeError("boom")):
         result = _get_context_impl(tmp_path)
 
-    assert "auto-refresh failed: boom" in result
-    assert "Run pack_context() to retry" in result
+    assert "Auto-refresh failed: boom" in result
+    assert "`pack_context()` to retry" in result
+    assert "Stale Context Provenance" in result
+    assert "available_cli_commands" in result
+    assert "direct `rg`, PR diff inspection, and target-file reads" in result
     assert "# old context" in result
+
+
+def test_get_context_stale_header_includes_provenance(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "context.md").write_text("# old context")
+    (tmp_path / ".agentpack" / "pack_metadata.json").write_text(json.dumps({
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "snapshot_root_hash": "old",
+        "task": "fix old task",
+        "token_estimate": 100,
+        "freshness": {
+            "agentpack_version": "0.1.0",
+            "cwd": "/tmp/old",
+            "git_root": "/tmp/repo",
+            "git_branch": "main",
+        },
+    }))
+    snap_dir = tmp_path / ".agentpack" / "snapshots"
+    snap_dir.mkdir()
+    (snap_dir / "latest.json").write_text(json.dumps({"root_hash": "new"}))
+
+    with patch("agentpack.mcp_server._pack_context_impl", side_effect=RuntimeError("boom")):
+        result = _get_context_impl(tmp_path)
+
+    assert "STALE AgentPack context" in result
+    assert "Stale Context Provenance" in result
+    assert "fix old task" in result
+    assert "0.1.0" in result
+    assert "refresh_command" in result
 
 
 def test_get_context_auto_refreshes_when_snapshot_differs(tmp_path):
