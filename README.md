@@ -128,10 +128,22 @@ It reuses cached file summaries and snapshot metadata so repeated packs do not s
 - repo rules and agent instructions
 - compact context pack under budget
 - curated broad repo context for review/share/audit tasks without a separate bundle command
+- citation-backed provenance for packed claims and review artifacts
+- review preflight and staged review prompts for file-grounded PR review
+- local memory, evaluation, and runtime/performance diagnostics for repeat workflows
 - cached summaries for faster repeated orientation
 - omitted-file receipts for review
 - freshness warnings when task or git state changes
 - local benchmark data when selected context misses real changed files
+
+## What's New In 0.3.32
+
+- Grounded broad context now supports review, sharing, audit, and repo-overview tasks with citation checks and scoped safety gates.
+- Review workflows now push agents through preflight, understanding, and findings stages instead of letting review prompts answer inline.
+- Pack and route fallbacks are stricter about stale context, missing MCP surfaces, and source provenance.
+- The npm wrapper preserves the selected Python descriptor when creating the versioned CLI environment.
+- Packaged Codex plugin metadata, docs URLs, and scanner automation now score cleanly in local HOL scans.
+- Light fixture recall improved by keeping correlated source/deploy summaries and using concrete owner terms in fixture tasks.
 
 ## Proof So Far
 
@@ -141,13 +153,13 @@ Current scoped result:
 
 | Signal | Result | Developer meaning |
 |---|---:|---|
-| Public commit cases | 108 | real historical file-selection checks |
-| Average recall | 66.0% | did AgentPack include files that mattered? |
-| Token precision | 51.1% | how much of pack was useful instead of noise? |
+| Public commit cases | 107 | real historical file-selection checks |
+| Average recall | 65.7% | did AgentPack include files that mattered? |
+| Token precision | 51.4% | how much of pack was useful instead of noise? |
 | Pack p50 | 315 tokens | typical compact starting context |
 | Pack p95 | 1,137 tokens | larger but still bounded starting context |
 
-Source: [`benchmarks/results/2026-06-14-public.md`](benchmarks/results/2026-06-14-public.md). Benchmark guide: [`docs/benchmarking.md`](docs/benchmarking.md).
+Source: [`benchmarks/results/2026-06-25-public.md`](benchmarks/results/2026-06-25-public.md). Benchmark guide: [`docs/benchmarking.md`](docs/benchmarking.md).
 
 This is useful but not magic. It says AgentPack often gets meaningful files into a small pack. It does not replace source inspection, tests, runtime evidence, or review. Agent success A/B benchmarks should report task success, tool calls, token cost, validation quality, and time-to-first-correct-file.
 
@@ -287,7 +299,7 @@ pipx ensurepath
 
 ## Status
 
-Alpha: `0.3.25`.
+Alpha: `0.3.32`.
 
 Works, tested, and used in real sessions. Python and JavaScript/TypeScript have strongest support. APIs may change before 1.0.
 
