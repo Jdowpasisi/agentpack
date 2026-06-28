@@ -136,7 +136,7 @@ It reuses cached file summaries and snapshot metadata so repeated packs do not s
 - freshness warnings when task or git state changes
 - local benchmark data when selected context misses real changed files
 
-## What's New In 0.3.32
+## What's Current In 0.3.33
 
 - Grounded broad context now supports review, sharing, audit, and repo-overview tasks with citation checks and scoped safety gates.
 - Review workflows now push agents through preflight, understanding, and findings stages instead of letting review prompts answer inline.
@@ -299,7 +299,7 @@ pipx ensurepath
 
 ## Status
 
-Alpha: `0.3.32`.
+Alpha: `0.3.33`.
 
 Works, tested, and used in real sessions. Python and JavaScript/TypeScript have strongest support. APIs may change before 1.0.
 

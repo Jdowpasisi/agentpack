@@ -11,6 +11,11 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.33] — 2026-06-28
+
+### Documentation
+- Sync the root README with the current release line, including the latest proof table, feature summary, and package status.
+
 ## [0.3.32] — 2026-06-28
 
 ### Added
