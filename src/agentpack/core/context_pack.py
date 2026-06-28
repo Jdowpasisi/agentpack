@@ -1026,6 +1026,23 @@ def _has_strict_summary_support(reasons: list[str], path: str = "") -> bool:
         return True
     if has_config and has_phrase and content_hits >= 1:
         return True
+    if _is_deploy_config_path(path) and has_config and content_hits >= 1:
+        return True
+    if _is_source_like_code_path(path) and "config file" not in reasons:
+        has_path_evidence = any(
+            reason.startswith(("multi-term path match", "keyword phrase match:", "quoted literal match:"))
+            for reason in reasons
+        )
+        has_path_owner = any(
+            reason == "filename keyword match" or reason.startswith(("matched role keyword:", "matched ranking keyword:"))
+            for reason in reasons
+        )
+        if has_path_evidence and has_path_owner:
+            return True
+        if content_hits >= 1 and any(reason == "implementation role match" for reason in reasons) and any(
+            reason.startswith("cross-layer related") for reason in reasons
+        ):
+            return True
     has_direct_summary_field = any(
         reason.startswith((
             "matched define:",

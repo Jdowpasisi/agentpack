@@ -11,6 +11,12 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.32] — 2026-06-28
+
+### Fixed
+- Improved light benchmark fixture recall by keeping correlated source/deploy context under strict summary selection.
+- Retuned synthetic fixture prompts to include concrete owner terms before release validation.
+
 ## [0.3.31] — 2026-06-25
 
 ### Added

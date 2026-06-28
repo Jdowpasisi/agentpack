@@ -2266,6 +2266,54 @@ def test_strict_summary_selection_keeps_high_content_source_match_without_phrase
     assert [sf.path for sf in selected] == ["context.go"]
 
 
+def test_strict_summary_selection_keeps_source_with_correlated_path_evidence():
+    fi = _fi("cmd/server/main.go")
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(
+            fi,
+            220.0,
+            [
+                "filename keyword match",
+                "keyword phrase match: server main",
+                "multi-term path match +70",
+                "matched role keyword: main",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={fi.path: {"summary": "Go server entrypoint.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["cmd/server/main.go"]
+
+
+def test_strict_summary_selection_keeps_deploy_config_with_content_hit():
+    dockerfile = _fi("Dockerfile")
+    selected, _ = select_files(
+        files=[dockerfile],
+        scored=[(
+            dockerfile,
+            120.0,
+            [
+                "content keyword match (1)",
+                "config file",
+            ],
+        )],
+        changed_paths=set(),
+        summaries={dockerfile.path: {"summary": "Docker build metadata.", "symbols": []}},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=100,
+        strict_summary_selection=True,
+    )
+
+    assert [sf.path for sf in selected] == ["Dockerfile"]
+
+
 def test_balanced_excludes_gitignore_without_ignore_task_evidence():
     gitignore = _fi(".gitignore")
 

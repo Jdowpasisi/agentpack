@@ -884,6 +884,19 @@ def test_load_cases_empty_returns_empty(tmp_path: Path) -> None:
     assert _load_cases(f) == []
 
 
+def test_sample_fixture_cases_use_recall_friendly_owner_terms() -> None:
+    cases = {
+        item.case.task: item.case.expected_files
+        for item in _sample_fixture_cases(Path("tests/fixtures"))
+    }
+
+    assert cases["fix Python slugify parsing edge case"] == ["src/py/utils.py"]
+    assert cases["fix Dockerfile build for Go server main deployment"] == [
+        "Dockerfile",
+        "cmd/server/main.go",
+    ]
+
+
 def test_load_public_repo_specs_parses_manifest(tmp_path: Path) -> None:
     f = tmp_path / "public.toml"
     f.write_text(

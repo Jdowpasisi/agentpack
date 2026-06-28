@@ -206,7 +206,7 @@ def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
         ),
         (
             "mixed_repo",
-            "fix Python utility parsing edge case",
+            "fix Python slugify parsing edge case",
             ["src/py/utils.py"],
             "python",
         ),
@@ -230,7 +230,7 @@ def _sample_fixture_cases(fixtures_root: Path) -> list[FixtureCase]:
         ),
         (
             "go_service",
-            "fix Docker image build for deployment",
+            "fix Dockerfile build for Go server main deployment",
             ["Dockerfile", "cmd/server/main.go"],
             "infrastructure",
         ),
