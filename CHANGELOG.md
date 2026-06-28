@@ -13,7 +13,20 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 
 ## [0.3.32] — 2026-06-28
 
+### Added
+- Added grounded broad-context packing for review, sharing, audit, and repo-overview tasks, including citation-backed broad context and safety gates to keep expanded context scoped.
+- Added memory and evaluation support for grounded context workflows, including episodic learning records, learning quality checks, and A/B evaluation plumbing.
+- Added runtime/performance reporting surfaces for recent AgentPack pack, retrieval, and output-compression activity.
+
+### Changed
+- Lightened the main AgentPack CI release gate by using the CI release-check profile for push validation.
+- Strengthened packaged Codex plugin trust signals with published documentation URLs, packaged Dependabot coverage, and the packaged HOL plugin-scanner workflow.
+- Improved review prompts and staged review artifacts so review runs must first produce file-grounded understanding before findings.
+
 ### Fixed
+- Hardened stale-context fallback behavior and routing defaults so agents get clearer provenance and safer guidance when MCP or context artifacts are unavailable.
+- Surfaced review-context preflight guidance in prompt hooks so review requests point at the right changed-file workflow.
+- Fixed the npm launcher to pass the full Python descriptor through virtualenv setup, preserving the selected interpreter metadata.
 - Improved light benchmark fixture recall by keeping correlated source/deploy context under strict summary selection.
 - Retuned synthetic fixture prompts to include concrete owner terms before release validation.
 
