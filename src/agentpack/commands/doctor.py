@@ -175,6 +175,8 @@ def register(app: typer.Typer) -> None:
                     )
             else:
                 console.print(f"  [yellow]![/] No context pack yet — write .agentpack/task.md, then run: {refresh_commands(agent).context_missing}")
+            for line, healthy in _memory_findings(root):
+                console.print(("  [green]✓[/] " if healthy else "  [yellow]![/] ") + line)
 
         # --- Agent-specific config ---
         console.print("\n[bold]Agent config[/]")
@@ -438,6 +440,26 @@ def _source_checkout_warning(
         f"at {package_path}{binary_text}. Use `PYTHONPATH=src python -m agentpack.cli ...` "
         "or install editable with `pip install -e .`."
     )
+
+
+def _memory_findings(root: Path) -> list[tuple[str, bool]]:
+    from agentpack.core.config import load_config
+
+    cfg = load_config(root)
+    rows: list[tuple[str, bool]] = []
+    for label, rel_path, limit in (
+        ("session events", cfg.runtime.session_events_output, cfg.runtime.max_session_events),
+        ("episodic cases", cfg.learning.episodic_cases_output, cfg.runtime.max_episodic_cases),
+    ):
+        count = _jsonl_line_count(root / rel_path)
+        rows.append((f"{label}: {count} row(s), retention {limit}", count <= limit))
+    return rows
+
+
+def _jsonl_line_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(1 for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
 
 
 _RELEASE_NOISE_PREFIXES = (

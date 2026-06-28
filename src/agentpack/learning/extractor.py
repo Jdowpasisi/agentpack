@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
+from agentpack.core.models import Citation
 from agentpack.learning.collector import LearningInputs
 from agentpack.learning.models import (
     AgentLesson,
@@ -41,6 +42,7 @@ def build_learning_report(
             change_kind=kind,
             why=_file_why(path, kind),
             concepts=_concepts_for_text(path + "\n" + inputs.diffs.get(path, "")),
+            citations=[_source_citation(path, f"source:{path}")],
         )
         for path, kind in inputs.changed_files.items()
     ]
@@ -53,6 +55,14 @@ def build_learning_report(
     decisions = _decision_lines(concepts)
     risks = _risk_lines(concepts)
     tests = _test_lines(source_files)
+    claim_citations = _report_claim_citations(
+        summary=summary,
+        decisions=decisions,
+        risks=risks,
+        tests=tests,
+        concepts=concepts,
+        source_files=source_files,
+    )
     topics = _learning_topics(inputs, concepts, source_files)[:max_cards]
     cards = _learning_cards(concepts, source_files)[:max_cards]
     quiz = _quiz_questions(concepts)[:max_quiz_questions]
@@ -73,6 +83,7 @@ def build_learning_report(
         decisions=decisions,
         risks=risks,
         tests=tests,
+        claim_citations=claim_citations,
         learning_topics=topics,
         learning_cards=cards,
         quiz=quiz,
@@ -146,6 +157,45 @@ def _test_lines(source_files: list[LearningSourceFile]) -> list[str]:
     return tests or ["No changed test file detected; consider adding one regression test."]
 
 
+def _report_claim_citations(
+    *,
+    summary: list[str],
+    decisions: list[str],
+    risks: list[str],
+    tests: list[str],
+    concepts: list[str],
+    source_files: list[LearningSourceFile],
+) -> dict[str, list[Citation]]:
+    paths = [source.path for source in source_files]
+    files_by_concept = _files_by_concept(concepts, source_files)
+    citations: dict[str, list[Citation]] = {}
+    for index, _claim in enumerate(summary, start=1):
+        citations[f"summary:{index}"] = _citations_for_files(paths[:5], f"summary:{index}")
+    for index, claim in enumerate(decisions, start=1):
+        claim_paths = _claim_paths(claim, concepts, files_by_concept) or paths[:3]
+        citations[f"decision:{index}"] = _citations_for_files(claim_paths, f"decision:{index}")
+    for index, claim in enumerate(risks, start=1):
+        claim_paths = _claim_paths(claim, concepts, files_by_concept) or paths[:3]
+        citations[f"risk:{index}"] = _citations_for_files(claim_paths, f"risk:{index}")
+    for index, claim in enumerate(tests, start=1):
+        test_paths = [path for path in paths if path.startswith("tests/") or "/test" in path]
+        claim_paths = test_paths or paths[:3]
+        citations[f"test:{index}"] = _citations_for_files(claim_paths, f"test:{index}")
+    return {key: value for key, value in citations.items() if value}
+
+
+def _claim_paths(
+    claim: str,
+    concepts: list[str],
+    files_by_concept: dict[str, list[str]],
+) -> list[str]:
+    lowered = claim.lower()
+    for concept in concepts:
+        if concept.lower() in lowered or any(part in lowered for part in concept.lower().split()):
+            return files_by_concept.get(concept, [])
+    return []
+
+
 def _learning_cards(concepts: list[str], source_files: list[LearningSourceFile]) -> list[LearningCard]:
     files_by_concept = _files_by_concept(concepts, source_files)
     bodies = {
@@ -164,6 +214,7 @@ def _learning_cards(concepts: list[str], source_files: list[LearningSourceFile])
             title=concept.title(),
             body=bodies.get(concept, f"Review how {concept} appears in the changed files."),
             files=files_by_concept.get(concept, []),
+            citations=_citations_for_files(files_by_concept.get(concept, []), f"learning-card:{concept}"),
         )
         for concept in concepts
     ]
@@ -232,7 +283,15 @@ def _agent_lessons(concepts: list[str], source_files: list[LearningSourceFile]) 
         if concept not in rules:
             continue
         rule, reason = rules[concept]
-        lessons.append(AgentLesson(rule=rule, evidence_files=files_by_concept.get(concept, []), reason=reason))
+        files = files_by_concept.get(concept, [])
+        lessons.append(
+            AgentLesson(
+                rule=rule,
+                evidence_files=files,
+                reason=reason,
+                citations=_citations_for_files(files, f"agent-lesson:{concept}"),
+            )
+        )
     return lessons
 
 
@@ -247,6 +306,10 @@ def _skill_evidence(
             task=inputs.task,
             evidence_files=[source.path for source in source_files if concept in source.concepts][:5],
             confidence=80 if any(concept in source.concepts for source in source_files) else 40,
+            citations=_citations_for_files(
+                [source.path for source in source_files if concept in source.concepts][:5],
+                f"skill-evidence:{concept}",
+            ),
         )
         for concept in concepts
     ]
@@ -322,7 +385,22 @@ def _topic(
         "Explain the core idea, common implementation choices, failure modes, testing strategy, "
         "and a small checklist I can apply before shipping. Do not assume code that is not implied by the task or evidence files."
     )
-    return LearningTopic(title=title, why=why, prompt=prompt, files=evidence, concepts=concepts)
+    return LearningTopic(
+        title=title,
+        why=why,
+        prompt=prompt,
+        files=evidence,
+        concepts=concepts,
+        citations=_citations_for_files(evidence, f"learning-topic:{title}"),
+    )
+
+
+def _source_citation(path: str, claim_id: str) -> Citation:
+    return Citation(path=path, start_line=1, end_line=1, kind="summary", claim_id=claim_id, note="changed-file source")
+
+
+def _citations_for_files(paths: list[str], claim_prefix: str) -> list[Citation]:
+    return [_source_citation(path, f"{claim_prefix}:{index}") for index, path in enumerate(paths, start=1)]
 
 
 def _mentions_any(source_files: list[LearningSourceFile], terms: tuple[str, ...]) -> bool:

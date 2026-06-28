@@ -24,8 +24,9 @@ def install_git_hooks(root: Path, agent: str) -> dict[str, str]:
     Idempotent — safe to re-run. Appends to existing hooks rather than replacing.
     """
     hooks_dir = root / ".git" / "hooks"
-    if not hooks_dir.exists():
+    if not (root / ".git").exists():
         return {}
+    hooks_dir.mkdir(parents=True, exist_ok=True)
 
     results: dict[str, str] = {}
     snippet = _hook_script(agent)

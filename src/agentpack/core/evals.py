@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import re
 import shlex
 import subprocess
 import tempfile
@@ -19,6 +20,9 @@ except ImportError:
 import tomli_w
 
 from agentpack.core.redactor import redact_secrets
+from agentpack.core.citations import validate_citations
+from agentpack.core.models import Citation
+from agentpack.learning.episodes import record_episode
 
 
 FAILURE_CLASSES = (
@@ -76,6 +80,10 @@ class EvalCase:
     context_hash: str = ""
     selected_files: list[str] = field(default_factory=list)
     agentpack_version: str = ""
+    citation_manifest: str = ""
+    min_citation_coverage: float | None = None
+    max_invalid_citations: int | None = None
+    require_review_citations: bool = False
 
 
 @dataclass
@@ -100,6 +108,9 @@ class EvalResult:
     changed_lines: int
     checks: list[CheckResult]
     variant: str = "agentpack"
+    citation_coverage: float = 0.0
+    invalid_citation_count: int = 0
+    uncited_claim_count: int = 0
 
     @property
     def failed_checks(self) -> list[CheckResult]:
@@ -189,7 +200,9 @@ def _run_eval_case_in_root(root: Path, case: EvalCase, *, variant: str = "agentp
             detail=diff_error,
         ))
     if not diff_error:
-        check_results.extend(_run_native_checks(case, changed_files, changed_lines))
+        check_results.extend(_run_native_checks(root, case, changed_files, changed_lines))
+    elif _case_needs_citation_checks(case):
+        check_results.extend(_citation_check_results(root, case))
 
     for golden in case.golden_files:
         check_results.append(_compare_golden_file(root, golden))
@@ -205,6 +218,7 @@ def _run_eval_case_in_root(root: Path, case: EvalCase, *, variant: str = "agentp
         changed_lines=changed_lines,
         checks=check_results,
         variant=variant,
+        **_eval_citation_metrics(root, case),
     )
 
 
@@ -411,6 +425,25 @@ def persist_eval_results(root: Path, results: list[EvalResult]) -> Path:
     with out.open("a", encoding="utf-8") as fh:
         for result in results:
             fh.write(json.dumps(eval_result_record(result)) + "\n")
+            record_episode(
+                root,
+                task=result.case.task,
+                selected_files=result.case.selected_files,
+                changed_files=result.changed_files,
+                checks=[
+                    {
+                        "name": check.name,
+                        "passed": check.passed,
+                        "exit_code": check.exit_code,
+                        "flaky": check.flaky,
+                    }
+                    for check in result.checks
+                ],
+                passed=result.passed,
+                failure_class=result.case.failure_class,
+                failure_source=result.case.failure_source,
+                context_hash=result.case.context_hash,
+            )
     return out
 
 
@@ -433,6 +466,9 @@ def eval_result_record(result: EvalResult) -> dict[str, Any]:
         "failed_checks": [check.name for check in failed],
         "changed_files": result.changed_files,
         "changed_lines": result.changed_lines,
+        "citation_coverage": result.citation_coverage,
+        "invalid_citation_count": result.invalid_citation_count,
+        "uncited_claim_count": result.uncited_claim_count,
         "duration_s": round(result.duration_s, 3),
         "checks": [
             {
@@ -497,6 +533,9 @@ def append_captured_eval_case(
         context_hash=metadata["context_hash"],
         selected_files=metadata["selected_files"],
         agentpack_version=metadata["agentpack_version"],
+        citation_manifest=metadata["citation_manifest"],
+        min_citation_coverage=0.75 if metadata["citation_manifest"] else None,
+        max_invalid_citations=0 if metadata["citation_manifest"] else None,
     )
     if path.exists():
         existing = load_eval_cases(path)
@@ -508,6 +547,76 @@ def append_captured_eval_case(
     return case
 
 
+def append_eval_cases_from_episodes(
+    path: Path,
+    *,
+    root: Path,
+    episodes_path: str = ".agentpack/episodic-cases.jsonl",
+    limit: int = 100,
+) -> int:
+    existing = load_eval_cases(path) if path.exists() else []
+    existing_ids = {case.id for case in existing}
+    new_cases: list[EvalCase] = []
+    for record in _read_episode_records(root / episodes_path, limit=limit):
+        if record.get("passed") is not False:
+            continue
+        changed_files = [str(item) for item in record.get("changed_files") or [] if isinstance(item, str)]
+        task = str(record.get("task") or "").strip()
+        if not task or not changed_files:
+            continue
+        case_id = _episode_case_id(task, changed_files)
+        if case_id in existing_ids:
+            continue
+        failure_class = str(record.get("failure_class") or "context")
+        failure_source = str(record.get("failure_source") or "agent_failed")
+        _validate_failure_class(failure_class)
+        _validate_failure_source(failure_source)
+        new_cases.append(EvalCase(
+            id=case_id,
+            task=task,
+            failure_class=failure_class,
+            failure_source=failure_source,
+            required_changed_files=changed_files,
+            selected_files=[str(item) for item in record.get("selected_files") or [] if isinstance(item, str)],
+            context_hash=str(record.get("context_hash") or ""),
+            citation_manifest=str(record.get("citation_manifest_path") or record.get("citation_manifest") or ""),
+        ))
+        existing_ids.add(case_id)
+    if not new_cases:
+        return 0
+    data = {"cases": [_case_to_toml(case) for case in [*existing, *new_cases]]}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(tomli_w.dumps(data), encoding="utf-8")
+    return len(new_cases)
+
+
+def _read_episode_records(path: Path, *, limit: int) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-limit:]
+    except OSError:
+        return []
+    records: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def _episode_case_id(task: str, changed_files: list[str]) -> str:
+    digest = hashlib.sha256(json.dumps([task, changed_files], sort_keys=True).encode("utf-8")).hexdigest()[:8]
+    words = re.findall(r"[a-z0-9]+", task.lower())[:4]
+    slug = "-".join(words) or "episode"
+    return f"episode-{slug}-{digest}"
+
+
 def _capture_metadata(root: Path, *, agent: str, prompt_file: str, context_file: str) -> dict[str, Any]:
     try:
         from agentpack import __version__
@@ -517,6 +626,7 @@ def _capture_metadata(root: Path, *, agent: str, prompt_file: str, context_file:
     context_path = root / context_file if context_file else root / ".agentpack" / "context.md"
     context_hash = hashlib.sha256(context_path.read_bytes()).hexdigest()[:16] if context_path.exists() else ""
     selected_files: list[str] = []
+    citation_manifest = ""
     meta_path = root / ".agentpack" / "pack_metadata.json"
     if meta_path.exists():
         try:
@@ -530,6 +640,7 @@ def _capture_metadata(root: Path, *, agent: str, prompt_file: str, context_file:
                 ]
             if not agent:
                 agent = str(meta.get("agent") or "")
+            citation_manifest = str(meta.get("citation_manifest_path") or "")
         except (OSError, json.JSONDecodeError):
             selected_files = []
     return {
@@ -539,6 +650,7 @@ def _capture_metadata(root: Path, *, agent: str, prompt_file: str, context_file:
         "context_hash": context_hash,
         "selected_files": selected_files,
         "agentpack_version": __version__,
+        "citation_manifest": citation_manifest,
     }
 
 
@@ -709,6 +821,10 @@ def _parse_case(raw: dict[str, Any]) -> EvalCase:
         context_hash=str(raw.get("context_hash", "")).strip(),
         selected_files=_str_list(raw.get("selected_files", []), "selected_files", case_id),
         agentpack_version=str(raw.get("agentpack_version", "")).strip(),
+        citation_manifest=str(raw.get("citation_manifest", "")).strip(),
+        min_citation_coverage=_optional_float(raw.get("min_citation_coverage"), "min_citation_coverage", case_id),
+        max_invalid_citations=_optional_int(raw.get("max_invalid_citations"), "max_invalid_citations", case_id),
+        require_review_citations=bool(raw.get("require_review_citations", False)),
     )
 
 
@@ -742,7 +858,46 @@ def _parse_golden_file(raw: Any, case_id: str) -> GoldenFile:
     return GoldenFile(actual=actual, expected=expected, binary=bool(raw.get("binary", False)))
 
 
-def _run_native_checks(case: EvalCase, changed_files: list[str], changed_lines: int) -> list[CheckResult]:
+def _eval_citation_metrics(root: Path, case: EvalCase) -> dict[str, Any]:
+    manifest_path = _resolve_citation_manifest(root, case)
+    if manifest_path is None or not manifest_path.exists():
+        return {"citation_coverage": 0.0, "invalid_citation_count": 0, "uncited_claim_count": 0}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"citation_coverage": 0.0, "invalid_citation_count": 1, "uncited_claim_count": 0}
+    raw_citations = manifest.get("citations") or []
+    citations: list[Citation] = []
+    invalid_count = 0
+    if isinstance(raw_citations, list):
+        for raw in raw_citations:
+            try:
+                citations.append(Citation.model_validate(raw))
+            except Exception:
+                invalid_count += 1
+    validation = validate_citations(root, citations)
+    invalid_count += len(validation.invalid)
+    uncited_claim_count = int(manifest.get("uncited_claim_count") or 0) if isinstance(manifest, dict) else 0
+    return {
+        "citation_coverage": round(validation.coverage, 3),
+        "invalid_citation_count": invalid_count,
+        "uncited_claim_count": uncited_claim_count,
+    }
+
+
+def _resolve_citation_manifest(root: Path, case: EvalCase) -> Path | None:
+    if case.citation_manifest:
+        return root / case.citation_manifest
+    if case.context_file:
+        context_path = root / case.context_file
+        sibling = context_path.with_name("citations.json")
+        if sibling.exists():
+            return sibling
+    default = root / ".agentpack" / "citations.json"
+    return default if default.exists() else None
+
+
+def _run_native_checks(root: Path, case: EvalCase, changed_files: list[str], changed_lines: int) -> list[CheckResult]:
     results: list[CheckResult] = []
     changed_set = set(changed_files)
     for required in case.required_changed_files:
@@ -776,6 +931,49 @@ def _run_native_checks(case: EvalCase, changed_files: list[str], changed_lines: 
             passed=passed,
             duration_s=0.0,
             detail="" if passed else f"{changed_lines} changed lines > {case.max_changed_lines}",
+        ))
+    results.extend(_citation_check_results(root, case))
+    return results
+
+
+def _case_needs_citation_checks(case: EvalCase) -> bool:
+    return (
+        case.min_citation_coverage is not None
+        or case.max_invalid_citations is not None
+        or case.require_review_citations
+    )
+
+
+def _citation_check_results(root: Path, case: EvalCase) -> list[CheckResult]:
+    results: list[CheckResult] = []
+    citation_metrics = _eval_citation_metrics(root, case)
+    if case.min_citation_coverage is not None:
+        coverage = citation_metrics["citation_coverage"]
+        passed = coverage >= case.min_citation_coverage
+        results.append(CheckResult(
+            name="min_citation_coverage",
+            passed=passed,
+            duration_s=0.0,
+            detail="" if passed else f"{coverage:.3f} citation coverage < {case.min_citation_coverage:.3f}",
+        ))
+    if case.max_invalid_citations is not None:
+        invalid_count = citation_metrics["invalid_citation_count"]
+        passed = invalid_count <= case.max_invalid_citations
+        results.append(CheckResult(
+            name="max_invalid_citations",
+            passed=passed,
+            duration_s=0.0,
+            detail="" if passed else f"{invalid_count} invalid citation(s) > {case.max_invalid_citations}",
+        ))
+    if case.require_review_citations:
+        coverage = citation_metrics["citation_coverage"]
+        invalid_count = citation_metrics["invalid_citation_count"]
+        passed = coverage > 0 and invalid_count == 0
+        results.append(CheckResult(
+            name="require_review_citations",
+            passed=passed,
+            duration_s=0.0,
+            detail="" if passed else "citation manifest missing, empty, or invalid",
         ))
     return results
 
@@ -893,6 +1091,14 @@ def _case_to_toml(case: EvalCase) -> dict[str, Any]:
         data["selected_files"] = case.selected_files
     if case.agentpack_version:
         data["agentpack_version"] = case.agentpack_version
+    if case.citation_manifest:
+        data["citation_manifest"] = case.citation_manifest
+    if case.min_citation_coverage is not None:
+        data["min_citation_coverage"] = case.min_citation_coverage
+    if case.max_invalid_citations is not None:
+        data["max_invalid_citations"] = case.max_invalid_citations
+    if case.require_review_citations:
+        data["require_review_citations"] = case.require_review_citations
     return data
 
 
@@ -920,6 +1126,14 @@ def _optional_int(value: Any, name: str, case_id: str) -> int | None:
     if not isinstance(value, int) or value < 0:
         raise ValueError(f"eval case {case_id} field {name} must be a non-negative integer")
     return value
+
+
+def _optional_float(value: Any, name: str, case_id: str) -> float | None:
+    if value is None:
+        return None
+    if not isinstance(value, (int, float)) or value < 0:
+        raise ValueError(f"eval case {case_id} field {name} must be a non-negative number")
+    return float(value)
 
 
 def _any_match(paths: list[str], pattern: str) -> bool:

@@ -25,6 +25,9 @@ def test_learning_report_detects_selected_misses_and_concepts():
     assert report.selected_misses == ["tests/test_mcp_server.py"]
     assert report.learning_cards
     assert report.agent_lessons
+    assert report.claim_citations["summary:1"]
+    assert report.claim_citations["decision:1"]
+    assert report.claim_citations["risk:1"]
 
 
 def test_learning_renderers_are_grounded():
@@ -40,6 +43,7 @@ def test_learning_renderers_are_grounded():
     quality = score_learning_report(report)
 
     assert "src/agentpack/core/config.py" in markdown
+    assert "## Claim Citations" in markdown
     assert "src/agentpack/core/config.py" in lessons
     assert quality.score >= 70
 

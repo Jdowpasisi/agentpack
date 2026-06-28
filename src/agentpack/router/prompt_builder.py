@@ -21,6 +21,15 @@ def build_agent_prompt(result: RouteResult) -> str:
     else:
         lines.append("- No files selected.")
 
+    lines += [
+        "",
+        "Evidence contract:",
+        "- Do not make repo-code claims without `path:line` evidence.",
+        "- If a claim is not verified from source, put it under Open Questions.",
+        "- Review findings need a concrete location and supporting evidence citation.",
+        "- Prefer `.agentpack/citations.json` when present to inspect packed source provenance.",
+    ]
+
     if result.applied_rules:
         lines += ["", "Apply these rules:"]
         lines.extend(f"- {item.rule.name} ({item.rule.path})" for item in result.applied_rules)
@@ -138,6 +147,7 @@ def render_plain(result: RouteResult) -> str:
     if result.evidence_checklist:
         lines.append("- evidence checklist:")
         lines.extend(f"  - {item}" for item in result.evidence_checklist)
+    lines.append("- evidence contract: repo-code claims require `path:line`; unverified claims stay as open questions")
     if result.prompt_quality_warnings:
         lines.append("- prompt quality warnings:")
         lines.extend(f"  - {warning}" for warning in result.prompt_quality_warnings)

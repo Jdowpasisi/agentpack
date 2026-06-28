@@ -17,7 +17,7 @@ Before judging, confirm AgentPack context was refreshed for this exact review ta
 
 ## Hard constraints — do not violate
 
-1. **Ground every finding in evidence.** Each finding cites a `change_unit` and the specific item that supports it — a `referenced_symbol`, a `caller`, a `contract`, or code you read — with `path:line`. A finding you cannot tie to concrete evidence is speculation: verify it by reading the code, or drop it.
+1. **Ground every finding in evidence.** Each finding cites a `change_unit` and the specific item that supports it — a `referenced_symbol`, a `caller`, a `contract`, or code you read — with `path:line`. The cited line must contain the supporting code or text, not just a nearby function or file anchor. A finding you cannot tie to concrete evidence is speculation: verify it by reading the code, or drop it.
 
 2. **Use the resolved context to suppress false positives.** Before recording any finding, consult what the understanding stage already resolved. Do **not** flag a missing null check when the resolved signature in `referenced_symbols` shows the value is non-null. Do **not** flag an "undefined" symbol that `referenced_symbols` defines.
 
@@ -65,7 +65,7 @@ Do not answer inline from this stage. Read the understanding TOON from disk firs
       "type": "logic | edge_case | naming | complexity | caller_break | contract | convention | dependency",
       "location": "path:line",
       "claim": "factual statement of what is the case",
-      "evidence": "what supports it: path:line plus which understanding item",
+      "evidence": "what supports it: path:line plus which understanding item; cite the line that contains the supporting code/text",
       "severity": "blocker | should-fix | nit",
       "category": "defect | preference",
       "confidence": "high | medium | low",

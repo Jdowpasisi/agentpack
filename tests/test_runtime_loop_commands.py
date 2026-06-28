@@ -51,6 +51,22 @@ def test_perf_command_shows_history(tmp_path: Path, monkeypatch):
     assert "src.py" in result.stdout
 
 
+def test_perf_measure_pack_compares_broad_profiles(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("[context]\ndefault_budget = 12000\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "task.md").write_text("share broad repo context for review\n", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["perf", "--measure-pack", "--repeat", "1"])
+
+    assert result.exit_code == 0, result.output
+    assert "AgentPack Pack Profile" in result.stdout
+    assert "broad-off" in result.stdout
+    assert "broad-on" in result.stdout
+
+
 def test_compress_output_command_reads_file(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".agentpack").mkdir()
@@ -84,6 +100,29 @@ def test_memory_command_outputs_json(tmp_path: Path, monkeypatch):
     assert payload["recent_issue_references"] == ["#123"]
     assert payload["issue_reference_details"][0]["title"] == "Auth bug"
     assert payload["top_issue_references"] == [["#123", 1]]
+
+
+def test_memory_prune_retains_configured_tail(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "session-events.jsonl").write_text(
+        "\n".join(json.dumps({"type": "pack", "idx": idx}) for idx in range(5)) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".agentpack" / "episodic-cases.jsonl").write_text(
+        "\n".join(json.dumps({"task": str(idx)}) for idx in range(4)) + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["memory", "--prune", "--max-events", "2", "--max-episodes", "1", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["session_events"]["pruned"] == 3
+    assert payload["episodic_cases"]["pruned"] == 3
+    events = (tmp_path / ".agentpack" / "session-events.jsonl").read_text(encoding="utf-8")
+    assert '"idx": 3' in events
+    assert '"idx": 0' not in events
 
 
 def test_wrap_dry_run_packs_without_launching(tmp_path: Path, monkeypatch):

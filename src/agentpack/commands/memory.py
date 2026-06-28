@@ -15,10 +15,38 @@ from agentpack.session.events import read_events
 
 def register(app: typer.Typer) -> None:
     @app.command()
-    def memory(json_output: bool = typer.Option(False, "--json", help="Print JSON.")) -> None:
+    def memory(
+        json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+        prune: bool = typer.Option(False, "--prune", help="Prune local memory files to configured retention limits."),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Show prune counts without writing files."),
+        max_events: int = typer.Option(0, "--max-events", help="Override retained session event rows for --prune."),
+        max_episodes: int = typer.Option(0, "--max-episodes", help="Override retained episodic case rows for --prune."),
+    ) -> None:
         """Show local cross-agent task memory from events and learning artifacts."""
         root = _root()
         cfg = load_config(root)
+        if prune:
+            result = {
+                "session_events": _prune_jsonl(
+                    root / cfg.runtime.session_events_output,
+                    max_rows=max_events or cfg.runtime.max_session_events,
+                    dry_run=dry_run,
+                ),
+                "episodic_cases": _prune_jsonl(
+                    root / cfg.learning.episodic_cases_output,
+                    max_rows=max_episodes or cfg.runtime.max_episodic_cases,
+                    dry_run=dry_run,
+                ),
+            }
+            if json_output:
+                typer.echo(json.dumps(result, indent=2))
+                return
+            for label, payload in result.items():
+                console.print(
+                    f"[green]✓[/] {label}: kept {payload['kept']}, pruned {payload['pruned']}"
+                    + (" (dry run)" if dry_run else "")
+                )
+            return
         events = read_events(root, output_path=cfg.runtime.session_events_output, limit=500)
         tasks = [str(event.get("task")) for event in events if event.get("task")]
         concepts = Counter(
@@ -45,12 +73,21 @@ def register(app: typer.Typer) -> None:
             for item in (event.get("issue_reference_details") or [])
             if isinstance(item, dict)
         )
+        episodes = _read_jsonl(root / cfg.learning.episodic_cases_output, limit=200)
+        episode_concepts = Counter(
+            concept
+            for episode in episodes
+            for concept in (episode.get("concepts") or [])
+            if isinstance(concept, str)
+        )
         payload = {
             "recent_tasks": tasks[-20:],
             "recent_issue_references": issue_references[-20:],
             "issue_reference_details": [item.to_dict() for item in issue_reference_details[-20:]],
             "top_issue_references": top_issue_references,
             "top_concepts": concepts.most_common(20),
+            "episode_count": len(episodes),
+            "top_episode_concepts": episode_concepts.most_common(20),
             "event_count": len(events),
         }
         if json_output:
@@ -73,4 +110,35 @@ def register(app: typer.Typer) -> None:
             table.add_row("issue detail", label)
         for concept, count in concepts.most_common(10):
             table.add_row("concept", f"{concept} ({count})")
+        for concept, count in episode_concepts.most_common(10):
+            table.add_row("episode concept", f"{concept} ({count})")
         console.print(table)
+
+
+def _read_jsonl(path, *, limit: int) -> list[dict]:
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]:
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict):
+            rows.append(rec)
+    return rows
+
+
+def _prune_jsonl(path, *, max_rows: int, dry_run: bool) -> dict:
+    if max_rows <= 0:
+        return {"path": str(path), "kept": 0, "pruned": 0, "total": 0}
+    if not path.exists():
+        return {"path": str(path), "kept": 0, "pruned": 0, "total": 0}
+    lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    kept_lines = lines[-max_rows:]
+    pruned = max(0, len(lines) - len(kept_lines))
+    if pruned and not dry_run:
+        path.write_text("\n".join(kept_lines) + "\n", encoding="utf-8")
+    return {"path": str(path), "kept": len(kept_lines), "pruned": pruned, "total": len(lines)}

@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agentpack.core.models import (
+    Citation,
     FileInfo,
     OmittedRelevantFile,
     Receipt,
     SelectedFile,
     Symbol,
 )
+from agentpack.core.citations import file_citation, selected_file_citations
 from agentpack.core.redactor import redact_secrets
 from agentpack.core.task_freshness import task_hash
 from agentpack.core.token_estimator import estimate_tokens
@@ -67,6 +69,8 @@ def save_pack_metadata(
     pack_handoff: dict[str, Any] | None = None,
     execution_state: dict[str, Any] | None = None,
     concurrent_context: dict[str, Any] | None = None,
+    citation_manifest_path: str = "",
+    citation_summary: dict[str, Any] | None = None,
     metadata_path: Path | None = None,
 ) -> None:
     generated_at = (
@@ -91,6 +95,8 @@ def save_pack_metadata(
         "freshness_warnings": freshness_warnings or [],
         "execution_state": execution_state or {},
         "concurrent_context": concurrent_context or {},
+        "citation_manifest_path": citation_manifest_path,
+        "citation_summary": citation_summary or {},
     }
     if freshness:
         for key in (
@@ -104,6 +110,9 @@ def save_pack_metadata(
             "task_source",
             "changed_files_source",
             "task_class",
+            "context_intent",
+            "broad_context",
+            "citation_manifest_path",
         ):
             if key in freshness:
                 meta[key] = freshness[key]
@@ -461,7 +470,23 @@ def _weak_compressed_noise_reason(path: str, reasons: list[str], keywords: set[s
     cleanup_refactor_evidence = _is_cleanup_refactor_task(keywords) and _has_cleanup_refactor_candidate_evidence(path, reasons)
     actionable = _has_actionable_compressed_evidence(reasons)
     if _is_test_path(path) and "explicit test task file" not in reasons and not actionable and not cleanup_refactor_evidence:
+        if (
+            "symbol keyword match" in reasons
+            and "filename keyword match" in reasons
+            and any(reason.startswith(("matched role keyword:", "matched ranking keyword:")) for reason in reasons)
+        ):
+            return None
         return "test file lacks direct task evidence"
+
+    path_terms = {part.lower() for part in Path(path).parts}
+    if (
+        not actionable
+        and ("api" in path_terms or Path(path).name.lower() in {"api.ts", "api.js", "api.py"})
+        and "filename keyword match" in reasons
+        and _content_keyword_hits(reasons) >= 1
+        and any(reason.startswith("matched domain: api") for reason in reasons)
+    ):
+        return None
 
     broad_only = _is_source_path(path) and "implementation role match" in reasons and any(
         reason.startswith((
@@ -1023,8 +1048,8 @@ def _has_strict_summary_support(reasons: list[str], path: str = "") -> bool:
     return has_phrase and content_hits >= 3
 
 
-def _can_bypass_guarded_summary_floor(reasons: list[str], score: float, min_summary_score: float) -> bool:
-    if score < max(60.0, min_summary_score - 60.0):
+def _can_bypass_guarded_summary_floor(path: str, reasons: list[str], score: float, min_summary_score: float) -> bool:
+    if score < max(35.0, min_summary_score - 85.0):
         return False
     if any(reason.startswith(("secret redaction candidate", "matched domain:")) for reason in reasons):
         return True
@@ -1048,7 +1073,21 @@ def _can_bypass_guarded_summary_floor(reasons: list[str], score: float, min_summ
         match = re.match(r"content keyword match \((\d+)\)", reason)
         if match:
             content_hits = max(content_hits, int(match.group(1)))
-    return has_direct_summary_field and (has_symbol or has_config or content_hits >= 1)
+    if has_direct_summary_field and (has_symbol or has_config or content_hits >= 1):
+        return True
+    if _is_test_path(path) and score >= 55.0 and any(
+        reason.startswith("test for high-scoring") or "related test" in reason or reason.startswith("recall neighbor")
+        for reason in reasons
+    ):
+        return True
+    if _is_source_like_code_path(path) and score >= 70.0 and content_hits >= 1 and any(
+        reason.startswith("cross-layer related") or reason == "implementation role match"
+        for reason in reasons
+    ):
+        return True
+    if _is_deploy_config_path(path) and has_config and content_hits >= 1:
+        return True
+    return False
 
 
 def _has_release_metadata_reason(reasons: list[str]) -> bool:
@@ -1079,6 +1118,20 @@ def _is_lock_or_generated_path(path: str) -> bool:
         "poetry.lock",
         "gemfile.lock",
     } or name.endswith((".snap", ".snapshot"))
+
+
+def _is_source_like_code_path(path: str) -> bool:
+    if _is_source_path(path) or any(part.lower() in {"api", "handler", "handlers", "cmd"} for part in Path(path).parts):
+        suffix = Path(path).suffix.lower()
+        return suffix in {".go", ".rs", ".java", ".kt", ".py", ".ts", ".tsx", ".js", ".jsx"}
+    return False
+
+
+def _is_deploy_config_path(path: str) -> bool:
+    name = Path(path).name.lower()
+    return name in {"dockerfile", "containerfile"} or any(
+        part.lower() in {"k8s", "kubernetes", "deploy", "deployment"} for part in Path(path).parts
+    )
 
 
 def _compressed_context_family(path: str, reasons: list[str]) -> tuple[str, int] | None:
@@ -1184,13 +1237,19 @@ def _can_overflow_strong_test_cap(
     token_cost: int,
     selected: list[SelectedFile],
 ) -> bool:
-    if not _is_test_path(path) or token_cost > 160 or score < 700:
+    if not _is_test_path(path) or token_cost > 160 or score < 300:
         return False
     if _is_example_or_playground_path(path) or _package_root(path) == "packages/vite":
         return False
     if _selected_test_scope_count(path, selected) >= 2:
         return False
-    if _content_keyword_hits(reasons) < 2 and not any(
+    if _content_keyword_hits(reasons) < 2 and not (
+        "symbol keyword match" in reasons
+        and (
+            "filename keyword match" in reasons
+            or any(reason.startswith(("matched role keyword:", "matched ranking keyword:")) for reason in reasons)
+        )
+    ) and not any(
         reason.startswith((
             "keyword phrase match:",
             "matched call:",
@@ -1211,6 +1270,27 @@ def _can_overflow_strong_test_cap(
         ))
         or reason == "explicit test task file"
         for reason in reasons
+    )
+
+
+def _can_overflow_strong_owner_cap(
+    path: str,
+    reasons: list[str],
+    score: float,
+    token_cost: int,
+) -> bool:
+    if token_cost > 220 or score < 180:
+        return False
+    if _is_test_path(path) or _is_docs_path(path) or _is_example_or_playground_path(path):
+        return False
+    if not (_is_source_like_code_path(path) or "config file" in reasons):
+        return False
+    if _is_lock_or_generated_path(path):
+        return False
+    return (
+        _has_direct_source_evidence(reasons)
+        or _has_actionable_compressed_evidence(reasons)
+        or _has_strict_summary_support(reasons, path)
     )
 
 
@@ -1597,6 +1677,7 @@ def select_files(
     selected: list[SelectedFile] = []
     receipts: list[Receipt] = []
     selected_token_costs: dict[str, int] = {}
+    file_by_path = {fi.path: fi for fi in files}
     tokens_used = 0
     summaries_used = 0
     kw = keywords or set()
@@ -1607,6 +1688,7 @@ def select_files(
     paired_test_overflow_used = 0
     playground_test_overflow_used = 0
     strong_test_overflow_used = 0
+    strong_owner_overflow_used = 0
     cleanup_refactor_overflow_used = 0
     primary_release_metadata_selected = False
     compressed_family_counts: dict[str, int] = {}
@@ -1627,6 +1709,7 @@ def select_files(
                 path=displaced.path,
                 action="excluded",
                 reason=f"marginal slot replaced by {challenger_path}",
+                citations=_receipt_citations(displaced.path, file_by_path),
             )
         )
 
@@ -1640,11 +1723,11 @@ def select_files(
     ordered = _context_shape_order(ordered, max_summary_files)
     for fi, score, reasons in ordered:
         if fi.ignored or fi.binary:
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="ignored or binary"))
+            receipts.append(_receipt(fi, "excluded", "ignored or binary"))
             continue
 
         if score <= 0:
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="score too low"))
+            receipts.append(_receipt(fi, "excluded", "score too low"))
             continue
 
         is_changed = fi.path in changed_paths
@@ -1652,36 +1735,34 @@ def select_files(
         has_task_signal = _has_task_signal(reasons)
         weak_signal_only = not is_changed and _is_weak_signal_candidate(reasons)
         if not is_changed and not opts["include_docs"] and _selection_bucket(fi, reasons, changed_paths) == "docs":
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="docs disabled by mode"))
+            receipts.append(_receipt(fi, "excluded", "docs disabled by mode"))
             continue
         if is_changed and not has_task_signal and unrelated_changed_cap:
             if unrelated_changed_used >= unrelated_changed_cap:
-                receipts.append(Receipt(path=fi.path, action="excluded", reason="unrelated changed-file safety cap"))
+                receipts.append(_receipt(fi, "excluded", "unrelated changed-file safety cap"))
                 continue
             unrelated_changed_used += 1
         if weak_signal_only and max_weak_signal_files >= 0 and weak_signal_used >= max_weak_signal_files:
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="weak-signal cap reached"))
+            receipts.append(_receipt(fi, "excluded", "weak-signal cap reached"))
             continue
         if primary_release_metadata_selected and not is_changed and _is_secondary_release_metadata(fi.path, reasons):
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="secondary release metadata skipped after primary"))
+            receipts.append(_receipt(fi, "excluded", "secondary release metadata skipped after primary"))
             continue
         will_be_summary = not is_changed and not (
             opts["extra_full"] and fi.estimated_tokens <= max_file_tokens
         )
         has_redaction_reason = any(reason.startswith("secret redaction candidate") for reason in reasons)
+        floor_bypass = (
+            has_redaction_reason
+            or _can_bypass_guarded_summary_floor(fi.path, reasons, score, min_summary_score)
+            or _can_bypass_cleanup_summary_floor(fi.path, reasons, score, min_summary_score, kw)
+        )
         if (
             will_be_summary
             and score < min_summary_score
-            and not (
-                strict_summary_selection
-                and (
-                    has_redaction_reason
-                    or (not selected and _can_bypass_guarded_summary_floor(reasons, score, min_summary_score))
-                    or _can_bypass_cleanup_summary_floor(fi.path, reasons, score, min_summary_score, kw)
-                )
-            )
+            and not floor_bypass
         ):
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="summary score below floor"))
+            receipts.append(_receipt(fi, "excluded", "summary score below floor"))
             continue
 
         # Determine inclusion mode. Changed files are not all equal: tiny or
@@ -1782,14 +1863,14 @@ def select_files(
                 reasons = reasons + [why]
 
         if mode_str == "summary" and max_summary_files < 0:
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="summaries disabled by precision guard"))
+            receipts.append(_receipt(fi, "excluded", "summaries disabled by precision guard"))
             continue
 
         compressed_context = mode_str in ("summary", "skeleton")
         if compressed_context and not is_changed and mode == "balanced":
             weak_noise_reason = _weak_compressed_noise_reason(fi.path, reasons, kw)
             if weak_noise_reason:
-                receipts.append(Receipt(path=fi.path, action="excluded", reason=weak_noise_reason))
+                receipts.append(_receipt(fi, "excluded", weak_noise_reason))
                 continue
 
         if (
@@ -1799,12 +1880,13 @@ def select_files(
             and not _has_strict_summary_support(reasons, fi.path)
             and not _can_bypass_cleanup_summary_floor(fi.path, reasons, score, min_summary_score, kw)
         ):
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context needs stronger support signal"))
+            receipts.append(_receipt(fi, "excluded", "compressed context needs stronger support signal"))
             continue
 
         paired_test_overflow = False
         playground_test_overflow = False
         strong_test_overflow = False
+        strong_owner_overflow = False
         cleanup_refactor_overflow = False
 
         if strict_summary_selection and compressed_context and not is_changed and mode == "balanced":
@@ -1826,11 +1908,16 @@ def select_files(
                         and not changed_paths
                         and _can_overflow_cleanup_refactor_cap(fi.path, reasons, score, tok, kw, selected)
                     )
+                    strong_owner_overflow = (
+                        False
+                    )
                     if strong_test_overflow:
                         if "strong-test cap overflow" not in reasons:
                             reasons = reasons + ["strong-test cap overflow"]
                     elif cleanup_refactor_overflow:
                         reasons = reasons + ["cleanup-refactor cap overflow"]
+                    elif strong_owner_overflow:
+                        reasons = reasons + ["strong-owner cap overflow"]
                     else:
                         replacement_index = _find_cleanup_refactor_replacement(
                             selected,
@@ -1845,7 +1932,7 @@ def select_files(
                             displace_selected(replacement_index, fi.path)
                         else:
                             replacement_index = None
-                    if not strong_test_overflow and not cleanup_refactor_overflow and replacement_index is None:
+                    if not strong_test_overflow and not cleanup_refactor_overflow and not strong_owner_overflow and replacement_index is None:
                         max_extra_tokens = min(120, max(0, budget - tokens_used))
                         replacement_index = _find_marginal_replacement(
                             selected,
@@ -1860,10 +1947,10 @@ def select_files(
                         if replacement_index is not None:
                             displace_selected(replacement_index, fi.path)
                         else:
-                            receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
+                            receipts.append(_receipt(fi, "excluded", f"{family} compressed context cap reached"))
                             continue
-                if compressed_family_counts.get(family, 0) >= cap and not strong_test_overflow and not cleanup_refactor_overflow:
-                    receipts.append(Receipt(path=fi.path, action="excluded", reason=f"{family} compressed context cap reached"))
+                if compressed_family_counts.get(family, 0) >= cap and not strong_test_overflow and not cleanup_refactor_overflow and not strong_owner_overflow:
+                    receipts.append(_receipt(fi, "excluded", f"{family} compressed context cap reached"))
                     continue
 
         if compressed_context and max_summary_files > 0 and summaries_used >= max_summary_files:
@@ -1884,6 +1971,7 @@ def select_files(
                 or strong_test_overflow_used < 2
                 and mode == "balanced"
                 and not changed_paths
+                and max_summary_files >= 3
                 and _can_overflow_strong_test_cap(fi.path, reasons, score, tok, selected)
             )
             cleanup_refactor_overflow = (
@@ -1892,11 +1980,19 @@ def select_files(
                 and not changed_paths
                 and _can_overflow_cleanup_refactor_cap(fi.path, reasons, score, tok, kw, selected)
             )
+            strong_owner_overflow = (
+                strong_owner_overflow_used < 2
+                and mode == "balanced"
+                and not changed_paths
+                and max_summary_files >= 3
+                and _can_overflow_strong_owner_cap(fi.path, reasons, score, tok)
+            )
             if (
                 not paired_test_overflow
                 and not playground_test_overflow
                 and not strong_test_overflow
                 and not cleanup_refactor_overflow
+                and not strong_owner_overflow
             ):
                 max_extra_tokens = min(120, max(0, budget - tokens_used))
                 replacement_index = _find_marginal_replacement(
@@ -1923,7 +2019,7 @@ def select_files(
                     if cleanup_replacement_index is not None:
                         displace_selected(cleanup_replacement_index, fi.path)
                     else:
-                        receipts.append(Receipt(path=fi.path, action="excluded", reason="compressed context cap reached"))
+                        receipts.append(_receipt(fi, "excluded", "compressed context cap reached"))
                         continue
             else:
                 if paired_test_overflow:
@@ -1934,6 +2030,8 @@ def select_files(
                     reasons = reasons + ["strong-test cap overflow"]
                 elif cleanup_refactor_overflow:
                     reasons = reasons + ["cleanup-refactor cap overflow"]
+                elif strong_owner_overflow:
+                    reasons = reasons + ["strong-owner cap overflow"]
 
         if tokens_used + tok > budget:
             replacement_index = _find_marginal_replacement(
@@ -1958,10 +2056,10 @@ def select_files(
                         risk=classify_omission_risk(fi.path, reasons, score),
                     )
                 )
-                receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
+                receipts.append(_receipt(fi, "excluded", "budget exhausted"))
                 continue
             else:
-                receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
+                receipts.append(_receipt(fi, "excluded", "budget exhausted"))
                 continue
 
         if tokens_used + tok > budget:
@@ -1977,7 +2075,7 @@ def select_files(
                         risk=classify_omission_risk(fi.path, reasons, score),
                     )
                 )
-            receipts.append(Receipt(path=fi.path, action="excluded", reason="budget exhausted"))
+            receipts.append(_receipt(fi, "excluded", "budget exhausted"))
             continue
 
         tokens_used += tok
@@ -1989,6 +2087,8 @@ def select_files(
             playground_test_overflow_used += 1
         if strong_test_overflow:
             strong_test_overflow_used += 1
+        if strong_owner_overflow:
+            strong_owner_overflow_used += 1
         if cleanup_refactor_overflow:
             cleanup_refactor_overflow_used += 1
         if weak_signal_only:
@@ -2028,29 +2128,48 @@ def select_files(
         if materialized:
             materialized, redaction_warnings = redact_secrets(materialized, fi.path)
 
-        selected.append(
-            SelectedFile(
-                path=fi.path,
-                language=fi.language,
-                score=score,
-                include_mode=mode_str,
-                reasons=reasons,
-                content=materialized,
-                summary=summary_data.get("summary") if summary_data else None,
-                symbols=syms,
-                redaction_warnings=redaction_warnings,
-            )
+        selected_file = SelectedFile(
+            path=fi.path,
+            language=fi.language,
+            score=score,
+            include_mode=mode_str,
+            reasons=reasons,
+            content=materialized,
+            summary=summary_data.get("summary") if summary_data else None,
+            symbols=syms,
+            redaction_warnings=redaction_warnings,
+            source_hash=fi.hash,
         )
+        selected_file.citations = selected_file_citations(fi, selected_file)
+        selected.append(selected_file)
         selected_token_costs[fi.path] = tok
 
         action: Literal["included", "excluded", "summarized"] = (
             "included" if mode_str == "full" else "summarized"
         )
-        receipts.append(
-            Receipt(path=fi.path, action=action, reason=", ".join(reasons[:2]))
-        )
+        receipts.append(_receipt(fi, action, ", ".join(reasons[:2])))
 
     return selected, receipts
+
+
+def _receipt(
+    fi: FileInfo,
+    action: Literal["included", "excluded", "summarized"],
+    reason: str,
+) -> Receipt:
+    return Receipt(
+        path=fi.path,
+        action=action,
+        reason=reason,
+        citations=[file_citation(fi, kind="receipt", claim_id=f"receipt:{fi.path}", note=reason)],
+    )
+
+
+def _receipt_citations(path: str, files: dict[str, FileInfo]) -> list[Citation]:
+    fi = files.get(path)
+    if fi is None:
+        return []
+    return [file_citation(fi, kind="receipt", claim_id=f"receipt:{path}", note="displaced selected file")]
 
 
 

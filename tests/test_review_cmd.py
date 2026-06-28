@@ -7,7 +7,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from agentpack.cli import app
-from agentpack.commands.review_cmd import _build_review_preflight, _load_review_template, _review_output_paths
+from agentpack.commands.review_cmd import _build_review_preflight, _load_review_template, _review_output_paths, _validate_review_artifact
 
 
 def _init_repo(tmp_path: Path) -> Path:
@@ -98,6 +98,10 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     assert (run_dir / "runbook.md").exists()
     assert (run_dir / "understanding.prompt.md").exists()
     assert (run_dir / "judge.prompt.md").exists()
+    assert (run_dir / "context.md").exists()
+    assert (run_dir / "citations.json").exists()
+    assert preflight["context_pack"]["path"].startswith(".agentpack/reviews/feature-review/")
+    assert not (repo / ".agentpack" / "context.md").exists()
     assert preflight["paths"]["understanding_output"].startswith(".agentpack/reviews/feature-review/")
     assert preflight["paths"]["findings_output"].startswith(".agentpack/reviews/feature-review/")
 
@@ -217,3 +221,186 @@ def test_review_command_resume_fails_cleanly_on_invalid_understanding_toon(tmp_p
 
     assert resumed.exit_code == 1
     assert "Review run artifact invalid" in resumed.output
+
+
+def test_review_findings_validator_requires_claim_level_citations(tmp_path) -> None:
+    repo = _init_repo(tmp_path)
+    valid = repo / ".agentpack" / "findings-valid.toon"
+    valid.parent.mkdir(parents=True, exist_ok=True)
+    valid.write_text(
+        "@format toon\n"
+        "@root review_findings\n"
+        "findings[]:\n"
+        "  -\n"
+        "    id: f1\n"
+        "    unit: cu1\n"
+        "    location: src/foo.py:1\n"
+        "    claim: foo returns changed value\n"
+        "    evidence: src/foo.py:2 shows the returned value\n"
+        "    severity: should-fix\n"
+        "coverage:\n"
+        "  status: complete\n",
+        encoding="utf-8",
+    )
+    invalid = repo / ".agentpack" / "findings-invalid.toon"
+    invalid.write_text(
+        "@format toon\n"
+        "@root review_findings\n"
+        "findings[]:\n"
+        "  -\n"
+        "    id: f1\n"
+        "    unit: cu1\n"
+        "    location: src/foo.py\n"
+        "    claim: foo returns changed value\n"
+        "    evidence: code shows it\n"
+        "coverage:\n"
+        "  status: incomplete\n",
+        encoding="utf-8",
+    )
+
+    _validate_review_artifact(valid, kind="findings")
+
+    try:
+        _validate_review_artifact(invalid, kind="findings")
+    except ValueError as exc:
+        assert "missing valid location path:line" in str(exc)
+        assert "missing evidence path:line" in str(exc)
+    else:
+        raise AssertionError("invalid findings should fail citation validation")
+
+
+def test_review_findings_validator_rejects_unsupported_evidence_line(tmp_path) -> None:
+    repo = _init_repo(tmp_path)
+    invalid = repo / ".agentpack" / "findings-unsupported.toon"
+    invalid.parent.mkdir(parents=True, exist_ok=True)
+    invalid.write_text(
+        "@format toon\n"
+        "@root review_findings\n"
+        "findings[]:\n"
+        "  -\n"
+        "    id: f1\n"
+        "    unit: cu1\n"
+        "    location: src/foo.py:1\n"
+        "    claim: foo returns changed value\n"
+        "    evidence: src/foo.py:1 shows the returned value\n"
+        "    severity: should-fix\n"
+        "coverage:\n"
+        "  status: incomplete\n",
+        encoding="utf-8",
+    )
+
+    try:
+        _validate_review_artifact(invalid, kind="findings")
+    except ValueError as exc:
+        assert "finding 1.evidence: src/foo.py:1 does not support claim text" in str(exc)
+    else:
+        raise AssertionError("unsupported finding evidence should fail citation validation")
+
+
+def test_review_findings_validator_can_use_semantic_support_command(tmp_path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    judge = repo / "judge.py"
+    judge.write_text(
+        "import json, sys\n"
+        "payload = json.load(sys.stdin)\n"
+        "assert payload['cited_text'].strip() == 'return 2'\n"
+        "print(json.dumps({'supported': False, 'reason': 'semantic mismatch'}))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENTPACK_CITATION_SEMANTIC_COMMAND", f"python {judge}")
+    finding = repo / ".agentpack" / "findings-semantic.toon"
+    finding.parent.mkdir(parents=True, exist_ok=True)
+    finding.write_text(
+        "@format toon\n"
+        "@root review_findings\n"
+        "findings[]:\n"
+        "  -\n"
+        "    id: f1\n"
+        "    unit: cu1\n"
+        "    location: src/foo.py:1\n"
+        "    claim: foo returns changed value\n"
+        "    evidence: src/foo.py:2 shows the returned value\n"
+        "    severity: should-fix\n"
+        "coverage:\n"
+        "  status: incomplete\n",
+        encoding="utf-8",
+    )
+
+    try:
+        _validate_review_artifact(finding, kind="findings")
+    except ValueError as exc:
+        assert "semantic support rejected (semantic mismatch)" in str(exc)
+    else:
+        raise AssertionError("semantic support command rejection should fail validation")
+
+
+def test_review_understanding_validator_rejects_unsupported_symbol_line(tmp_path) -> None:
+    repo = _init_repo(tmp_path)
+    valid = repo / ".agentpack" / "understanding-valid.toon"
+    valid.parent.mkdir(parents=True, exist_ok=True)
+    valid.write_text(
+        "@format toon\n"
+        "@root review_understanding\n"
+        "intent:\n"
+        "  requirement: placeholder\n"
+        "change_units[]:\n"
+        "  -\n"
+        "    id: cu1\n"
+        "    location: src/foo.py:1-2\n"
+        "    kind: core\n"
+        "    what_changed: foo return changed\n"
+        "    code: src/foo.py:2 return 2\n"
+        "    referenced_symbols[]:\n"
+        "      -\n"
+        "        name: returned value\n"
+        "        defined_at: src/foo.py:2\n"
+        "        code: return 2\n"
+        "        confidence: high\n"
+        "    callers[]:\n"
+        "      []\n"
+        "    contracts_touched[]:\n"
+        "      []\n"
+        "    local_convention_refs[]:\n"
+        "      []\n"
+        "open_questions[]:\n"
+        "  []\n",
+        encoding="utf-8",
+    )
+    invalid = repo / ".agentpack" / "understanding-invalid.toon"
+    invalid.write_text(
+        "@format toon\n"
+        "@root review_understanding\n"
+        "intent:\n"
+        "  requirement: placeholder\n"
+        "change_units[]:\n"
+        "  -\n"
+        "    id: cu1\n"
+        "    location: src/foo.py:1-2\n"
+        "    kind: core\n"
+        "    what_changed: foo return changed\n"
+        "    code: src/foo.py:2 return 2\n"
+        "    referenced_symbols[]:\n"
+        "      -\n"
+        "        name: returned value\n"
+        "        defined_at: src/foo.py:1\n"
+        "        code: return 2\n"
+        "        confidence: high\n"
+        "    callers[]:\n"
+        "      []\n"
+        "    contracts_touched[]:\n"
+        "      []\n"
+        "    local_convention_refs[]:\n"
+        "      []\n"
+        "open_questions[]:\n"
+        "  []\n",
+        encoding="utf-8",
+    )
+
+    _validate_review_artifact(valid, kind="understanding")
+
+    try:
+        _validate_review_artifact(invalid, kind="understanding")
+    except ValueError as exc:
+        assert "change_unit 1.referenced_symbols: src/foo.py:1 does not support claim text" in str(exc)
+    else:
+        raise AssertionError("unsupported understanding citation should fail validation")

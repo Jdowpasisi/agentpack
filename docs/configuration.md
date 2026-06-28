@@ -22,6 +22,12 @@ max_summary_files_deep = 0
 include_tests = true
 include_configs = true
 include_receipts = true
+broad_context = "auto"       # auto | off | on
+broad_context_budget_pct = 35
+max_module_summaries = 30
+max_inventory_files = 250
+memory_feedback = "auto"     # auto | off
+memory_boost_weight = 12.0
 
 [context_lite]
 budget = 8000
@@ -43,6 +49,8 @@ agent_lessons_output = ".agentpack/agent-lessons.md"
 llm_prompt_output = ".agentpack/learning.prompt.md"
 pr_comment_output = ".agentpack/pr-learning-comment.md"
 feedback_output = ".agentpack/learning-feedback.jsonl"
+ranking_feedback_output = ".agentpack/ranking-feedback.jsonl"
+episodic_cases_output = ".agentpack/episodic-cases.jsonl"
 dashboard_output = ".agentpack/learning-dashboard.html"
 team_lessons_output = ".agentpack/team-lessons.md"
 provider_command = ""
@@ -54,6 +62,15 @@ max_cards = 5
 max_quiz_questions = 5
 min_groundedness_score = 70
 
+[runtime]
+pack_registry_output = ".agentpack/pack-registry.json"
+session_events_output = ".agentpack/session-events.jsonl"
+max_registry_records = 200
+max_retrieve_chars = 20000
+max_output_summary_items = 40
+max_session_events = 2000
+max_episodic_cases = 1000
+
 [agents.claude]
 output = ".agentpack/context.claude.md"
 patch_claude_md = true
@@ -61,6 +78,21 @@ patch_claude_md = true
 [agents.generic]
 output = ".agentpack/context.md"
 ```
+
+`broad_context = "auto"` keeps normal coding tasks compact, but adds curated
+repo-wide inventory and module summaries when the task asks for review, sharing,
+audit, or repository overview. Existing repos do not need to add these keys;
+AgentPack uses model defaults when keys are absent.
+
+`memory_feedback = "auto"` lets prior ranking feedback and episodic eval
+outcomes provide small, receipt-backed ranking boosts. Episodic boosts are
+ignored when the remembered file is missing or its recorded hash no longer
+matches the current checkout. Set it to `"off"` for baseline comparisons or if
+local memory becomes noisy.
+
+`max_session_events` and `max_episodic_cases` are retention limits used by
+`agentpack memory --prune`. Existing repos receive these defaults at runtime
+even if their checked-in config file does not yet include the keys.
 
 Loop automation is local and opt-in per runner:
 
@@ -148,10 +180,13 @@ min_groundedness_score = 70
 ```
 
 These settings control local learning output size, destinations, future-agent
-context injection, and the quality warning threshold. Learning artifacts are
-local by default: no hosted service is called, diffs are bounded, and secret
-redaction runs before diff text is used. `provider_command` is opt-in and runs a
-local JSON-in/JSON-out command with the bounded report payload on stdin.
+context injection, and the quality warning threshold. The quality score includes
+claim-level citation coverage: generated summaries, decisions, risks, tests,
+lessons, cards, topics, and skill evidence should cite source files with line
+anchors where available. Learning artifacts are local by default: no hosted
+service is called, diffs are bounded, and secret redaction runs before diff text
+is used. `provider_command` is opt-in and runs a local JSON-in/JSON-out command with the bounded report payload on
+stdin.
 Feedback-aware skill memory and practice drills are stored locally in
 `skill_map_output` and `feedback_output`; shared team learning should export
 only selected lessons or taxonomy files, not personal skill history. Use

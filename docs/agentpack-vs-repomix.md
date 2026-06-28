@@ -13,9 +13,9 @@ Repomix is useful when you want to bundle repository content for an AI tool. Age
 
 | Need | Better fit |
 |---|---|
-| Bundle a repo or folder into one promptable artifact | Repomix |
+| Bundle an exact repo or folder dump into one promptable artifact | Repomix |
 | Route one coding task to likely files, tests, rules, and skills | AgentPack |
-| Preserve broad repo context for review or sharing | Repomix |
+| Preserve curated broad repo context for review or sharing with receipts | AgentPack |
 | Build compact task-focused context packs | AgentPack |
 | Measure expected-file recall for coding tasks | AgentPack |
 | Use MCP task routing in an agent workflow | AgentPack |
@@ -42,6 +42,8 @@ Repomix is best when the question is:
 
 That broad bundle can be useful for audits, explanations, reviews, or sharing repo context outside the original project.
 
+AgentPack now covers the adjacent workflow inside `pack` and `review`: it can add curated broad repo context, module summaries, inventory receipts, freshness metadata, and redaction warnings to the normal context artifact when the task asks for review, sharing, audit, or repo overview. It is still not trying to be an exact whole-repo dumper.
+
 ## Workflow comparison
 
 AgentPack is task-first:
@@ -56,7 +58,7 @@ Repomix is bundle-first:
 repomix
 ```
 
-These workflows can coexist. Use Repomix for broad repository packaging. Use AgentPack when an AI coding agent needs a ranked, compact, task-specific starting map.
+These workflows can coexist. Use Repomix for exact broad repository packaging. Use AgentPack when an AI coding agent needs a ranked, compact, task-specific starting map or a curated broad review/share artifact in the existing workflow.
 
 ## Measurement
 
@@ -71,4 +73,4 @@ That matters when teams want to know whether context packs select the files that
 
 ## Bottom line
 
-Use Repomix when your goal is repository bundling. Use AgentPack when your goal is helping a coding agent start with the right task-specific context.
+Use Repomix when your goal is an exact repository dump. Use AgentPack when your goal is helping a coding agent start with the right task-specific context, including curated broad context for review or sharing.

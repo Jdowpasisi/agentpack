@@ -194,7 +194,7 @@ def register(app: typer.Typer) -> None:
         agent_lessons_path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(agent_lessons_path, render_agent_lessons_markdown(report))
 
-        quality = score_learning_report(report)
+        quality = score_learning_report(report, root=root)
         if quality.score < cfg.learning.min_groundedness_score:
             console.print(f"[yellow]Learning quality warning:[/] score {quality.score}; " + "; ".join(quality.issues))
 

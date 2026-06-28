@@ -117,7 +117,7 @@ agentpack task set "fix billing webhook retry handling"
 agentpack pack --task auto
 ```
 
-AgentPack writes local context under `.agentpack/`, including selected files, omitted-file receipts, freshness checks, and token stats.
+AgentPack writes local context under `.agentpack/`, including selected files, omitted-file receipts, freshness checks, token stats, and `.agentpack/citations.json` source provenance for the packed claims.
 It reuses cached file summaries and snapshot metadata so repeated packs do not start from zero.
 
 ## What AgentPack Gives Your Agent
@@ -127,6 +127,7 @@ It reuses cached file summaries and snapshot metadata so repeated packs do not s
 - likely tests and commands
 - repo rules and agent instructions
 - compact context pack under budget
+- curated broad repo context for review/share/audit tasks without a separate bundle command
 - cached summaries for faster repeated orientation
 - omitted-file receipts for review
 - freshness warnings when task or git state changes
@@ -231,7 +232,7 @@ Do not use AgentPack when:
 
 ## How It Works
 
-AgentPack scans repo locally, builds and reuses file summaries, indexes local skills and rules, combines filename, git, config, dependency, summary, and benchmark signals, ranks likely files for task, then renders a compact context pack.
+AgentPack scans repo locally, builds and reuses file summaries, indexes local skills and rules, combines filename, git, config, dependency, summary, memory, and benchmark signals, ranks likely files for task, then renders a compact context pack. Review/share/audit tasks also get broad module summaries and inventory receipts in the same artifact.
 
 It can expose the same workflow through CLI, markdown files, MCP tools, hooks, plugins, and CI.
 

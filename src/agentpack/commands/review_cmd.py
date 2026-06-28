@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,8 +12,18 @@ from uuid import uuid4
 import typer
 
 from agentpack.analysis.tests import find_related_tests
+from agentpack.application.pack_service import PackRequest, PackService
 from agentpack.commands._shared import _atomic_write, _now_iso, _root, console
 from agentpack.core import git as git_core
+from agentpack.core.citations import (
+    CitationValidation,
+    extract_location_citations,
+    parse_location,
+    semantic_support_command_judge,
+    validate_citations,
+    validate_claim_support,
+)
+from agentpack.core.models import Citation
 from agentpack.core.toon_parser import ToonParseError, load_toon
 
 _PREFLIGHT_PATH = Path(".agentpack/review-preflight.json")
@@ -105,6 +116,7 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
         for path in changed_paths
     ]
     warnings = _warnings(root, pr, diff_info, changed_paths)
+    context_pack = _build_review_context_pack(root, review_context, diff_info, outputs, warnings)
 
     return {
         "generated_at": _now_iso(),
@@ -149,6 +161,7 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
             "active_understanding_prompt": str(_UNDERSTANDING_PROMPT_PATH),
             "active_judge_prompt": str(_JUDGE_PROMPT_PATH),
         },
+        "context_pack": context_pack,
         "changed_files": changed_files,
         "warnings": warnings,
     }
@@ -231,6 +244,7 @@ def _render_review_runbook(preflight: dict[str, Any]) -> str:
         f"- Diff range: {preflight['diff']['range']}\n"
         f"- Diff source: {preflight['diff']['source']}\n"
         f"- Changed files: {preflight['diff']['changed_files_count']}\n"
+        + (f"- AgentPack context: `{preflight['context_pack']['path']}` ({preflight['context_pack']['tokens']} tokens)\n" if preflight.get("context_pack", {}).get("path") else "")
         + (f"- PR: #{preflight['pr']['number']} — {preflight['pr']['title']}\n" if preflight.get("pr") else "")
         + (f"- PR URL: {preflight['pr']['url']}\n" if preflight.get("pr") and preflight["pr"].get("url") else "")
         + "\n## Generated Artifacts\n\n"
@@ -279,6 +293,9 @@ def _render_stage_prompt(
             f"- Structured output format: {_LLM_REVIEW_FORMAT}",
         ]
     )
+    context_pack = preflight.get("context_pack") if isinstance(preflight.get("context_pack"), dict) else {}
+    if context_pack.get("path"):
+        lines.append(f"- Broad AgentPack context: {context_pack['path']}")
     if prior_path is not None:
         lines.append(f"- Input path: {_rel_to_root(prior_path.resolve(), root)}")
     lines.extend(
@@ -298,6 +315,40 @@ def _render_stage_prompt(
         lines.extend(f"- {warning}" for warning in preflight["warnings"])
     lines.extend(["", "Reviewer context:", preflight["review_context"] or "(none)"])
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_review_context_pack(
+    root: Path,
+    review_context: str,
+    diff_info: dict[str, Any],
+    outputs: dict[str, Any],
+    warnings: list[str],
+) -> dict[str, Any]:
+    task = "review current PR with broad repo context"
+    if review_context:
+        task = f"{task}: {review_context[:200]}"
+    try:
+        result = PackService().run(PackRequest(
+            root=root,
+            agent="generic",
+            task=task,
+            mode="deep",
+            budget=0,
+            since=diff_info.get("base_ref") or None,
+            refresh=False,
+            task_source="review",
+            output_path=outputs["run_dir"] / "context.md",
+            write_canonical=False,
+        ))
+    except Exception as exc:
+        warnings.append(f"Could not build broad AgentPack context for review: {exc}")
+        return {"path": "", "tokens": 0, "selected_files": 0, "broad_context": False}
+    return {
+        "path": _rel_to_root(result.out_path, root),
+        "tokens": result.packed_tokens,
+        "selected_files": len(result.pack.selected_files),
+        "broad_context": result.pack.broad_context is not None,
+    }
 
 
 def _load_review_template(name: str) -> str:
@@ -466,7 +517,107 @@ def _validate_review_artifact(path: Path, *, kind: str) -> dict[str, Any]:
     missing = [key for key in required if key not in payload]
     if missing:
         raise ValueError(f"{path.name} missing required key(s): {', '.join(missing)}")
+    root = _validation_root(path)
+    citation_validation = (
+        _validate_understanding_citations(root, payload)
+        if kind == "understanding"
+        else _validate_findings_citations(root, payload)
+    )
+    if citation_validation.invalid or citation_validation.missing:
+        details = [*citation_validation.invalid[:5], *citation_validation.missing[:5]]
+        suffix = "; ".join(details) if details else "missing citation"
+        raise ValueError(f"{path.name} has invalid or missing citations: {suffix}")
     return payload
+
+
+def _validate_findings_citations(root: Path, payload: dict[str, Any]) -> CitationValidation:
+    raw_findings = payload.get("findings")
+    if not isinstance(raw_findings, list):
+        return CitationValidation(valid=[], invalid=["findings must be a list"], missing=[])
+    citations: list[Citation] = []
+    invalid: list[str] = []
+    missing: list[str] = []
+    semantic_judge = _semantic_support_judge()
+    for index, finding in enumerate(raw_findings, start=1):
+        if not isinstance(finding, dict):
+            invalid.append(f"finding {index}: not an object")
+            continue
+        location = parse_location(str(finding.get("location") or ""))
+        if location is None:
+            missing.append(f"finding {index}: missing valid location path:line")
+        else:
+            location.claim_id = f"finding:{index}:location"
+            citations.append(location)
+        evidence_citations = extract_location_citations(finding.get("evidence"))
+        if not evidence_citations:
+            missing.append(f"finding {index}: missing evidence path:line")
+        for citation in evidence_citations:
+            citation.claim_id = f"finding:{index}:evidence"
+            citations.append(citation)
+        invalid.extend(
+            validate_claim_support(
+                root,
+                finding.get("evidence"),
+                evidence_citations,
+                label=f"finding {index}.evidence",
+                semantic_judge=semantic_judge,
+            )
+        )
+    validation = validate_citations(root, citations)
+    return CitationValidation(valid=validation.valid, invalid=[*invalid, *validation.invalid], missing=[*missing, *validation.missing])
+
+
+def _validate_understanding_citations(root: Path, payload: dict[str, Any]) -> CitationValidation:
+    raw_units = payload.get("change_units")
+    if not isinstance(raw_units, list):
+        return CitationValidation(valid=[], invalid=["change_units must be a list"], missing=[])
+    citations: list[Citation] = []
+    invalid: list[str] = []
+    missing: list[str] = []
+    semantic_judge = _semantic_support_judge()
+    for unit_index, unit in enumerate(raw_units, start=1):
+        if not isinstance(unit, dict):
+            invalid.append(f"change_unit {unit_index}: not an object")
+            continue
+        for field in ("code", "referenced_symbols", "callers", "contracts_touched", "local_convention_refs"):
+            field_citations = extract_location_citations(unit.get(field))
+            if field in {"referenced_symbols", "callers", "contracts_touched"} and unit.get(field) and not field_citations:
+                missing.append(f"change_unit {unit_index}.{field}: missing path:line")
+            for citation in field_citations:
+                citation.claim_id = f"change_unit:{unit_index}:{field}"
+                citations.append(citation)
+            if field in {"referenced_symbols", "callers", "local_convention_refs"}:
+                invalid.extend(
+                    validate_claim_support(
+                        root,
+                        unit.get(field),
+                        field_citations,
+                        label=f"change_unit {unit_index}.{field}",
+                        semantic_judge=semantic_judge,
+                    )
+                )
+    validation = validate_citations(root, citations)
+    return CitationValidation(valid=validation.valid, invalid=[*invalid, *validation.invalid], missing=[*missing, *validation.missing])
+
+
+def _semantic_support_judge():
+    command = os.environ.get("AGENTPACK_CITATION_SEMANTIC_COMMAND", "").strip()
+    if not command:
+        return None
+    try:
+        return semantic_support_command_judge(command)
+    except ValueError:
+        return lambda _payload: "semantic support command is empty"
+
+
+def _validation_root(path: Path) -> Path:
+    for candidate in (path.parent, *path.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    for candidate in (path.parent, *path.parents):
+        if candidate.name == ".agentpack":
+            return candidate.parent
+    return Path.cwd()
 
 
 def _rel_to_root(path: Path, root: Path) -> str:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 
+from agentpack.core.models import Citation
 from agentpack.learning.models import LearningReport
 
 
@@ -93,6 +94,7 @@ def render_quality_markdown(report: LearningReport, score: int, issues: list[str
         "# AgentPack Learning Quality",
         "",
         f"Score: {score}",
+        f"Citation coverage: {report.citation_coverage:.3f}",
         f"Task: {report.task}",
         "",
         "## Issues",
@@ -101,6 +103,12 @@ def render_quality_markdown(report: LearningReport, score: int, issues: list[str
         lines.extend(f"- {issue}" for issue in issues)
     else:
         lines.append("- none")
+    if report.invalid_citations:
+        lines.extend(["", "## Invalid Citations"])
+        lines.extend(f"- {item}" for item in report.invalid_citations[:20])
+    if report.uncited_claims:
+        lines.extend(["", "## Uncited Claims"])
+        lines.extend(f"- {item}" for item in report.uncited_claims[:20])
     lines.append("")
     return "\n".join(lines)
 
@@ -333,6 +341,12 @@ def render_learning_markdown(report: LearningReport) -> str:
     lines.extend(f"- {risk}" for risk in report.risks)
     lines.extend(["", "## Tests"])
     lines.extend(f"- {test}" for test in report.tests)
+    if report.claim_citations:
+        lines.extend(["", "## Claim Citations"])
+        for claim_id in sorted(report.claim_citations):
+            refs = _citation_refs(report.claim_citations[claim_id])
+            if refs:
+                lines.append(f"- `{claim_id}`: {refs}")
     lines.extend(["", "## Learning Topics"])
     for topic in report.learning_topics:
         lines.append(f"### {topic.title}")
@@ -367,3 +381,22 @@ def render_learning_markdown(report: LearningReport) -> str:
         lines.append(f"   - Answer: {item.answer}")
     lines.extend(["", "## Next Practice", report.next_practice, ""])
     return "\n".join(lines)
+
+
+def _citation_refs(citations: list[Citation]) -> str:
+    refs: list[str] = []
+    for citation in citations:
+        if citation.kind == "external":
+            if citation.url:
+                refs.append(citation.url)
+            continue
+        if not citation.path:
+            continue
+        if citation.start_line is None:
+            refs.append(f"`{citation.path}`")
+            continue
+        suffix = f"{citation.start_line}"
+        if citation.end_line and citation.end_line != citation.start_line:
+            suffix += f"-{citation.end_line}"
+        refs.append(f"`{citation.path}:{suffix}`")
+    return ", ".join(refs)

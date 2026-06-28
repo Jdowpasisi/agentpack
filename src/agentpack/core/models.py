@@ -47,6 +47,20 @@ class Symbol(BaseModel):
     body: str | None = None  # source text captured at extraction time; no re-read needed
 
 
+class Citation(BaseModel):
+    path: str
+    start_line: int | None = None
+    end_line: int | None = None
+    source_hash: str | None = None
+    kind: Literal["code", "symbol", "summary", "receipt", "external"]
+    claim_id: str | None = None
+    note: str = ""
+    support_text: str = ""
+    url: str = ""
+    retrieved_at: str = ""
+    content_hash: str = ""
+
+
 class FileSummary(BaseModel):
     path: str
     hash: str
@@ -86,12 +100,15 @@ class SelectedFile(BaseModel):
     summary: str | None = None
     symbols: list[Symbol] = []
     redaction_warnings: list[str] = []
+    source_hash: str | None = None
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class Receipt(BaseModel):
     path: str
     action: Literal["included", "excluded", "summarized"]
     reason: str
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class OmittedRelevantFile(BaseModel):
@@ -102,6 +119,30 @@ class OmittedRelevantFile(BaseModel):
     suggested_mode: Literal["full", "diff", "symbols", "skeleton", "summary"]
     omission_reason: str = "budget exhausted"
     risk: Literal["high", "medium", "low"] = "low"
+
+
+class ModuleSummary(BaseModel):
+    path: str
+    files: int
+    tokens: int
+    languages: list[str] = Field(default_factory=list)
+    key_files: list[str] = Field(default_factory=list)
+    summary: str = ""
+    citations: list[Citation] = Field(default_factory=list)
+
+
+class BroadContext(BaseModel):
+    intent: str
+    inventory_files: int
+    module_summaries: list[ModuleSummary] = Field(default_factory=list)
+    entrypoints: list[str] = Field(default_factory=list)
+    configs: list[str] = Field(default_factory=list)
+    docs: list[str] = Field(default_factory=list)
+    tests: list[str] = Field(default_factory=list)
+    inventory: list[str] = Field(default_factory=list)
+    semantic_clusters: list[str] = Field(default_factory=list)
+    omitted_by_budget: list[str] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class ContextPack(BaseModel):
@@ -115,11 +156,13 @@ class ContextPack(BaseModel):
     after_ignore_tokens: int
     estimated_savings_percent: float
     repo_map: str = ""
+    broad_context: BroadContext | None = None
     delta_summary: str = ""
     agent_lessons: str = ""
     changed_files: list[str]
     selected_files: list[SelectedFile]
     receipts: list[Receipt]
+    citations: list[Citation] = Field(default_factory=list)
     omitted_relevant_files: list[OmittedRelevantFile] = Field(default_factory=list)
     pack_handoff_omitted_relevant_files: list[OmittedRelevantFile] = Field(default_factory=list)
     redaction_warnings: list[str] = []

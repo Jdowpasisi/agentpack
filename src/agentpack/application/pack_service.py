@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -21,9 +22,15 @@ from agentpack.core.diff import diff_snapshots
 from agentpack.core import git
 from agentpack.core.command_surface import refresh_commands
 from agentpack.core.context_pack import enrich_call_site_scores, select_files, save_pack_metadata, load_pack_metadata
+from agentpack.core.citations import (
+    citation_manifest_relpath,
+    collect_pack_citations,
+    write_citation_manifest,
+)
 from agentpack.core.execution_state import build_execution_state, compact_execution_state
 from agentpack.core.pack_handoff import build_pack_handoff
 from agentpack.core.models import (
+    BroadContext,
     ContextPack,
     DependencyGraph,
     FileInfo,
@@ -59,6 +66,8 @@ from agentpack.analysis.ranking import (
     boost_second_pass_expansion,
     generic_task_term_ratio,
 )
+from agentpack.analysis.broad_context import build_broad_context
+from agentpack.analysis.context_intent import broad_context_enabled, infer_context_intent
 from agentpack.analysis.repo_map import build_repo_map
 from agentpack.analysis.monorepo import (
     detect_workspace_dependency_edges,
@@ -85,6 +94,8 @@ class PackRequest:
     task_source: str = "explicit"
     workspace: str | None = None
     thread_id: str | None = None
+    output_path: Path | None = None
+    write_canonical: bool = True
 
 
 @dataclass
@@ -140,6 +151,8 @@ class PackPlan:
     task_class: str
     task_class_confidence: float
     task_class_signals: list[str]
+    context_intent: str
+    broad_context: BroadContext | None
     changed_files_source: str
     repo_map: str
     workspace_roots: list[str]
@@ -281,7 +294,7 @@ class FileRanker:
                 changes.all_changed,
                 generic_ratio=generic_ratio,
             )
-            scored = _apply_ranking_feedback_boosts(root, scored, task, changes.all_changed)
+            scored = _apply_ranking_feedback_boosts(root, scored, task, changes.all_changed, cfg)
         return RankResult(
             keywords=keywords,
             keyword_plan=keyword_plan,
@@ -546,6 +559,24 @@ class PackPlanner:
         phase_times["repo_map"] = time.perf_counter() - t0
         selection_budget = max(0, effective_budget - estimate_tokens(repo_map))
 
+        context_intent = infer_context_intent(request.task, task_mode=rank_result.keyword_plan.task_kind)
+        broad_context = None
+        broad_setting = os.environ.get("AGENTPACK_BROAD_CONTEXT") or getattr(cfg.context, "broad_context", "auto")
+        if broad_context_enabled(broad_setting, context_intent):
+            t0 = time.perf_counter()
+            broad_budget = max(500, int(effective_budget * max(0, cfg.context.broad_context_budget_pct) / 100))
+            broad_context = build_broad_context(
+                files=packable,
+                summaries=summaries,
+                scored=rank_result.scored,
+                intent=context_intent,
+                max_module_summaries=max(0, cfg.context.max_module_summaries),
+                max_inventory_files=max(0, cfg.context.max_inventory_files),
+                budget_tokens=broad_budget,
+            )
+            selection_budget = max(0, selection_budget - estimate_tokens(broad_context.model_dump_json()))
+            phase_times["broad_context"] = time.perf_counter() - t0
+
         t0 = time.perf_counter()
         omitted_relevant_files: list[OmittedRelevantFile] = []
         selected, receipts = select_files(
@@ -648,6 +679,8 @@ class PackPlanner:
             task_class=rank_result.task_class,
             task_class_confidence=rank_result.task_class_confidence,
             task_class_signals=rank_result.task_class_signals,
+            context_intent=context_intent,
+            broad_context=broad_context,
             changed_files_source=changes.source,
             repo_map=repo_map,
             workspace_roots=workspace_roots,
@@ -712,6 +745,7 @@ class AdapterRegistry:
                 cfg.learning.team_lessons_output,
                 cfg.learning.feedback_output,
                 cfg.learning.ranking_feedback_output,
+                cfg.learning.episodic_cases_output,
                 cfg.runtime.pack_registry_output,
                 cfg.runtime.session_events_output,
             }
@@ -781,6 +815,7 @@ class PackService:
             after_ignore_tokens=raw_tokens,
             estimated_savings_percent=saving_pct,
             repo_map=plan.repo_map,
+            broad_context=plan.broad_context,
             delta_summary=delta_summary,
             agent_lessons=_read_agent_lessons(root, cfg),
             changed_files=sorted(plan.all_changed),
@@ -803,12 +838,37 @@ class PackService:
 
         t0 = time.perf_counter()
         if scoped_paths:
+            planned_out_path = scoped_paths.context if request.agent == "generic" else scoped_paths.context_claude
+        elif request.output_path is not None:
+            planned_out_path = request.output_path
+        elif plan.workspace:
+            safe_workspace = plan.workspace.replace("/", "__").replace("\\", "__")
+            planned_out_path = root / ".agentpack" / "workspaces" / safe_workspace / "context.md"
+        else:
+            planned_out_path = adapter.output_path(root)
+        citation_manifest_path = citation_manifest_relpath(root, planned_out_path)
+        pack_obj.freshness["citation_manifest_path"] = citation_manifest_path
+        pack_obj.citations = collect_pack_citations(pack_obj)
+        if scoped_paths:
             out_path = _write_thread_context(pack_obj, root, scoped_paths, request.agent)
+        elif request.output_path is not None:
+            out_path = request.output_path
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(render_generic(pack_obj), encoding="utf-8")
         else:
             out_path = adapter.write(pack_obj, root)
-            _write_canonical_context(pack_obj, root, out_path)
+            if request.write_canonical:
+                _write_canonical_context(pack_obj, root, out_path)
         if plan.workspace and not scoped_paths:
             out_path = _write_workspace_context(pack_obj, root, plan.workspace)
+        manifest_path = write_citation_manifest(pack_obj, root, out_path)
+        citation_manifest_path = str(manifest_path.relative_to(root)).replace("\\", "/")
+        pack_obj.freshness["citation_manifest_path"] = citation_manifest_path
+        citation_summary = {
+            "citation_count": len(pack_obj.citations),
+            "selected_files_with_citations": sum(1 for sf in pack_obj.selected_files if sf.citations),
+            "manifest_path": citation_manifest_path,
+        }
         plan.phase_times["render"] = time.perf_counter() - t0
         persist_keyword_plan_stats(root, request.task, plan.keyword_plan)
 
@@ -830,6 +890,8 @@ class PackService:
             pack_handoff=build_pack_handoff(pack_obj),
             execution_state=pack_obj.execution_state,
             concurrent_context=pack_obj.concurrent_context,
+            citation_manifest_path=citation_manifest_path,
+            citation_summary=citation_summary,
             metadata_path=scoped_paths.metadata if scoped_paths else None,
         )
         save_pack_registry(
@@ -855,6 +917,8 @@ class PackService:
                 "omitted_files": len(pack_obj.omitted_relevant_files),
                 "changed_files": len(pack_obj.changed_files),
                 "context_path": str(out_path.relative_to(root)),
+                "citation_manifest_path": citation_manifest_path,
+                "citation_count": len(pack_obj.citations),
             },
             output_path=cfg.runtime.session_events_output,
         )
@@ -992,6 +1056,18 @@ def _fit_rendered_budget(pack: ContextPack, adapter: Any) -> int:
 
     if pack.receipts:
         pack.receipts = []
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    if pack.broad_context:
+        pack.broad_context = _compact_broad_context(pack.broad_context)
+        token_estimate = _settle_rendered_token_estimate(pack, adapter)
+        if token_estimate <= pack.budget:
+            return token_estimate
+
+    if pack.broad_context:
+        pack.broad_context = None
         token_estimate = _settle_rendered_token_estimate(pack, adapter)
         if token_estimate <= pack.budget:
             return token_estimate
@@ -1221,8 +1297,26 @@ def _apply_ranking_feedback_boosts(
     scored: list[tuple[Any, float, list[str]]],
     task: str,
     changed_paths: set[str],
+    cfg: Any | None = None,
 ) -> list[tuple[Any, float, list[str]]]:
+    cfg = cfg or load_config(root)
+    memory_setting = os.environ.get("AGENTPACK_MEMORY_FEEDBACK") or getattr(cfg.context, "memory_feedback", "auto")
+    if str(memory_setting).strip().lower() == "off":
+        return scored
     boosts = ranking_feedback_boosts(root, task)
+    try:
+        from agentpack.learning.episodes import episodic_memory_boosts
+
+        episodic_boosts = episodic_memory_boosts(
+            root,
+            task,
+            output_path=cfg.learning.episodic_cases_output,
+            max_boost=float(getattr(cfg.context, "memory_boost_weight", 12.0)),
+        )
+    except Exception:
+        episodic_boosts = {}
+    for path, boost in episodic_boosts.items():
+        boosts[path] = max(boosts.get(path, 0.0), boost)
     if not boosts:
         return scored
     adjusted: list[tuple[Any, float, list[str]]] = []
@@ -1231,8 +1325,22 @@ def _apply_ranking_feedback_boosts(
         if boost <= 0 or fi.path in changed_paths:
             adjusted.append((fi, score, reasons))
             continue
-        adjusted.append((fi, score + boost, [*reasons, f"learning feedback miss boost +{boost:.0f}"]))
+        label = "episodic memory similar task" if fi.path in episodic_boosts else "learning feedback miss"
+        adjusted.append((fi, score + boost, [*reasons, f"{label} boost +{boost:.0f}"]))
     return adjusted
+
+
+def _compact_broad_context(context: BroadContext) -> BroadContext:
+    clone = context.model_copy(deep=True)
+    clone.inventory = clone.inventory[:40]
+    clone.module_summaries = clone.module_summaries[:8]
+    clone.entrypoints = clone.entrypoints[:10]
+    clone.configs = clone.configs[:10]
+    clone.docs = clone.docs[:10]
+    clone.tests = clone.tests[:10]
+    clone.semantic_clusters = clone.semantic_clusters[:8]
+    clone.omitted_by_budget = clone.omitted_by_budget[:20]
+    return clone
 
 
 def _history_noise_counts(root: Path, *, window: int = 20) -> dict[str, int]:
@@ -1667,6 +1775,8 @@ def _build_freshness_metadata(
         "task_class": plan.task_class,
         "task_class_confidence": plan.task_class_confidence,
         "task_class_signals": plan.task_class_signals,
+        "context_intent": plan.context_intent,
+        "broad_context": plan.broad_context is not None,
         "dirty_files_count": len(dirty),
         "requested_mode": plan.requested_mode,
         "effective_mode": plan.mode,

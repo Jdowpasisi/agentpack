@@ -204,6 +204,39 @@ def test_capture_records_agentpack_metadata(tmp_path: Path, monkeypatch) -> None
     assert case.agentpack_version
 
 
+def test_capture_adds_citation_gates_when_manifest_exists(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _init_git_repo(tmp_path)
+    (tmp_path / "src.py").write_text("change\n", encoding="utf-8")
+    (tmp_path / ".agentpack").mkdir(exist_ok=True)
+    (tmp_path / ".agentpack" / "context.md").write_text("packed context\n", encoding="utf-8")
+    (tmp_path / ".agentpack" / "citations.json").write_text(
+        json.dumps({"schema_version": 1, "citations": []}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".agentpack" / "pack_metadata.json").write_text(
+        json.dumps({"citation_manifest_path": ".agentpack/citations.json"}),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "eval",
+            "--capture",
+            "citation-case",
+            "--failure-class",
+            "context",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    case = load_eval_cases(tmp_path / ".agentpack" / "evals.toml")[0]
+    assert case.citation_manifest == ".agentpack/citations.json"
+    assert case.min_citation_coverage == 0.75
+    assert case.max_invalid_citations == 0
+
+
 def test_capture_redacts_secrets_from_patch_artifact(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _init_git_repo(tmp_path)

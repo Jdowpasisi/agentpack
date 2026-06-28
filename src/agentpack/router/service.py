@@ -577,31 +577,14 @@ def _split_baseline_skills(items: list[SelectedSkill]) -> tuple[list[SelectedSki
 
 def _load_skill_success(root: Path) -> dict[str, float]:
     path = root / ".agentpack" / "skill_feedback.jsonl"
-    if not path.exists():
-        return {}
     totals: dict[str, float] = {}
     counts: dict[str, int] = {}
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return {}
-    for line in lines[-500:]:
-        if not line.strip():
+    for record in _read_skill_feedback(path):
+        _accumulate_skill_feedback(record, totals, counts)
+    for event in read_events(root, limit=500):
+        if event.get("type") not in {"task_outcome", "review", "eval"}:
             continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        used = record.get("used_skills") or []
-        if not isinstance(used, list):
-            continue
-        helpful = _feedback_value(record)
-        for skill in used:
-            key = str(skill).strip().lower().replace("\\", "/").rstrip("/")
-            if not key:
-                continue
-            totals[key] = totals.get(key, 0.0) + helpful
-            counts[key] = counts.get(key, 0) + 1
+        _accumulate_skill_feedback(event, totals, counts)
     return {
         key: max(0.0, min(1.0, totals[key] / counts[key]))
         for key in totals
@@ -609,14 +592,62 @@ def _load_skill_success(root: Path) -> dict[str, float]:
     }
 
 
+def _read_skill_feedback(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    records: list[dict] = []
+    for line in lines[-500:]:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def _accumulate_skill_feedback(record: dict, totals: dict[str, float], counts: dict[str, int]) -> None:
+    used = record.get("used_skills") or record.get("skills") or record.get("selected_skills") or []
+    if not isinstance(used, list):
+        return
+    helpful = _feedback_value(record)
+    if helpful == 0:
+        return
+    for skill in used:
+        key = str(skill).strip().lower().replace("\\", "/").rstrip("/")
+        if not key:
+            continue
+        totals[key] = totals.get(key, 0.0) + helpful
+        counts[key] = counts.get(key, 0) + 1
+
+
 def _feedback_value(record: dict) -> float:
     feedback = str(record.get("user_feedback") or "").strip().lower()
     tests_passed = record.get("tests_passed")
+    outcome = str(record.get("outcome") or "").strip().lower()
+    checks = record.get("checks") or []
     value = 0.0
     if tests_passed is True:
         value += 0.6
     elif tests_passed is False:
         value -= 0.4
+    if outcome in {"passed", "pass", "success", "succeeded"}:
+        value += 0.6
+    elif outcome in {"failed", "fail", "blocked"}:
+        value -= 0.4
+    if isinstance(checks, list) and checks:
+        passed = sum(1 for item in checks if isinstance(item, dict) and item.get("passed") is True)
+        failed = sum(1 for item in checks if isinstance(item, dict) and item.get("passed") is False)
+        if passed and not failed:
+            value += 0.3
+        elif failed:
+            value -= 0.2
     if feedback in {"helpful", "good", "used", "success"}:
         value += 0.4
     elif feedback in {"noisy", "ignored", "bad", "unhelpful"}:

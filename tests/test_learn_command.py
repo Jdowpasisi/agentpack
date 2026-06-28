@@ -205,6 +205,30 @@ def test_learn_provider_command_enriches_report(tmp_path, monkeypatch):
     assert "Explain provider output for Add CLI learning summaries" in text
 
 
+def test_learn_json_validates_provider_citations_against_repo_root(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    provider = repo / "provider.py"
+    provider.write_text(
+        "import json\n"
+        "print(json.dumps({\n"
+        "  'claim_citations': {\n"
+        "    'summary:1': [\n"
+        "      {'path': 'missing.py', 'start_line': 1, 'end_line': 1, 'kind': 'summary'}\n"
+        "    ]\n"
+        "  }\n"
+        "}))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["learn", "--json", "--provider-command", f"python {provider}"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["invalid_citations"] == ["missing.py:1: file missing"]
+    assert payload["citation_coverage"] < 1.0
+
+
 def test_learn_concept_provider_command_enriches_concepts_and_topics(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     provider = repo / "concept_provider.py"

@@ -34,6 +34,12 @@ class ContextConfig(BaseModel):
     include_tests: bool = True
     include_configs: bool = True
     include_receipts: bool = True
+    broad_context: str = "auto"
+    broad_context_budget_pct: int = 35
+    max_module_summaries: int = 30
+    max_inventory_files: int = 250
+    memory_feedback: str = "auto"
+    memory_boost_weight: float = 12.0
 
 
 class LiteContextConfig(BaseModel):
@@ -58,6 +64,7 @@ class LearningConfig(BaseModel):
     pr_comment_output: str = ".agentpack/pr-learning-comment.md"
     feedback_output: str = ".agentpack/learning-feedback.jsonl"
     ranking_feedback_output: str = ".agentpack/ranking-feedback.jsonl"
+    episodic_cases_output: str = ".agentpack/episodic-cases.jsonl"
     dashboard_output: str = ".agentpack/learning-dashboard.html"
     team_lessons_output: str = ".agentpack/team-lessons.md"
     provider_command: str = ""
@@ -99,6 +106,8 @@ class RuntimeConfig(BaseModel):
     max_registry_records: int = 200
     max_retrieve_chars: int = 20000
     max_output_summary_items: int = 40
+    max_session_events: int = 2000
+    max_episodic_cases: int = 1000
 
 
 class HooksConfig(BaseModel):
@@ -211,6 +220,12 @@ max_summary_files_deep = 0       # deep mode stays uncapped
 include_tests = true
 include_configs = true
 include_receipts = true
+broad_context = "auto"       # auto | off | on
+broad_context_budget_pct = 35
+max_module_summaries = 30
+max_inventory_files = 250
+memory_feedback = "auto"     # auto | off
+memory_boost_weight = 12.0
 
 [context_lite]
 budget = 8000
@@ -232,6 +247,7 @@ llm_prompt_output = ".agentpack/learning.prompt.md"
 pr_comment_output = ".agentpack/pr-learning-comment.md"
 feedback_output = ".agentpack/learning-feedback.jsonl"
 ranking_feedback_output = ".agentpack/ranking-feedback.jsonl"
+episodic_cases_output = ".agentpack/episodic-cases.jsonl"
 dashboard_output = ".agentpack/learning-dashboard.html"
 team_lessons_output = ".agentpack/team-lessons.md"
 provider_command = ""
@@ -252,6 +268,8 @@ session_events_output = ".agentpack/session-events.jsonl"
 max_registry_records = 200
 max_retrieve_chars = 20000
 max_output_summary_items = 40
+max_session_events = 2000
+max_episodic_cases = 1000
 
 [loop]
 enabled = true

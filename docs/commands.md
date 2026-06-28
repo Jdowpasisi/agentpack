@@ -105,7 +105,14 @@ Show a local runtime scorecard from `.agentpack/session-events.jsonl`.
 agentpack perf
 agentpack perf --history 10
 agentpack perf --history 10 --json
+agentpack perf --measure-pack --repeat 3
+agentpack perf --measure-pack --task "share broad repo context for review" --mode deep
 ```
+
+`--measure-pack` runs planner-only pack profiles with broad context disabled
+and enabled, then reports average latency, selected file count, repo-map tokens,
+broad-context tokens, module count, and inferred context intent. It does not
+write `.agentpack/context.md`.
 
 ### `agentpack wrap`
 
@@ -149,7 +156,13 @@ uses `JIRA_BASE_URL` plus either `JIRA_BEARER_TOKEN` or `JIRA_EMAIL` with
 ```bash
 agentpack memory
 agentpack memory --json
+agentpack memory --prune --dry-run
+agentpack memory --prune --max-events 2000 --max-episodes 1000
 ```
+
+`--prune` keeps the newest session events and episodic cases according to
+runtime retention limits. Use `--dry-run` before writing. `agentpack doctor`
+also reports memory row counts against those limits.
 
 ### `agentpack global-install`
 
@@ -656,8 +669,13 @@ Default outputs:
 The command reads `.agentpack/task.md`, changed files, and bounded redacted
 diffs. It does not call a hosted service by default. The human-facing summary
 explains changed files, concepts, decisions, risks, tests, learning cards, quiz
-questions, skill evidence, and next practice. Agent lessons are compact
-repo-specific rules ranked for future AgentPack context packs when
+questions, skill evidence, and next practice. Summary, decision, risk, and test
+claims include `claim_citations` so top-level learning statements are traceable
+to changed-file evidence. The normal `learn` flow validates those citations
+against the current checkout before writing JSON or Markdown output, so provider
+or generated citations can surface missing files, invalid line ranges, stale
+hashes, and bad external support hashes. Agent lessons are compact repo-specific
+rules ranked for future AgentPack context packs when
 `learning.inject_agent_lessons = true`.
 
 `--today` uses calendar-day aggregation: committed files since local midnight
@@ -717,6 +735,10 @@ AGENTPACK_THREAD_ID=codex-local agentpack pack --thread auto
 printf '%s\n' "review these changes" > .agentpack/task.md
 agentpack pack --since main
 
+# Broad curated context stays inside pack; no separate bundle command.
+printf '%s\n' "share broad repo context for review" > .agentpack/task.md
+agentpack pack --mode deep
+
 # Watch mode — re-packs on every file change
 printf '%s\n' "refactor auth" > .agentpack/task.md
 agentpack pack --session
@@ -743,6 +765,25 @@ Options:
 | `lite` | Cheap ranked map before deeper file reads |
 | `balanced` | Changed files + deps + reverse deps + tests + capped summaries |
 | `deep` | Everything in balanced + docs + more full-content files, uncapped summaries |
+
+When the task asks for review, sharing, audit, or a repository overview, `pack`
+adds curated broad repo context to the same `.agentpack/context.md` artifact:
+module summaries, semantic clusters from cached file summaries, entrypoints,
+config/docs/test inventory, sharing receipts, freshness metadata, and redaction
+warnings. This is a curated context artifact, not an exact whole-repo dump.
+Packs also write a colocated `citations.json` manifest, usually
+`.agentpack/citations.json`, with selected-file citations, source hashes,
+receipt provenance, diff-hunk line citations, and broad-context summary
+sources. Markdown renderers show compact source anchors; the JSON manifest is
+the machine-readable contract. Validators reject citation ranges outside the
+current file, reject hash-bearing citations when the source file has changed,
+verify optional support snippets against the cited span, and require URL plus
+retrieval provenance for external citations. External citations with
+`support_text` must also include a matching `sha256:<normalized-support-text>`
+`content_hash`. Callers that are allowed to use network can pass
+`verify_external_content=True` to the validator to re-fetch the URL and confirm
+the current response still contains the cited support text; normal AgentPack
+commands keep this off to preserve local-first behavior.
 
 `balanced` is the standard mode for normal agent work and benchmark claims.
 
@@ -894,6 +935,8 @@ Writes:
 - `.agentpack/review-judge.prompt.md`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/preflight.json`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/runbook.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/context.md`
+- `.agentpack/reviews/<branch-prefix>/<run_id>/citations.json`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.prompt.md`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/judge.prompt.md`
 - `.agentpack/reviews/<branch-prefix>/<run_id>/understanding.toon`
@@ -902,8 +945,23 @@ Writes:
 `review` stays local-first. It does not replace `gh pr view`, `git diff`, or
 direct code inspection. Instead it captures the latest available PR metadata,
 selects a diff base, lists changed files and related tests, records stale/dirty
-warnings, and renders the full understanding-plus-judge prompt bundle for a
-host agent to perform the actual review.
+warnings, writes run-scoped broad context, and renders the full
+understanding-plus-judge prompt bundle for a host agent to perform the actual
+review. Review context is written under the review run directory instead of
+overwriting the active `.agentpack/context.md` pack.
+
+Review artifacts are claim-grounded. `understanding.toon` and `findings.toon`
+must cite repo facts with valid `path:line` evidence. Resume/preflight
+validation rejects findings with prose-only evidence, missing locations, files
+that do not exist, line ranges outside the current checkout, or stale
+hash-bearing source citations. Finding evidence and Stage 1 resolved-context
+fields such as `referenced_symbols`, `callers`, and `local_convention_refs`
+also have to overlap the cited span enough to catch arbitrary `path:line`
+references that do not support the claim. For stricter meaning-level review,
+set `AGENTPACK_CITATION_SEMANTIC_COMMAND` to a local JSON-in/JSON-out command;
+review validation sends each mechanically supported claim/citation pair on
+stdin and rejects it when the command returns `{"supported": false, "reason":
+"..."}`.
 
 The positional argument is optional reviewer context. It shapes prioritization
 only; it must not replace code evidence.
@@ -1324,9 +1382,18 @@ agentpack eval --replay --prove-targets
 agentpack eval --variant baseline
 agentpack eval --variant agentpack
 agentpack eval --compare-variants baseline:agentpack
+agentpack eval --memory-ab --prove-targets
+agentpack eval --memory-ab --memory-ab-checks --prove-targets
+agentpack eval --from-episodes
 agentpack eval --ci-template
 agentpack eval --report
 ```
+
+`--memory-ab` compares selected-file recall and selection noise with memory
+feedback disabled versus enabled. Add `--memory-ab-checks` to run deterministic
+eval checks under both memory profiles as a task-success guard. `--from-episodes`
+promotes failed episodic memory records into regression eval cases so repeated
+agent failures become deterministic harness checks.
 
 Example case:
 
@@ -1346,6 +1413,10 @@ agent = "codex"
 context_file = ".agentpack/context.md"
 context_hash = "..."
 selected_files = ["src/auth/token.py", "tests/test_auth.py"]
+citation_manifest = ".agentpack/citations.json"
+min_citation_coverage = 0.75
+max_invalid_citations = 0
+require_review_citations = true
 
 [[cases.checks]]
 name = "tests"
@@ -1357,7 +1428,9 @@ retries = 1 # optional, marks pass-after-fail checks as flaky
 Use `eval` after an agent run: capture the real failure, add deterministic
 checks such as tests, typecheck, lint, schema validation, API contract tests,
 diff size, forbidden files, or golden outputs, then rerun until the harness
-passes. The model can propose; the harness must verify.
+passes. Citation checks can enforce that packed/review context stayed
+claim-grounded by reading the `citation_manifest`. The model can propose; the
+harness must verify.
 
 For hands-free local iteration, keep `agentpack eval --watch --until-pass`
 running in a terminal while the agent or developer edits. It reruns when the
@@ -1365,8 +1438,10 @@ case file, patch artifacts, golden files, or git diff content changes and stops
 when all deterministic checks pass. `--capture` stores the current patch under
 `.agentpack/evals/<case-id>.patch` plus context metadata; `--replay` checks out
 `base_ref` into an isolated git worktree, applies that patch, and runs the same
-deterministic checks there. To measure AgentPack's contribution, run the same
-case with `--variant baseline` and then with `--variant agentpack`;
+deterministic checks there. When pack metadata points to a citation manifest,
+captured cases automatically add citation coverage and invalid-citation gates.
+To measure AgentPack's contribution, run the same case with `--variant baseline`
+and then with `--variant agentpack`;
 `--compare-variants baseline:agentpack` reports which cases improved, regressed,
 stayed unchanged, or still need both sides. Use `--ci-template` to scaffold a
 GitHub Actions workflow for `benchmarks/evals.toml`.

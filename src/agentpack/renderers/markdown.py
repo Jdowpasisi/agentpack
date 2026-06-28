@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from agentpack.core.models import ContextPack, OmittedRelevantFile, SelectedFile, Symbol
+from agentpack.core.models import Citation, ContextPack, OmittedRelevantFile, SelectedFile, Symbol
 from agentpack.core.command_surface import refresh_commands
 from agentpack.core.pack_handoff import build_pack_handoff
 from agentpack.core.token_estimator import estimate_tokens
@@ -38,6 +38,22 @@ def _selected_file_tokens(sf: SelectedFile) -> int:
         if sym.signature:
             parts.append(sym.signature)
     return estimate_tokens("\n".join(parts)) if parts else 50
+
+
+def _citation_anchor(citation: Citation) -> str:
+    if citation.start_line is None:
+        return f"`{citation.path}`"
+    if citation.end_line and citation.end_line != citation.start_line:
+        return f"`{citation.path}:{citation.start_line}-{citation.end_line}`"
+    return f"`{citation.path}:{citation.start_line}`"
+
+
+def _citation_summary(citations: list[Citation], limit: int = 3) -> str:
+    if not citations:
+        return ""
+    shown = ", ".join(_citation_anchor(citation) for citation in citations[:limit])
+    hidden = len(citations) - min(len(citations), limit)
+    return shown + (f"; +{hidden} more" if hidden > 0 else "")
 
 
 def _omitted_action(item: OmittedRelevantFile) -> str:
@@ -232,6 +248,71 @@ def _pack_handoff_lines(pack: ContextPack) -> list[str]:
     return lines
 
 
+def _broad_context_lines(pack: ContextPack) -> list[str]:
+    context = pack.broad_context
+    if context is None:
+        return []
+    lines = ["## Broad Repo Context", ""]
+    lines.append(f"- **Intent:** {context.intent}")
+    lines.append(f"- **Packable files represented:** {context.inventory_files}")
+    lines.append(
+        "- **Sharing note:** Review this artifact before sharing outside your machine. "
+        "Secrets are redacted, but proprietary code and architecture details may remain."
+    )
+    lines.append("")
+    if context.entrypoints or context.configs or context.docs or context.tests:
+        lines.append("## Repository Inventory")
+        lines.append("")
+        for label, values in (
+            ("Entrypoints", context.entrypoints),
+            ("Configs", context.configs),
+            ("Docs", context.docs),
+            ("Tests", context.tests),
+        ):
+            if values:
+                shown = ", ".join(f"`{path}`" for path in values[:12])
+                extra = len(values) - min(len(values), 12)
+                suffix = f"; +{extra} more" if extra > 0 else ""
+                lines.append(f"- **{label}:** {shown}{suffix}")
+        lines.append("")
+    if context.module_summaries:
+        lines.append("## Module Summaries")
+        lines.append("")
+        lines.append("| Module | Files | Tokens | Languages | Key files | Sources | Summary |")
+        lines.append("|---|---:|---:|---|---|---|---|")
+        for module in context.module_summaries:
+            langs = ", ".join(module.languages[:5])
+            keys = ", ".join(f"`{path}`" for path in module.key_files[:5])
+            sources = _citation_summary(module.citations)
+            lines.append(
+                f"| `{module.path}` | {module.files} | {module.tokens:,} | {langs} | {keys} | {sources} | {module.summary} |"
+            )
+        lines.append("")
+    if context.semantic_clusters:
+        lines.append("## Semantic Clusters")
+        lines.append("")
+        for cluster in context.semantic_clusters[:12]:
+            lines.append(f"- {cluster}")
+        lines.append("")
+    if context.inventory:
+        lines.append("## Sharing Receipts")
+        lines.append("")
+        shown = ", ".join(f"`{path}`" for path in context.inventory[:40])
+        hidden = len(context.inventory) - min(len(context.inventory), 40)
+        suffix = f"; +{hidden} more inventory file(s)" if hidden > 0 else ""
+        lines.append(f"- Inventory sample: {shown}{suffix}")
+        lines.append("")
+    if context.omitted_by_budget:
+        lines.append("## Omitted By Budget")
+        lines.append("")
+        shown = ", ".join(f"`{path}`" for path in context.omitted_by_budget[:40])
+        hidden = len(context.omitted_by_budget) - min(len(context.omitted_by_budget), 40)
+        suffix = f"; +{hidden} more" if hidden > 0 else ""
+        lines.append(f"- {shown}{suffix}")
+        lines.append("")
+    return lines
+
+
 def _machine_freshness_block(pack: ContextPack) -> str:
     stale_task = _has_task_stale_warning(pack)
     refresh_required = pack.stale or stale_task
@@ -248,6 +329,7 @@ def _machine_freshness_block(pack: ContextPack) -> str:
         "task_hash": pack.freshness.get("packed_task_hash") or pack.freshness.get("task_hash") or "",
         "task_md_hash": pack.freshness.get("task_md_hash", ""),
         "snapshot_root_hash": pack.freshness.get("snapshot_root_hash", ""),
+        "citation_manifest_path": pack.freshness.get("citation_manifest_path", ""),
         "generated_at": pack.freshness.get("generated_at", ""),
         "stale_task_context": stale_task,
         "refresh_required": refresh_required,
@@ -286,6 +368,8 @@ def _file_section(sf: SelectedFile) -> str:
     # Content is already redacted at materialization time (context_pack.select_files)
     parts = [f"### {sf.path}", ""]
     parts.append(f"Included as: **{sf.include_mode}**")
+    if sf.citations:
+        parts.append(f"Sources: {_citation_summary(sf.citations, limit=5)}")
     parts.append("")
     if sf.reasons:
         parts.append("Reasons:")
@@ -416,6 +500,9 @@ def render_claude(pack: ContextPack) -> str:
             ("Git branch", "git_branch"),
             ("Git SHA", "git_sha"),
             ("Task class", "task_class"),
+            ("Context intent", "context_intent"),
+            ("Broad context", "broad_context"),
+            ("Citation manifest", "citation_manifest_path"),
             ("Task source", "task_source"),
             ("Changed-file source", "changed_files_source"),
             ("Scan mode", "scan_mode"),
@@ -450,6 +537,8 @@ def render_claude(pack: ContextPack) -> str:
         sections.append("")
         sections.append(pack.agent_lessons)
         sections.append("")
+
+    sections.extend(_broad_context_lines(pack))
 
     sections.append("## Token Stats")
     sections.append("")
@@ -491,11 +580,11 @@ def render_claude(pack: ContextPack) -> str:
 
     sections.append("## Selected Files")
     sections.append("")
-    sections.append("| File | Mode | Score | Why |")
-    sections.append("|---|---|---:|---|")
+    sections.append("| File | Mode | Score | Sources | Why |")
+    sections.append("|---|---|---:|---|---|")
     for sf in pack.selected_files:
         why = sf.reasons[0] if sf.reasons else ""
-        sections.append(f"| `{sf.path}` | {sf.include_mode} | {sf.score:.0f} | {why} |")
+        sections.append(f"| `{sf.path}` | {sf.include_mode} | {sf.score:.0f} | {_citation_summary(sf.citations)} | {why} |")
     sections.append("")
 
     if pack.selected_files:

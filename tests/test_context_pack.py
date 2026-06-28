@@ -1,11 +1,15 @@
 from pathlib import Path
 import subprocess
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from agentpack.application.pack_service import _fit_rendered_budget, _settle_rendered_token_estimate, _sf_tokens, _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
+from agentpack.core.citations import build_citation_manifest, file_citation, validate_citations, validate_claim_support, write_citation_manifest
 from agentpack.core.context_pack import enrich_call_site_scores, save_pack_metadata, select_files, _selection_priority
-from agentpack.core.models import ContextPack, FileInfo, OmittedRelevantFile, Receipt, SelectedFile
+from agentpack.core.models import Citation, ContextPack, FileInfo, OmittedRelevantFile, Receipt, SelectedFile
 from agentpack.core.pack_handoff import build_pack_handoff
+from agentpack.core.scanner import file_hash
 from agentpack.core.token_estimator import estimate_tokens
 from agentpack.renderers.markdown import render_claude, render_generic
 
@@ -45,6 +49,9 @@ def test_selects_changed_file_as_full(tmp_path):
     assert len(selected) == 1
     assert selected[0].include_mode == "full"
     assert selected[0].content is not None
+    assert selected[0].source_hash == "h1"
+    assert selected[0].citations[0].path == "session.py"
+    assert selected[0].citations[0].start_line == 1
 
 
 def test_large_dirty_file_uses_diff_mode(tmp_path):
@@ -75,6 +82,200 @@ def test_large_dirty_file_uses_diff_mode(tmp_path):
     assert selected[0].include_mode == "diff"
     assert "diff --git" in selected[0].content
     assert "# filler 1999" not in selected[0].content
+
+
+def test_diff_mode_citations_point_to_changed_new_lines(tmp_path):
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    f = tmp_path / "large.py"
+    f.write_text("def old():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "large.py"], cwd=tmp_path, check=True)
+    f.write_text("def old():\n    return 2\n", encoding="utf-8")
+    fi = FileInfo(
+        path="large.py",
+        abs_path=f,
+        size_bytes=f.stat().st_size,
+        estimated_tokens=5000,
+        hash=file_hash(f),
+        language="python",
+    )
+
+    selected, _ = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["modified"])],
+        changed_paths={"large.py"},
+        summaries={},
+        mode="balanced",
+        budget=3000,
+        max_file_tokens=4000,
+    )
+
+    assert selected[0].include_mode == "diff"
+    assert any(citation.start_line == 2 and citation.end_line == 2 for citation in selected[0].citations)
+
+
+def test_validate_citations_rejects_source_hash_mismatch(tmp_path):
+    source = tmp_path / "src.py"
+    source.write_text("def run():\n    return 1\n", encoding="utf-8")
+    citation = Citation(
+        path="src.py",
+        start_line=1,
+        end_line=1,
+        source_hash=file_hash(source),
+        kind="code",
+    )
+
+    assert validate_citations(tmp_path, [citation]).invalid == []
+
+    source.write_text("def run():\n    return 2\n", encoding="utf-8")
+    validation = validate_citations(tmp_path, [citation])
+
+    assert validation.invalid == ["src.py:1: source hash mismatch"]
+
+
+def test_validate_citations_rejects_ranges_outside_file(tmp_path):
+    source = tmp_path / "src.py"
+    source.write_text("def run():\n    return 1\n", encoding="utf-8")
+    citation = Citation(path="src.py", start_line=1, end_line=99, kind="code")
+
+    validation = validate_citations(tmp_path, [citation])
+
+    assert validation.invalid == ["src.py:1-99: range outside file"]
+
+
+def test_validate_citations_requires_support_text_inside_cited_span(tmp_path):
+    source = tmp_path / "src.py"
+    source.write_text("def run():\n    return 1\n", encoding="utf-8")
+    valid = Citation(path="src.py", start_line=1, end_line=2, kind="code", support_text="return 1")
+    invalid = Citation(path="src.py", start_line=1, end_line=1, kind="code", support_text="return 1")
+
+    validation = validate_citations(tmp_path, [valid, invalid])
+
+    assert validation.valid == [valid]
+    assert validation.invalid == ["src.py:1: support text not found"]
+
+
+def test_validate_citations_requires_external_provenance() -> None:
+    missing_url = Citation(path="", kind="external", retrieved_at="2026-06-28T00:00:00Z")
+    missing_provenance = Citation(path="", kind="external", url="https://example.com/source")
+    with_provenance = Citation(
+        path="",
+        kind="external",
+        url="https://example.com/source",
+        retrieved_at="2026-06-28T00:00:00Z",
+    )
+
+    validation = validate_citations(Path("."), [missing_url, missing_provenance, with_provenance])
+
+    assert validation.valid == [with_provenance]
+    assert validation.invalid == [
+        "external: external citation missing http(s) url",
+        "https://example.com/source: external citation missing retrieval provenance",
+    ]
+
+
+def test_validate_citations_verifies_external_support_hash() -> None:
+    support_text = "External docs state the limit is 10 requests per minute."
+    good = Citation(
+        path="",
+        kind="external",
+        url="https://example.com/source",
+        retrieved_at="2026-06-28T00:00:00Z",
+        support_text=support_text,
+        content_hash="sha256:a6934dde65f2d9c4568acca8d1d33c0c58953869a0065c5c08e3007dd64af8c5",
+    )
+    bad = good.model_copy(update={"content_hash": "sha256:bad"})
+
+    validation = validate_citations(Path("."), [good, bad])
+
+    assert validation.valid == [good]
+    assert validation.invalid == ["https://example.com/source: external support text hash mismatch"]
+
+
+def test_validate_citations_can_verify_external_support_text_live() -> None:
+    body = "External docs state the limit is 10 requests per minute."
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body.encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/source"
+        good = Citation(
+            path="",
+            kind="external",
+            url=url,
+            retrieved_at="2026-06-28T00:00:00Z",
+            support_text="limit is 10 requests",
+            content_hash="sha256:255630b268657fa210578524bb08c8a1f602dd1a2eef551f031a301dc61a210c",
+        )
+        bad = good.model_copy(update={
+            "support_text": "limit is 20 requests",
+            "content_hash": "sha256:4fd7745c16735d4a50e83495685f5ec9e3f5b2979aa577b98a4412db44290059",
+        })
+
+        validation = validate_citations(
+            Path("."),
+            [good, bad],
+            verify_external_content=True,
+            external_timeout_s=2,
+        )
+
+        assert validation.valid == [good]
+        assert validation.invalid == [f"{url}: external support text not found at url"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_file_citation_redacts_support_text(tmp_path):
+    secret = "sk-" + "a" * 48
+    source = tmp_path / "settings.py"
+    source.write_text(f"OPENAI_API_KEY={secret}\n", encoding="utf-8")
+    fi = FileInfo(
+        path="settings.py",
+        abs_path=source,
+        size_bytes=source.stat().st_size,
+        estimated_tokens=10,
+        hash=file_hash(source),
+        language="python",
+        content=source.read_text(encoding="utf-8"),
+    )
+
+    citation = file_citation(fi)
+
+    assert secret not in citation.support_text
+    assert "OPENAI_API_KEY=" in citation.support_text
+
+
+def test_validate_claim_support_accepts_semantic_judge_callback(tmp_path):
+    source = tmp_path / "src.py"
+    source.write_text("def limit():\n    return 10\n", encoding="utf-8")
+    citation = Citation(path="src.py", start_line=2, end_line=2, kind="code")
+
+    accepted = validate_claim_support(
+        tmp_path,
+        "limit returns 10",
+        [citation],
+        semantic_judge=lambda _payload: None,
+    )
+    rejected = validate_claim_support(
+        tmp_path,
+        "limit returns 10",
+        [citation],
+        semantic_judge=lambda _payload: "meaning does not follow",
+    )
+
+    assert accepted == []
+    assert rejected == ["claim: src.py:2 semantic support rejected (meaning does not follow)"]
 
 
 def test_high_score_unchanged_file_uses_skeleton_mode():
@@ -156,10 +357,156 @@ def test_budget_exhausted_files_can_be_collected_as_omitted_relevant():
 
     assert [sf.path for sf in selected] == ["src/refund_service.py"]
     assert any(r.path == "api/routes/refund.py" and r.reason == "budget exhausted" for r in receipts)
+    assert all(receipt.citations for receipt in receipts)
     assert omitted[0].path == "api/routes/refund.py"
     assert omitted[0].score == 210.0
     assert omitted[0].risk == "high"
     assert omitted[0].suggested_mode == "summary"
+
+
+def test_strong_owner_can_overflow_compressed_context_cap():
+    files = [
+        _fi("api/views/user_list.py", tokens=55),
+        _fi("api/serializers/user.py", tokens=55),
+        _fi("api/models/user.py", tokens=55),
+        _fi("api/pagination.py", tokens=55),
+    ]
+
+    selected, receipts = select_files(
+        files=files,
+        scored=[
+            (files[0], 430.0, ["filename keyword match", "matched role keyword: user list"]),
+            (files[1], 420.0, ["filename keyword match", "matched role keyword: serializer"]),
+            (files[2], 410.0, ["filename keyword match", "matched role keyword: model"]),
+            (
+                files[3],
+                404.0,
+                [
+                    "filename keyword match",
+                    "multi-term path match +70",
+                    "symbol keyword match",
+                    "matched role keyword: pagination classes",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={path.path: {"summary": path.path} for path in files},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        min_summary_score=120,
+        max_summary_files=3,
+    )
+
+    assert "api/pagination.py" in [item.path for item in selected]
+    assert any(item.path == "api/pagination.py" and "strong-owner cap overflow" in item.reasons for item in selected)
+    assert not any(receipt.path == "api/pagination.py" and "cap reached" in receipt.reason for receipt in receipts)
+
+
+def test_strong_test_can_overflow_compressed_context_cap_at_fixture_score():
+    files = [
+        _fi("api/views/user_list.py", tokens=55),
+        _fi("api/serializers/user.py", tokens=55),
+        _fi("api/models/user.py", tokens=55),
+        _fi("tests/test_pagination.py", tokens=55),
+    ]
+
+    selected, _receipts = select_files(
+        files=files,
+        scored=[
+            (files[0], 430.0, ["filename keyword match", "matched role keyword: user list"]),
+            (files[1], 420.0, ["filename keyword match", "matched role keyword: serializer"]),
+            (files[2], 410.0, ["filename keyword match", "matched role keyword: model"]),
+            (
+                files[3],
+                389.0,
+                [
+                    "filename keyword match",
+                    "symbol keyword match",
+                    "matched role keyword: test pagination functions",
+                    "matched ranking keyword: pagination",
+                ],
+            ),
+        ],
+        changed_paths=set(),
+        summaries={path.path: {"summary": path.path} for path in files},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        min_summary_score=120,
+        max_summary_files=3,
+    )
+
+    assert "tests/test_pagination.py" in [item.path for item in selected]
+    assert any("strong-test cap overflow" in item.reasons for item in selected if item.path == "tests/test_pagination.py")
+
+
+def test_paired_test_and_deploy_config_can_bypass_no_live_summary_floor():
+    test_file = _fi("tests/test_users.py", tokens=60)
+    dockerfile = _fi("Dockerfile", tokens=40)
+    files = [test_file, dockerfile]
+
+    selected, receipts = select_files(
+        files=files,
+        scored=[
+            (test_file, 59.0, ["recall neighbor of src/app/users.py", "test for high-scoring src/app/users.py"]),
+            (dockerfile, 37.5, ["content keyword match (1)", "config file"]),
+        ],
+        changed_paths=set(),
+        summaries={path.path: {"summary": path.path} for path in files},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+        min_summary_score=120,
+        max_summary_files=3,
+    )
+
+    assert [item.path for item in selected] == ["tests/test_users.py", "Dockerfile"]
+    assert not any(receipt.reason == "summary score below floor" for receipt in receipts)
+
+
+def test_citation_manifest_records_selected_files(tmp_path):
+    source = tmp_path / "src.py"
+    source.write_text("def run():\n    return 1\n", encoding="utf-8")
+    fi = FileInfo(
+        path="src.py",
+        abs_path=source,
+        size_bytes=source.stat().st_size,
+        estimated_tokens=10,
+        hash="hash1",
+        language="python",
+        content=source.read_text(encoding="utf-8"),
+    )
+    selected, receipts = select_files(
+        files=[fi],
+        scored=[(fi, 100.0, ["modified"])],
+        changed_paths={"src.py"},
+        summaries={},
+        mode="balanced",
+        budget=1000,
+        max_file_tokens=4000,
+    )
+    pack = ContextPack(
+        task="cite pack",
+        agent="generic",
+        mode="balanced",
+        budget=1000,
+        token_estimate=10,
+        raw_repo_tokens=10,
+        after_ignore_tokens=10,
+        estimated_savings_percent=0,
+        changed_files=["src.py"],
+        selected_files=selected,
+        receipts=receipts,
+    )
+
+    manifest = build_citation_manifest(pack)
+    out = write_citation_manifest(pack, tmp_path, tmp_path / ".agentpack" / "context.md")
+
+    assert manifest["citation_count"] >= 1
+    assert manifest["selected_files"][0]["citations"][0]["path"] == "src.py"
+    assert out == tmp_path / ".agentpack" / "citations.json"
+    assert json.loads(out.read_text(encoding="utf-8"))["selected_files"][0]["source_hash"] == "hash1"
 
 
 def test_call_site_expansion_boosts_files_calling_selected_symbols():

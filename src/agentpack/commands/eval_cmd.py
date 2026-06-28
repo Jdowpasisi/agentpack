@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import time
 
 import typer
@@ -8,9 +9,11 @@ from rich.table import Table
 from rich import box
 
 from agentpack.commands._shared import console, _root
+from agentpack.application.pack_service import PackPlanner, PackRequest
 from agentpack.core.evals import (
     FAILURE_CLASSES,
     append_captured_eval_case,
+    append_eval_cases_from_episodes,
     compare_eval_variants,
     default_eval_cases_path,
     eval_results_path,
@@ -33,6 +36,7 @@ def register(app: typer.Typer) -> None:
         case: str = typer.Option("", "--case", help="Run one eval case by id."),
         prove_targets: bool = typer.Option(False, "--prove-targets", help="Exit non-zero when any eval case fails."),
         capture: str = typer.Option("", "--capture", help="Append a case from current git diff using this id."),
+        from_episodes: bool = typer.Option(False, "--from-episodes", help="Append regression eval cases from failed episodic memory."),
         failure_class: str = typer.Option("context", "--failure-class", help=f"Failure class ({' | '.join(FAILURE_CLASSES)})."),
         failure_source: str = typer.Option("agent_failed", "--failure-source", help="Failure source for captured cases."),
         check: list[str] | None = typer.Option(None, "--check", help="Deterministic command check for --capture. Repeatable."),
@@ -42,6 +46,8 @@ def register(app: typer.Typer) -> None:
         ci_template: bool = typer.Option(False, "--ci-template", help="Scaffold .github/workflows/agentpack-eval.yml and exit."),
         variant: str = typer.Option("agentpack", "--variant", help="Result variant label, e.g. baseline or agentpack."),
         compare_variants: str = typer.Option("", "--compare-variants", help="Compare latest results as BASELINE:VARIANT."),
+        memory_ab: bool = typer.Option(False, "--memory-ab", help="Compare context selection with memory feedback off vs auto."),
+        memory_ab_checks: bool = typer.Option(False, "--memory-ab-checks", help="With --memory-ab, also run deterministic eval checks for both memory profiles."),
         replay: bool = typer.Option(False, "--replay", help="Run cases in isolated git worktrees using captured patch_file artifacts."),
         watch: bool = typer.Option(False, "--watch", help="Rerun evals when git diff state changes."),
         interval: float = typer.Option(2.0, "--interval", help="Watch polling interval in seconds."),
@@ -94,6 +100,11 @@ def register(app: typer.Typer) -> None:
                 console.print(f"  [yellow]Redacted {len(captured.patch_redaction_warnings)} secret(s) from patch artifact.[/]")
             return
 
+        if from_episodes:
+            count = append_eval_cases_from_episodes(cases_path, root=root)
+            console.print(f"[green]✓[/] Added {count} eval case(s) from failed episodes in [bold]{cases_path}[/]")
+            return
+
         if report and not cases_path.exists():
             records = load_eval_result_records(eval_results_path(root))
             out = write_eval_report(root, records)
@@ -120,6 +131,12 @@ def register(app: typer.Typer) -> None:
         if not eval_cases:
             console.print("[yellow]No eval cases defined.[/]")
             raise typer.Exit(1)
+
+        if memory_ab:
+            comparison = _run_memory_ab(root, eval_cases, run_checks=memory_ab_checks, replay=replay)
+            if prove_targets and comparison["regressed"]:
+                raise typer.Exit(2)
+            return
 
         if watch:
             results = _watch_eval_cases(
@@ -262,3 +279,107 @@ def _pass_label(value) -> str:
     if value is False:
         return "[red]fail[/]"
     return "[yellow]-[/]"
+
+
+def _run_memory_ab(root: Path, eval_cases, *, run_checks: bool = False, replay: bool = False) -> dict:
+    rows = []
+    regressed = 0
+    for case in eval_cases:
+        baseline = _plan_with_memory(root, case, "off")
+        memory = _plan_with_memory(root, case, "auto")
+        baseline_passed = None
+        memory_passed = None
+        if run_checks:
+            baseline_passed = _run_case_with_memory(root, case, "off", replay=replay)
+            memory_passed = _run_case_with_memory(root, case, "auto", replay=replay)
+        required = set(case.required_changed_files)
+        base_selected = set(baseline)
+        memory_selected = set(memory)
+        base_hits = len(required & base_selected)
+        memory_hits = len(required & memory_selected)
+        base_noise = len(base_selected - required) if required else len(base_selected)
+        memory_noise = len(memory_selected - required) if required else len(memory_selected)
+        status = "same"
+        if memory_hits > base_hits:
+            status = "improved"
+        elif memory_hits < base_hits or memory_noise > base_noise + 5:
+            status = "regressed"
+            regressed += 1
+        if baseline_passed is True and memory_passed is False:
+            status = "regressed"
+            regressed += 1
+        rows.append({
+            "case": case.id,
+            "required": len(required),
+            "baseline_hits": base_hits,
+            "memory_hits": memory_hits,
+            "baseline_noise": base_noise,
+            "memory_noise": memory_noise,
+            "baseline_passed": baseline_passed,
+            "memory_passed": memory_passed,
+            "status": status,
+        })
+
+    tbl = Table(title="Memory A/B Context Selection", box=box.SIMPLE, show_header=True, padding=(0, 1))
+    tbl.add_column("case", max_width=32)
+    tbl.add_column("required", justify="right")
+    tbl.add_column("base hits", justify="right")
+    tbl.add_column("mem hits", justify="right")
+    tbl.add_column("base noise", justify="right")
+    tbl.add_column("mem noise", justify="right")
+    if run_checks:
+        tbl.add_column("base pass", justify="center")
+        tbl.add_column("mem pass", justify="center")
+    tbl.add_column("status")
+    for row in rows:
+        style = "[red]" if row["status"] == "regressed" else "[green]" if row["status"] == "improved" else ""
+        end = "[/]" if style else ""
+        cells = [
+            row["case"],
+            str(row["required"]),
+            str(row["baseline_hits"]),
+            str(row["memory_hits"]),
+            str(row["baseline_noise"]),
+            str(row["memory_noise"]),
+        ]
+        if run_checks:
+            cells.extend([_pass_label(row["baseline_passed"]), _pass_label(row["memory_passed"])])
+        cells.append(f"{style}{row['status']}{end}")
+        tbl.add_row(*cells)
+    console.print(tbl)
+    return {"rows": rows, "regressed": regressed}
+
+
+def _plan_with_memory(root: Path, case, memory_feedback: str) -> list[str]:
+    previous = os.environ.get("AGENTPACK_MEMORY_FEEDBACK")
+    os.environ["AGENTPACK_MEMORY_FEEDBACK"] = memory_feedback
+    try:
+        plan = PackPlanner().plan(PackRequest(
+            root=root,
+            agent="generic",
+            task=case.task,
+            mode="balanced",
+            budget=0,
+            since=case.base_ref,
+            refresh=False,
+            task_source="eval_memory_ab",
+        ))
+        return [item.path for item in plan.selected]
+    finally:
+        if previous is None:
+            os.environ.pop("AGENTPACK_MEMORY_FEEDBACK", None)
+        else:
+            os.environ["AGENTPACK_MEMORY_FEEDBACK"] = previous
+
+
+def _run_case_with_memory(root: Path, case, memory_feedback: str, *, replay: bool) -> bool:
+    previous = os.environ.get("AGENTPACK_MEMORY_FEEDBACK")
+    os.environ["AGENTPACK_MEMORY_FEEDBACK"] = memory_feedback
+    try:
+        result = run_eval_suite(root, [case], variant=f"memory-{memory_feedback}", replay=replay)[0]
+        return result.passed
+    finally:
+        if previous is None:
+            os.environ.pop("AGENTPACK_MEMORY_FEEDBACK", None)
+        else:
+            os.environ["AGENTPACK_MEMORY_FEEDBACK"] = previous
