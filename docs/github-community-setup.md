@@ -33,7 +33,7 @@ They include:
 ## Starter Issues
 
 The starter issue queue lives in [`.github/contributor-issues.json`](../.github/contributor-issues.json).
-It contains 15 issues, including first-time contributor tasks and four high
+It contains 15 issues, including first-time contributor tasks and three high
 impact pin candidates.
 
 ## External Discovery
@@ -48,12 +48,14 @@ Current live status checked before this file was updated:
 - open starter issues: `15` (`#20` through `#34`)
 - open issues with `good first issue`: `9`
 - contributor count from GitHub contributors API: `4`
-- repository permission for the current `gh` token: `READ`
-- missing target topics: `good-first-issue`, `help-wanted`, `cli`, `python`
-- missing specialized labels: `docs`, `benchmark`, `cli`, `testing`
+- repository permission with the personal `gh` token: `ADMIN`
+- target topics present: `good-first-issue`, `help-wanted`, `developer-tools`, `cli`, `python`
+- specialized labels present: `docs`, `benchmark`, `cli`, `testing`
+- pinned issues: `#20`, `#32`, `#33`
+- seeded discussions: Roadmap `#36`, Ideas `#37`, Help wanted `#38`
 
-AgentPack should be submitted to Good First Issue after the target topics and
-specialized labels are applied and the contributor-count criterion is met.
+AgentPack should be submitted to Good First Issue after the contributor-count
+criterion is met.
 
 First Contributions is a contributor education project. For discovery there,
 use the same readiness bar before proposing AgentPack in any project list:
@@ -67,13 +69,16 @@ use the same readiness bar before proposing AgentPack in any project list:
 
 ## Discussions
 
-Enable GitHub Discussions in repository settings, then create these categories:
+GitHub Discussions are enabled. Seeded discussions:
 
-- `Roadmap`
-- `Ideas`
-- `Help wanted`
+- Roadmap: <https://github.com/vishal2612200/agentpack/discussions/36>
+- Ideas: <https://github.com/vishal2612200/agentpack/discussions/37>
+- Help wanted: <https://github.com/vishal2612200/agentpack/discussions/38>
 
 Discussion form templates live in [`.github/DISCUSSION_TEMPLATE/`](../.github/DISCUSSION_TEMPLATE/).
+The public API enabled discussions and created seed discussions, but custom
+discussion category creation is still a GitHub UI task if exact category names
+are required.
 
 ## Apply With GitHub CLI
 

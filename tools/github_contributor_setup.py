@@ -160,6 +160,7 @@ def _pin_issues(
     apply: bool,
     failures: list[str],
 ) -> None:
+    pinned = _pinned_issue_numbers() if apply else set()
     for issue in issues:
         if not issue.get("pinned"):
             continue
@@ -171,6 +172,8 @@ def _pin_issues(
         number = issue_data.get("number")
         if not number:
             print(f"pin manually after creation: {issue_data.get('url', title)}")
+            continue
+        if int(number) in pinned:
             continue
         try:
             issue_id = _json(["gh", "issue", "view", str(number), "-R", REPO, "--json", "id"])["id"]
@@ -187,6 +190,24 @@ def _pin_issues(
             f"id={issue_id}",
         ]
         _action(command, apply=apply, failures=failures)
+
+
+def _pinned_issue_numbers() -> set[int]:
+    data = _json(
+        [
+            "gh",
+            "api",
+            "graphql",
+            "-f",
+            "query=query($owner:String!, $repo:String!){ repository(owner:$owner,name:$repo){ pinnedIssues(first:10){ nodes{ issue{ number } } } } }",
+            "-f",
+            "owner=vishal2612200",
+            "-f",
+            "repo=agentpack",
+        ]
+    )
+    nodes = data["data"]["repository"]["pinnedIssues"]["nodes"]
+    return {int(node["issue"]["number"]) for node in nodes}
 
 
 def _action(command: list[str], *, apply: bool, failures: list[str]) -> None:

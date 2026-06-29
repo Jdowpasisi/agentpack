@@ -1,92 +1,146 @@
 [
   {
     "title": "docs: add a first-contribution quickstart transcript",
-    "labels": ["good first issue", "help wanted", "docs"],
+    "labels": [
+      "good first issue",
+      "help wanted",
+      "docs"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd a short terminal transcript that shows a new contributor how to install AgentPack locally, run one focused test, and open a small PR.\n\n## Suggested files\n- CONTRIBUTING.md\n- docs/development.md\n\n## Acceptance criteria\n- Shows setup with `python -m pip install -e \".[dev]\"`.\n- Shows one narrow pytest command and one ruff command.\n- Explains what to paste in a PR under Validation.\n- Keeps the docs concise and avoids release-only workflow details."
   },
   {
     "title": "docs: add a glossary for route, pack, guard, MCP, and benchmark",
-    "labels": ["good first issue", "docs"],
+    "labels": [
+      "good first issue",
+      "docs"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd a small glossary for common AgentPack terms used across the README and docs.\n\n## Suggested files\n- docs/index.md or docs/how-agentpack-works.md\n\n## Acceptance criteria\n- Defines route, pack, guard, MCP, benchmark, context pack, and freshness.\n- Links to the full command docs where useful.\n- Uses plain language for first-time contributors."
   },
   {
     "title": "cli: add a help-output regression test for agentpack route",
-    "labels": ["good first issue", "cli", "testing"],
+    "labels": [
+      "good first issue",
+      "cli",
+      "testing"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd a focused test that checks `agentpack route --help` documents `--task`, `--json`, and `--format`.\n\n## Suggested files\n- tests/test_route_command.py\n\n## Acceptance criteria\n- Uses `CliRunner`.\n- Asserts the help command exits with code 0.\n- Asserts the three flags are present.\n- Does not snapshot the full help output."
   },
   {
     "title": "cli: improve invalid route format error text",
-    "labels": ["good first issue", "cli"],
+    "labels": [
+      "good first issue",
+      "cli"
+    ],
     "pinned": false,
     "body": "## Goal\nMake the error for `agentpack route --format bad` point users at `--json` and `--format json`.\n\n## Suggested files\n- src/agentpack/commands/route.py\n- tests/test_route_command.py\n\n## Acceptance criteria\n- Invalid formats still exit non-zero.\n- Error mentions valid formats and the `--json` alias.\n- Existing `--format json` behavior remains unchanged."
   },
   {
     "title": "docs: add route JSON examples to agent integration docs",
-    "labels": ["good first issue", "docs", "cli"],
+    "labels": [
+      "good first issue",
+      "docs",
+      "cli"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd `agentpack route --task \"...\" --json` examples to integration docs that discuss scriptable or MCP-style routing.\n\n## Suggested files\n- docs/agent-plugins.md\n- docs/claude-code-context-engine.md\n- docs/agentpack-for-ai-agents.md\n\n## Acceptance criteria\n- Examples use `--json`, not only `--format json`.\n- Docs say JSON output is for scripts/tools.\n- No benchmark or product claims are added."
   },
   {
     "title": "benchmark: document how to add one public benchmark case",
-    "labels": ["good first issue", "benchmark", "docs"],
+    "labels": [
+      "good first issue",
+      "benchmark",
+      "docs"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd a contributor-friendly checklist for adding one public benchmark case.\n\n## Suggested files\n- docs/benchmarking.md\n- benchmarks/README.md\n\n## Acceptance criteria\n- Explains expected files, task text, and validation command.\n- Explains that file-selection benchmarks are not task-success proof.\n- Links to the current public result file."
   },
   {
     "title": "benchmark: add a small regression fixture for over-selection noise",
-    "labels": ["benchmark", "testing", "help wanted"],
+    "labels": [
+      "benchmark",
+      "testing",
+      "help wanted"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd one small fixture or benchmark case that catches a noisy selection pattern without tuning to one repository name.\n\n## Suggested files\n- tests/test_ranking_evals.py\n- tests/fixtures/ or benchmark fixture helpers\n\n## Acceptance criteria\n- Test fails before the intended ranking improvement.\n- The scenario is general, not named after one benchmark repo.\n- The test documents why the noisy file should not outrank the target file."
   },
   {
     "title": "python: expand mypy coverage to one small analysis module",
-    "labels": ["good first issue", "python", "testing"],
+    "labels": [
+      "good first issue",
+      "python",
+      "testing"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd one low-risk module from `src/agentpack/analysis/` to the scoped mypy gate.\n\n## Suggested files\n- pyproject.toml\n- selected analysis module\n- focused tests if behavior changes are needed\n\n## Acceptance criteria\n- Adds exactly one module to `[tool.mypy].files`.\n- `python -m mypy` passes.\n- Any code changes are type-safety fixes, not broad refactors."
   },
   {
     "title": "testing: cover Go workspace replace blocks with multiple requires",
-    "labels": ["good first issue", "testing", "python"],
+    "labels": [
+      "good first issue",
+      "testing",
+      "python"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd a focused test for Go workspace dependency edge detection when `require (...)` and `replace (...)` blocks contain multiple modules.\n\n## Suggested files\n- tests/test_monorepo.py\n\n## Acceptance criteria\n- Includes at least two local modules and one external module.\n- Asserts only local workspace edges are returned.\n- Does not require running Go tooling."
   },
   {
     "title": "docs: clarify native enforcement advisory status with examples",
-    "labels": ["good first issue", "docs"],
+    "labels": [
+      "good first issue",
+      "docs"
+    ],
     "pinned": false,
     "body": "## Goal\nMake the native integration advisory/enforced boundary easier for users to understand.\n\n## Suggested files\n- native-integrations/README.md\n- docs/integrations.md\n\n## Acceptance criteria\n- Gives one example of advisory behavior.\n- Gives one example of what a host API would need for enforcement.\n- Keeps the existing honesty boundary: no hard enforcement claim without a blocking host API."
   },
   {
     "title": "cli: add JSON-output smoke checks for scriptable commands",
-    "labels": ["cli", "testing", "help wanted"],
+    "labels": [
+      "cli",
+      "testing",
+      "help wanted"
+    ],
     "pinned": false,
     "body": "## Goal\nAdd a small shared pattern or tests that parse JSON output from commands intended for scripts.\n\n## Suggested files\n- tests/test_route_command.py\n- tests/test_release_automation.py\n- tests/test_next_command.py\n\n## Acceptance criteria\n- Covers at least two commands that advertise `--json`.\n- Uses `json.loads` on command output.\n- Keeps assertions focused on stable top-level keys."
   },
   {
     "title": "benchmark: publish the first AgentPack vs no-context E2E report",
-    "labels": ["benchmark", "help wanted"],
+    "labels": [
+      "benchmark",
+      "help wanted"
+    ],
     "pinned": true,
     "body": "## Goal\nRun and publish the first dated AgentPack vs no-context E2E outcome report.\n\n## Suggested files\n- benchmarks/e2e/README.md\n- benchmarks/results/YYYY-MM-DD-e2e-ab.md\n- docs/benchmarking.md if status changes\n\n## Acceptance criteria\n- Uses the documented `benchmark e2e` and `benchmark e2e-report` workflow.\n- Reports task success, validation result, tool calls, token/time proxy if available, and time-to-first-correct-file where measurable.\n- Keeps file-selection benchmark claims separate from task-success claims."
   },
   {
     "title": "python: add the next language symbol extraction slice",
-    "labels": ["python", "help wanted"],
+    "labels": [
+      "python",
+      "help wanted"
+    ],
     "pinned": true,
     "body": "## Goal\nAdd one focused symbol extraction slice for Rust, Java, or Kotlin.\n\n## Suggested files\n- src/agentpack/analysis/symbols.py\n- src/agentpack/summaries/offline.py if summaries should use it\n- tests/test_symbols.py\n\n## Acceptance criteria\n- Extracts at least functions and one type/class-like construct for one language.\n- Adds tests with realistic source snippets.\n- Updates docs/limitations.md to describe the supported slice honestly."
   },
   {
     "title": "python: broaden scoped mypy coverage beyond the initial gate",
-    "labels": ["python", "testing", "help wanted"],
+    "labels": [
+      "python",
+      "testing",
+      "help wanted"
+    ],
     "pinned": true,
     "body": "## Goal\nExpand mypy coverage from the initial scoped gate to a meaningful additional package area.\n\n## Suggested files\n- pyproject.toml\n- src/agentpack/core/ or src/agentpack/analysis/\n\n## Acceptance criteria\n- Adds a coherent package area or small set of modules to `[tool.mypy].files`.\n- `python -m mypy` passes.\n- Type fixes stay behavior-preserving unless separately tested."
   },
   {
     "title": "benchmark: expand the public corpus with one new repository slice",
-    "labels": ["benchmark", "help wanted"],
-    "pinned": true,
+    "labels": [
+      "benchmark",
+      "help wanted"
+    ],
+    "pinned": false,
     "body": "## Goal\nAdd one new public repository slice to the benchmark corpus without overfitting rankings to that repository.\n\n## Suggested files\n- benchmarks/public-repos.toml\n- benchmarks/results/YYYY-MM-DD-public.md after running the suite\n- docs/benchmark-learnings.md if the slice changes tuning decisions\n\n## Acceptance criteria\n- Adds real historical tasks with expected files.\n- Runs the public benchmark command and records the dated result.\n- Documents any ranking changes as generalizable rules, not repo-specific hacks."
   }
 ]
