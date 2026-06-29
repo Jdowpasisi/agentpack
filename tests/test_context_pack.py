@@ -5,7 +5,15 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from agentpack.application.pack_service import _fit_rendered_budget, _settle_rendered_token_estimate, _sf_tokens, _summary_cap_for_mode, _summary_score_floor
 from agentpack.core.config import DEFAULT_CONFIG
-from agentpack.core.citations import build_citation_manifest, file_citation, validate_citations, validate_claim_support, write_citation_manifest
+from agentpack.core.citations import (
+    build_citation_manifest,
+    extract_location_citations,
+    file_citation,
+    parse_location,
+    validate_citations,
+    validate_claim_support,
+    write_citation_manifest,
+)
 from agentpack.core.context_pack import enrich_call_site_scores, save_pack_metadata, select_files, _selection_priority
 from agentpack.core.models import Citation, ContextPack, FileInfo, OmittedRelevantFile, Receipt, SelectedFile
 from agentpack.core.pack_handoff import build_pack_handoff
@@ -152,6 +160,25 @@ def test_validate_citations_requires_support_text_inside_cited_span(tmp_path):
 
     assert validation.valid == [valid]
     assert validation.invalid == ["src.py:1: support text not found"]
+
+
+def test_location_citation_parser_does_not_absorb_prose_before_path():
+    citations = extract_location_citations(
+        "no guard against existing entry. Compare: _set_temp_ip_abuse_block at ajeei/otp/utils.py:152"
+    )
+
+    assert len(citations) == 1
+    assert citations[0].path == "ajeei/otp/utils.py"
+    assert citations[0].start_line == 152
+
+
+def test_location_citation_parser_supports_angle_wrapped_spaced_paths():
+    citation = parse_location("see <src/path with spaces.py>:12-14")
+
+    assert citation is not None
+    assert citation.path == "src/path with spaces.py"
+    assert citation.start_line == 12
+    assert citation.end_line == 14
 
 
 def test_validate_citations_requires_external_provenance() -> None:
@@ -696,6 +723,38 @@ def test_runtime_infra_config_gets_priority_over_unrelated_changed_file():
     assert [sf.path for sf in selected[:2]] == [
         "copilot/api/manifest.yml",
         "deploy/waf/cloudformation.yml",
+    ]
+
+
+def test_deploy_runbook_signals_get_priority_over_review_noise():
+    review_noise = _fi("src/agentpack/commands/review_cmd.py", tokens=100)
+    workflow = _fi(".github/workflows/prod-deploy.yml", tokens=100)
+    manifest = _fi("copilot/api/manifest.yml", tokens=100)
+    patch = _fi("copilot/api/overrides/cfn.patches.yml", tokens=100)
+    deploy_script = _fi("scripts/deploy-prod.sh", tokens=100)
+
+    selected, _ = select_files(
+        files=[review_noise, workflow, manifest, patch, deploy_script],
+        scored=[
+            (review_noise, 180.0, ["filename keyword match", "content keyword match (2)"]),
+            (workflow, 85.0, ["config file", "content keyword match (2)", "keyword phrase match: deploy prod"]),
+            (manifest, 80.0, ["config file", "content keyword match (2)", "keyword phrase match: copilot manifest"]),
+            (patch, 75.0, ["config file", "content keyword match (2)", "keyword phrase match: cfn iam"]),
+            (deploy_script, 70.0, ["content keyword match (2)", "keyword phrase match: deploy service"]),
+        ],
+        changed_paths=set(),
+        summaries={},
+        mode="deep",
+        budget=10000,
+        max_file_tokens=4000,
+        keywords={"deploy", "prod", "copilot", "cloudformation", "ecs", "cloudwatch"},
+    )
+
+    assert [sf.path for sf in selected[:4]] == [
+        ".github/workflows/prod-deploy.yml",
+        "copilot/api/manifest.yml",
+        "copilot/api/overrides/cfn.patches.yml",
+        "scripts/deploy-prod.sh",
     ]
 
 

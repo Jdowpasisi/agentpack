@@ -73,20 +73,48 @@ _RUNTIME_INFRA_TERMS = {
     "alb",
     "aws",
     "cfn",
+    "cloud",
     "cloudformation",
     "cloudwatch",
     "copilot",
     "deploy",
+    "deployment",
     "ecs",
+    "github",
     "iam",
     "infra",
     "lambda",
+    "log",
+    "logs",
     "otp",
+    "package",
+    "rendered",
+    "runbook",
     "runtime",
     "secret",
+    "service",
     "security",
     "ssm",
     "waf",
+    "workflow",
+}
+_DEPLOY_TASK_TERMS = {
+    "aws",
+    "cfn",
+    "cloudformation",
+    "cloudwatch",
+    "copilot",
+    "deploy",
+    "deployment",
+    "ecs",
+    "iam",
+    "lambda",
+    "prod",
+    "production",
+    "release",
+    "rollback",
+    "serverless",
+    "ship",
 }
 _RUNTIME_INFRA_PATH_TERMS = {
     ".github/workflows",
@@ -104,6 +132,23 @@ _RUNTIME_INFRA_PATH_TERMS = {
     "security",
     "serverless",
     "waf",
+}
+_DEPLOY_PATH_TERMS = {
+    ".github/workflows",
+    "buildspec",
+    "cfn.patches",
+    "cloudformation",
+    "copilot",
+    "deploy",
+    "deployment",
+    "dockerfile",
+    "ecs",
+    "iam",
+    "manifest",
+    "package",
+    "pipeline",
+    "rendered",
+    "serverless",
 }
 
 
@@ -196,6 +241,11 @@ def _review_preflight_note(*, review_intent: bool, context_stale: bool, has_mcp:
 
 
 def _source_of_truth_note(task: str) -> str:
+    if _looks_like_deploy_task(task):
+        return (
+            "AgentPack: guardrail + context frame only.\n"
+            "Source of truth: GitHub PR/head, clean worktree, rendered deploy config, live AWS/ECS/CloudFormation status, and CloudWatch logs.\n"
+        )
     if not _looks_like_runtime_infra_task(task):
         return ""
     return (
@@ -209,12 +259,26 @@ def _looks_like_runtime_infra_task(task: str) -> bool:
     return bool(terms & _RUNTIME_INFRA_TERMS)
 
 
+def _looks_like_deploy_task(task: str) -> bool:
+    terms = _task_terms(task)
+    return bool(terms & _DEPLOY_TASK_TERMS)
+
+
 def _filter_runtime_infra_hints(task: str, hints: list[dict]) -> list[dict]:
     if not _looks_like_runtime_infra_task(task):
         return hints
     task_terms = _task_terms(task)
+    if _looks_like_deploy_task(task):
+        return [hint for hint in hints if _deploy_hint_relevant(hint, task_terms)]
     filtered = [hint for hint in hints if _runtime_infra_hint_relevant(hint, task_terms)]
     return filtered
+
+
+def _deploy_hint_relevant(hint: dict, task_terms: set[str]) -> bool:
+    haystack = f"{hint.get('path', '')} {hint.get('why', '')}".lower()
+    if any(term in haystack for term in _DEPLOY_PATH_TERMS):
+        return True
+    return any(term in haystack for term in task_terms if len(term) >= 4)
 
 
 def _runtime_infra_hint_relevant(hint: dict, task_terms: set[str]) -> bool:

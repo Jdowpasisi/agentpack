@@ -16,7 +16,7 @@ from agentpack.core.models import Citation, ContextPack, FileInfo, SelectedFile
 from agentpack.core.redactor import redact_secrets
 from agentpack.core.scanner import file_hash
 
-LOCATION_RE = re.compile(r"(?P<path>[A-Za-z0-9_./@+~:-][A-Za-z0-9_./@+~: -]*?):(?P<line>\d+)(?:-(?P<end>\d+))?")
+LOCATION_RE = re.compile(r"(?P<path><[^>\n]+>|[A-Za-z0-9_./@+~:-]+):(?P<line>\d+)(?:-(?P<end>\d+))?")
 HUNK_RE = re.compile(r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? \+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@")
 SemanticSupportJudge = Callable[[dict[str, Any]], str | None]
 
@@ -149,7 +149,10 @@ def parse_location(value: str) -> Citation | None:
         return None
     if start < 1 or end < start:
         return None
-    return Citation(path=match.group("path").strip(), start_line=start, end_line=end, kind="code")
+    path = match.group("path").strip()
+    if path.startswith("<") and path.endswith(">"):
+        path = path[1:-1].strip()
+    return Citation(path=path, start_line=start, end_line=end, kind="code")
 
 
 def extract_location_citations(value: object) -> list[Citation]:

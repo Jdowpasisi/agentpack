@@ -418,18 +418,58 @@ _RUNTIME_INFRA_TERMS = {
     "alb",
     "aws",
     "cfn",
+    "cloud",
     "cloudformation",
     "cloudwatch",
     "copilot",
+    "deploy",
+    "deployment",
     "ecs",
     "iam",
     "infra",
     "lambda",
+    "package",
+    "rendered",
+    "runbook",
     "otp",
     "secret",
     "security",
+    "serverless",
     "ssm",
     "waf",
+    "workflow",
+}
+
+_DEPLOY_CONFIG_FILENAMES = {
+    "buildspec.yml",
+    "buildspec.yaml",
+    "cfn.patches.yml",
+    "cfn.patches.yaml",
+    "cloudformation.yml",
+    "cloudformation.yaml",
+    "containerfile",
+    "dockerfile",
+    "serverless.yml",
+    "serverless.yaml",
+}
+
+_DEPLOY_CONFIG_PARTS = {
+    ".github/workflows",
+    "addons",
+    "cfn",
+    "cloudformation",
+    "copilot",
+    "deploy",
+    "deployment",
+    "github/workflows",
+    "infra",
+    "k8s",
+    "kubernetes",
+    "overrides",
+    "pipeline",
+    "pipelines",
+    "rendered",
+    "serverless",
 }
 
 
@@ -1188,10 +1228,18 @@ def _is_source_like_code_path(path: str) -> bool:
 
 
 def _is_deploy_config_path(path: str) -> bool:
-    name = Path(path).name.lower()
-    return name in {"dockerfile", "containerfile"} or any(
-        part.lower() in {"k8s", "kubernetes", "deploy", "deployment"} for part in Path(path).parts
-    )
+    path_lc = path.lower()
+    name = Path(path_lc).name
+    if name in _DEPLOY_CONFIG_FILENAMES:
+        return True
+    parts = {part.lower() for part in Path(path_lc).parts}
+    if name in {"manifest.yml", "manifest.yaml"}:
+        return bool(parts & {"copilot", "deploy", "deployment", "k8s", "kubernetes"})
+    if name.startswith(("deploy", "release", "rollback")) and Path(name).suffix.lower() in {".sh", ".py", ".js", ".ts"}:
+        return True
+    if parts & (_DEPLOY_CONFIG_PARTS - {".github/workflows", "github/workflows"}):
+        return True
+    return path_lc.startswith(".github/workflows/")
 
 
 def _compressed_context_family(path: str, reasons: list[str]) -> tuple[str, int] | None:

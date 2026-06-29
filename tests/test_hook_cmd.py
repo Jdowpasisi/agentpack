@@ -207,10 +207,36 @@ class TestRunUserPromptSubmit:
         ctx = out["hookSpecificOutput"]["additionalContext"]
 
         assert "Selected-file hints suppressed" in ctx
-        assert "SOURCE OF TRUTH" in ctx
-        assert "direct repo search, rendered config, cloud/provider validation" in ctx
+        assert "AgentPack: guardrail + context frame only." in ctx
+        assert "Source of truth: GitHub PR/head, clean worktree, rendered deploy config" in ctx
         assert "payments/stripe.py" not in ctx
         assert "agentpack_get_context()" not in ctx
+
+    def test_deploy_task_keeps_deploy_hints_and_names_live_sources(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "hash1")
+        metrics = {
+            "selected_hints": [
+                {"path": "src/agentpack/commands/review_cmd.py", "why": "review workflow"},
+                {"path": ".github/workflows/prod-deploy.yml", "why": "workflow"},
+                {"path": "copilot/api/manifest.yml", "why": "copilot manifest"},
+                {"path": "copilot/api/overrides/cfn.patches.yml", "why": "iam patch"},
+            ]
+        }
+        (repo / ".agentpack" / "metrics.jsonl").write_text(json.dumps(metrics) + "\n")
+        _write_metadata(repo, task="deploy phoenix production with copilot", root_hash="hash1")
+        _write_task(repo, "deploy phoenix production with copilot")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+
+        out = self._capture_output(repo, {"prompt": "deploy phoenix production with copilot"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+
+        assert "AgentPack: guardrail + context frame only." in ctx
+        assert "Source of truth: GitHub PR/head, clean worktree, rendered deploy config" in ctx
+        assert ".github/workflows/prod-deploy.yml" in ctx
+        assert "copilot/api/manifest.yml" in ctx
+        assert "copilot/api/overrides/cfn.patches.yml" in ctx
+        assert "src/agentpack/commands/review_cmd.py" not in ctx
 
     def test_review_stage_gate_note_blocks_incomplete_active_review(self, repo: Path) -> None:
         (repo / ".agentpack" / "review-state.json").write_text(
