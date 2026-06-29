@@ -57,8 +57,13 @@ Current live status checked before this file was updated:
 AgentPack should be submitted to Good First Issue after the contributor-count
 criterion is met.
 
-First Contributions is a contributor education project. For discovery there,
-use the same readiness bar before proposing AgentPack in any project list:
+First Contributions is a contributor education project with a project discovery
+website. AgentPack has been submitted to that project list:
+
+- First Contributions website PR: <https://github.com/firstcontributions/firstcontributions.github.io/pull/718>
+
+For any follow-up there, use the same readiness bar before proposing AgentPack
+in another project list:
 
 - public repository
 - active `good first issue` and `help wanted` issues
