@@ -39,8 +39,18 @@ impact pin candidates.
 ## External Discovery
 
 Good First Issue has an "Add your project" path and curates beginner-friendly
-issues by language. AgentPack should be ready for submission once the starter
-issues exist on GitHub with `good first issue` labels.
+issues by language. Its published criteria include at least three open issues
+with `good first issue`, at least ten contributors, setup instructions,
+`CONTRIBUTING.md`, recent activity, and a license.
+
+Current live status checked before this file was updated:
+
+- open issues: `0`
+- contributor count from GitHub contributors API: `4`
+- repository permission for the current `gh` token: `READ`
+
+AgentPack should be submitted to Good First Issue after the starter issues are
+created on GitHub and the contributor-count criterion is met.
 
 First Contributions is a contributor education project. For discovery there,
 use the same readiness bar before proposing AgentPack in any project list:
@@ -65,6 +75,9 @@ Discussion form templates live in [`.github/DISCUSSION_TEMPLATE/`](../.github/DI
 ## Apply With GitHub CLI
 
 Requires a GitHub token with write access to this repository.
+Because this setup creates labels, repository topics, pins, and labeled issues,
+the script requires `ADMIN` or `MAINTAIN` permission as reported by `gh repo
+view --json viewerPermission`.
 
 ```bash
 python tools/github_contributor_setup.py --dry-run
@@ -72,4 +85,5 @@ python tools/github_contributor_setup.py --apply
 ```
 
 The script creates missing labels, adds target topics, creates missing starter
-issues, and attempts to pin the issues marked `pinned: true`.
+issues, reconciles labels on existing starter issues, and attempts to pin the
+issues marked `pinned: true`.

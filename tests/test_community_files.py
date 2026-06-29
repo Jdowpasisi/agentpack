@@ -62,6 +62,8 @@ def test_repository_topics_include_discovery_targets() -> None:
     assert {"good-first-issue", "help-wanted", "developer-tools", "cli", "python"} <= topics
     assert "Good First Issue" in setup
     assert "First Contributions" in setup
+    assert "at least three open issues" in setup
+    assert "at least ten contributors" in setup
 
 
 def test_contributor_issue_manifest_has_first_issue_and_pin_queue() -> None:
