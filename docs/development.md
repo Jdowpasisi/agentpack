@@ -33,6 +33,10 @@ agentpack benchmark --release-gate --no-public-table
 agentpack doctor
 ```
 
+`agentpack dev-check` runs docs-link tests, `ruff`, scoped `mypy`, non-slow
+pytest, and npm wrapper tests. The mypy scope starts narrow and is expanded as
+typed modules are cleaned up.
+
 The CLI is the package-user source of truth for repeated workflows:
 
 ```bash

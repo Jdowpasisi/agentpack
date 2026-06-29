@@ -10,10 +10,10 @@ def detect_agent(root: Path) -> str:
     Priority:
       1. AGENTPACK_AGENT env var (explicit override)
       2. CLAUDECODE / CLAUDE_CODE_ENTRYPOINT env → claude
-      3. ANTIGRAVITY env var present → antigravity
-      4. .agent/skills/ dir exists → antigravity
-      5. GEMINI.md exists → antigravity
-      6. OPENAI_CODEX / CODEX_ENVIRONMENT env → codex
+      3. Codex env markers → codex
+      4. ANTIGRAVITY env var present → antigravity
+      5. .agent/skills/ dir exists → antigravity
+      6. GEMINI.md exists → antigravity
       7. .cursor/ dir or .cursorrules exists → cursor
       8. .windsurfrules exists → windsurf
       9. Fallback → claude
@@ -21,9 +21,20 @@ def detect_agent(root: Path) -> str:
     if override := os.environ.get("AGENTPACK_AGENT"):
         return override
 
+    # Host env wins over repository files. Multi-agent repos can contain every
+    # rule file, so project artifacts are only fallback hints.
     # Claude Code sets CLAUDECODE=1 and CLAUDE_CODE_ENTRYPOINT in its shell env
     if os.environ.get("CLAUDECODE") or os.environ.get("CLAUDE_CODE_ENTRYPOINT"):
         return "claude"
+
+    if (
+        os.environ.get("OPENAI_CODEX")
+        or os.environ.get("CODEX_ENVIRONMENT")
+        or os.environ.get("CODEX_SHELL")
+        or os.environ.get("CODEX_CI")
+        or os.environ.get("CODEX_THREAD_ID")
+    ):
+        return "codex"
 
     if os.environ.get("ANTIGRAVITY"):
         return "antigravity"
@@ -33,10 +44,6 @@ def detect_agent(root: Path) -> str:
 
     if (root / "GEMINI.md").exists():
         return "antigravity"
-
-    # Codex sets OPENAI_CODEX=1 or CODEX_ENVIRONMENT in its shell env
-    if os.environ.get("OPENAI_CODEX") or os.environ.get("CODEX_ENVIRONMENT"):
-        return "codex"
 
     if (root / ".cursor").is_dir() or (root / ".cursorrules").exists():
         return "cursor"

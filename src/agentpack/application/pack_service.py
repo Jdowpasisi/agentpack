@@ -748,6 +748,7 @@ class AdapterRegistry:
                 cfg.learning.episodic_cases_output,
                 cfg.runtime.pack_registry_output,
                 cfg.runtime.session_events_output,
+                ".agent/skills/agentpack/citations.json",
             }
         )
         return paths

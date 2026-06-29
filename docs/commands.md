@@ -1,23 +1,35 @@
 # Commands
 
-Full command reference for the `agentpack` CLI. The root README keeps only the most common commands.
+Full command reference for the `agentpack` CLI. Start with the core commands,
+then use the advanced map when you need review, release, learning, diagnostics,
+or benchmark workflows.
 
 ## Commands
 
-Most users should start with the context path:
+Most users should start with five commands:
 
 ```bash
 agentpack init --agent auto
 agentpack route --task "describe the change"
-agentpack task set "describe the change"
-agentpack pack --task auto
+agentpack pack --task "describe the change"
+agentpack doctor
+agentpack benchmark --release-gate
 ```
 
-Command map:
+Core command map:
 
 | Command | Use when |
 |---|---|
 | `agentpack init` | Set up `.agentpack/` and install one agent integration for a repo |
+| `agentpack route` | Route a task to files, rules, skills, commands, and safety warnings without writing context |
+| `agentpack pack` | Generate a ranked context pack for one task |
+| `agentpack doctor` | Audit MCP, hooks, agent files, CLI path, and repo health |
+| `agentpack benchmark` | Measure recall, precision, and misses against real tasks |
+
+Advanced command map:
+
+| Command | Use when |
+|---|---|
 | `agentpack install` | Refresh or add an agent integration without changing project state |
 | `agentpack upgrade` | Refresh the auto-detected IDE/agent integration after package upgrade |
 | `agentpack repair` | Restore missing or drifted integration files |
@@ -28,9 +40,7 @@ Command map:
 | `agentpack finish` | Run finish checks, capture benchmark evidence, and mark state done |
 | `agentpack learn` | Generate developer learning notes, skill progress, and future-agent lessons from task context and git changes |
 | `agentpack task` | Show, set, or clear global/thread-scoped task files |
-| `agentpack pack` | Generate a ranked context pack for one task |
 | `agentpack next` | Recommend the next AgentPack action from repo/task/context state |
-| `agentpack route` | Route a task to files, rules, skills, commands, and safety warnings |
 | `agentpack retrieve` | Retrieve file or symbol context from the latest pack registry |
 | `agentpack learn` | Generate local learning notes, skill evidence, future-agent lessons, selected-file miss feedback, and local feedback signals |
 | `agentpack perf` | Show runtime scorecard and optional recent history from pack, retrieval, and output-compression events |
@@ -42,11 +52,9 @@ Command map:
 | `agentpack skills recommend` | Explain task-specific skill recommendations and confidence |
 | `agentpack skills feedback` | Record local skill outcome feedback for future routing boosts |
 | `agentpack watch` | Keep the context pack fresh while you work |
-| `agentpack doctor` | Audit hooks, agent files, CLI path, and repo health |
 | `agentpack diagnose-selection` | Explain latest selection noise and write tuning advice |
 | `agentpack ignore suggest|apply` | Suggest or apply safe `.agentignore` additions |
 | `agentpack explain` | Understand why a file was selected or omitted |
-| `agentpack benchmark` | Measure recall, precision, and misses against real tasks |
 | `agentpack eval` | Run deterministic failure evals with tests, diff limits, and taxonomy labels |
 | `agentpack tune` | Suggest fixes from recent pack metrics and benchmark misses |
 | `agentpack status` | Inspect current pack freshness and metadata |
@@ -881,11 +889,12 @@ Route a task without writing context files. This is the CLI debug/admin surface 
 
 ```bash
 agentpack route --task "fix flaky payment webhook test"
+agentpack route --task "fix flaky payment webhook test" --json
 agentpack route --task "fix flaky payment webhook test" --format json
 pipx run --spec agentpack-cli agentpack route --task "fix auth token expiry"
 ```
 
-Output includes relevant files, applied rules, recommended skills, suggested commands, safety warnings, and an agent prompt. It uses the existing AgentPack file ranker in memory and does not write `.agentpack/context.md`.
+Output includes relevant files, applied rules, recommended skills, suggested commands, safety warnings, and an agent prompt. It uses the existing AgentPack file ranker in memory and does not write `.agentpack/context.md`. `--json` is the stable machine-readable alias; `--format json` remains supported.
 
 ---
 
@@ -1574,7 +1583,7 @@ agentpack dev-check
 agentpack dev-check --json
 ```
 
-Stages cover docs link checks, `ruff`, `pytest -q -m "not slow"`, and npm wrapper/version tests.
+Stages cover docs link checks, `ruff`, scoped `mypy`, `pytest -q -m "not slow"`, and npm wrapper/version tests.
 The command prints each rerun command and exits non-zero on the first failed
 stage set.
 
@@ -1687,7 +1696,7 @@ agentpack skills scan
 agentpack skills index
 agentpack skills recommend --task "fix flaky payment webhook test" --explain
 agentpack route --task "fix flaky payment webhook test"
-agentpack route --task "fix flaky payment webhook test" --format json
+agentpack route --task "fix flaky payment webhook test" --json
 ```
 
 Router reads skills and rules from `skills/`, `.claude-plugin/`, `.claude/skills/`, `~/.claude/skills/`, `~/.codex/skills/`, `~/.agents/skills/`, `.agentpack/skills/`, `.cursor/rules/`, `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`. Rules are mandatory scoped instructions; skills are optional recommendations. The local `.agentpack/skills_index.json` stores metadata only and omits raw skill/rule bodies.

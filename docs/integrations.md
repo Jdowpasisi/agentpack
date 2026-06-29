@@ -180,7 +180,7 @@ Configures:
 agentpack ships multiple release-related workflows:
 
 - **`ci.yml`** — runs on push and pull requests to `main`.
-  - `test`: matrix tests on Python 3.10–3.14 (`pytest ... --cov`) and `ruff check src/ tests/`.
+  - `test`: matrix tests on Python 3.10–3.14 (`pytest ... --cov`), `ruff check src/ tests/`, and scoped `mypy`.
   - `npm-wrapper`: npm wrapper tests plus a dry-run package check.
   - `agent-integration-matrix`: integration checks for supported agents.
 - **`agentpack-pr.yml`** — generates and uploads `.agentpack/context.claude.md` for PR review artifacts in `.github/workflows/agentpack-pr.yml`.

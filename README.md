@@ -80,9 +80,12 @@ agentpack init --yes
 agentpack route --task "fix auth token expiry"
 agentpack task set "fix auth token expiry"
 agentpack pack --task auto
+agentpack doctor
 ```
 
 Then give `.agentpack/context.md` to your agent, or let MCP-capable agents call AgentPack tools directly.
+Core onboarding is five commands: `init`, `route`, `pack`, `doctor`, and `benchmark`.
+Everything else is an advanced workflow or release/diagnostic helper.
 
 For one-shot use without installing:
 
@@ -119,6 +122,7 @@ agentpack pack --task auto
 
 AgentPack writes local context under `.agentpack/`, including selected files, omitted-file receipts, freshness checks, token stats, and `.agentpack/citations.json` source provenance for the packed claims.
 It reuses cached file summaries and snapshot metadata so repeated packs do not start from zero.
+Run `agentpack doctor` when an agent integration, MCP setup, hook, or installed CLI path looks stale.
 
 ## What AgentPack Gives Your Agent
 
@@ -162,6 +166,8 @@ Current scoped result:
 Source: [`benchmarks/results/2026-06-25-public.md`](benchmarks/results/2026-06-25-public.md). Benchmark guide: [`docs/benchmarking.md`](docs/benchmarking.md).
 
 This is useful but not magic. It says AgentPack often gets meaningful files into a small pack. It does not replace source inspection, tests, runtime evidence, or review. Agent success A/B benchmarks should report task success, tool calls, token cost, validation quality, and time-to-first-correct-file.
+
+E2E outcome proof is tracked separately in [`benchmarks/results/e2e-ab-status.md`](benchmarks/results/e2e-ab-status.md). Do not treat file-selection results as task-success or cost-savings proof.
 
 ## What We Want To Prove Next
 
@@ -306,6 +312,11 @@ Works, tested, and used in real sessions. Python and JavaScript/TypeScript have 
 Platform support targets macOS, Linux, and Windows PowerShell with Git for Windows. `cmd.exe` and bare Git setups are not supported yet.
 
 Name note: PyPI package is `agentpack-cli`, npm package is `@vishal2612200/agentpack`, and command is `agentpack`. This project is unrelated to AgentPack dataset papers or other repos with the same name.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, validation, and PR expectations.
+Community behavior is covered by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
 ## License
 

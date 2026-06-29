@@ -1,7 +1,9 @@
 import pathspec
 from typer.testing import CliRunner
 
+from agentpack.application.pack_service import AdapterRegistry
 from agentpack.cli import app
+from agentpack.core.config import load_config
 from agentpack.core.scanner import scan, scan_incremental, file_hash
 from agentpack.core.snapshot import build_snapshot
 from agentpack.core.ignore import DEFAULT_AGENTIGNORE
@@ -41,6 +43,36 @@ def test_scan_excludes_agentpack_antigravity_skill(tmp_path):
 
     assert ".agent/skills/agentpack/SKILL.md" not in packable_paths
     assert ".agent/skills/custom/SKILL.md" in packable_paths
+
+
+def test_generated_paths_include_antigravity_citation_manifest(tmp_path):
+    (tmp_path / ".agentpack").mkdir()
+
+    cfg = load_config(tmp_path)
+    paths = AdapterRegistry.generated_output_paths(tmp_path, cfg)
+
+    assert ".agent/skills/agentpack/SKILL.md" in paths
+    assert ".agent/skills/agentpack/citations.json" in paths
+
+
+def test_incremental_scan_drops_previous_generated_paths(tmp_path):
+    generated = tmp_path / ".agent" / "skills" / "agentpack" / "citations.json"
+    generated.parent.mkdir(parents=True)
+    generated.write_text("{}\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+    previous = build_snapshot(scan(tmp_path, _spec()).packable)
+    result = scan_incremental(
+        tmp_path,
+        _spec(),
+        changed_paths=set(),
+        previous_snapshot=previous,
+        always_skip_paths={".agent/skills/agentpack/citations.json"},
+    )
+    packable_paths = {f.path for f in result.packable}
+
+    assert ".agent/skills/agentpack/citations.json" not in packable_paths
+    assert "app.py" in packable_paths
 
 
 def test_scan_marks_ignored(tmp_path):

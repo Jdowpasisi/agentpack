@@ -47,6 +47,25 @@ def test_guard_plain_ignores_ambient_thread_env(tmp_path, monkeypatch) -> None:
     assert "Context pack fresh" in guard_result.output
 
 
+def test_guard_ignores_generated_antigravity_citation_manifest(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "task.md").write_text("Fix guard generated citation handling\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+    pack_result = CliRunner().invoke(app, ["guard", "--agent", "generic", "--refresh-context"])
+    assert pack_result.exit_code == 0, pack_result.output
+
+    citation_path = tmp_path / ".agent" / "skills" / "agentpack" / "citations.json"
+    citation_path.parent.mkdir(parents=True)
+    citation_path.write_text("{}\n", encoding="utf-8")
+
+    guard_result = CliRunner().invoke(app, ["guard", "--agent", "generic"])
+
+    assert guard_result.exit_code == 0, guard_result.output
+    assert "Context pack fresh" in guard_result.output
+
+
 def test_guard_repairs_stale_agent_integration(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)

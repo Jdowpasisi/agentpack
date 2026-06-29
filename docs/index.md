@@ -10,6 +10,10 @@ Use these docs when you want local/offline repo analysis, MCP-first routing, CI-
 - [Configuration](configuration.md): config, scoring weights, `.agentignore`, and git integration.
 - [How AgentPack works](how-agentpack-works.md): route, pack, retrieve, learn, and benchmark flow.
 
+Core onboarding uses `agentpack init`, `agentpack route`, `agentpack pack`,
+`agentpack doctor`, and `agentpack benchmark`. The rest of the CLI is advanced
+workflow, release, learning, or diagnostic surface.
+
 ## Agents and IDEs
 
 - [Integrations](integrations.md): setup paths for Claude Code, Codex, Cursor, Windsurf, Antigravity, and generic agents.

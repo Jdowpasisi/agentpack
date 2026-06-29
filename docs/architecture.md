@@ -24,13 +24,14 @@ provider prefix caches.
 1. Scan repo  →  apply .agentignore  →  skip generated AgentPack outputs  →  hash files
 2. Build offline summaries  →  role, imports, symbols, side effects, public API, errors, test hints
 3. Build import dependency graph  →  Python/JS/TS full, Go/Rust/Java/Kotlin best-effort
-4. Detect changed files  →  snapshot diff + git working tree + staged + optional --since ref
-5. Classify task  →  bugfix / feature / docs / release / infra / audit / test / ui / refactor
-6. Extract weighted task terms  →  literals, variants, concept synonyms, changed-file identifiers
-7. Score every file  →  changes, task terms, symbols, content, deps, tests, configs, churn
-8. Apply history learning  →  gently downrank files that were repeatedly selected as noise
-9. Build semantic repo map  →  compact module/group map reserved inside the token budget
-10. Select by value per token  →  full / diff / symbols / skeleton / summary / omit
+4. Extract summary symbols       →  Python/JS/TS strongest, Go lightweight, others file-summary fallback
+5. Detect changed files  →  snapshot diff + git working tree + staged + optional --since ref
+6. Classify task  →  bugfix / feature / docs / release / infra / audit / test / ui / refactor
+7. Extract weighted task terms  →  literals, variants, concept synonyms, changed-file identifiers
+8. Score every file  →  changes, task terms, symbols, content, deps, tests, configs, churn
+9. Apply history learning  →  gently downrank files that were repeatedly selected as noise
+10. Build semantic repo map  →  compact module/group map reserved inside the token budget
+11. Select by value per token  →  full / diff / symbols / skeleton / summary / omit
 11. For large diffs  →  score hunks against task keywords and keep the most relevant hunks
 12. Redact secrets at materialization  →  before content reaches any renderer or adapter
 13. Cache pack registry  →  block IDs for selected, omitted, and symbol context
@@ -210,7 +211,7 @@ src/agentpack/
     go_imports.py              # Go import / import(...) blocks
     rust_imports.py            # use, mod, extern crate
     java_imports.py            # Java import + Kotlin import
-    symbols.py                 # AST symbols + body via ast.get_source_segment
+    symbols.py                 # Python AST, JS/TS regex, and lightweight Go symbols
     naming_signals.py          # public-name classification for summaries + ranking boosts
     tests.py                   # source → test file mapping heuristics
     ranking.py                 # keyword extraction, concept synonyms, scoring, naming receipts

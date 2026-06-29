@@ -3,10 +3,16 @@
 This page records the engineering lessons from the public-suite precision push.
 It is a decision log, not a marketing table.
 
-## Current Verified State
+## Latest Public Evidence
 
-The latest verified release-target gate was run against the expanded public
-suite:
+The current public release evidence table is
+[`benchmarks/results/2026-06-25-public.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/results/2026-06-25-public.md):
+107 scored public cases at 65.7% recall and 51.4% token precision. Treat it as
+scoped file-selection evidence, not broad proof of downstream agent success.
+
+## 2026-06-14 Release-Target State
+
+This older release-target gate was run against the expanded public suite:
 
 ```bash
 PYTHONPATH=src python -m agentpack.cli benchmark \

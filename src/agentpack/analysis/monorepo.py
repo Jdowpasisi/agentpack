@@ -27,7 +27,15 @@ def detect_workspace_roots(root: Path) -> list[str]:
 
 
 def detect_workspace_dependency_edges(root: Path, workspace_roots: list[str]) -> dict[str, set[str]]:
-    """Return workspace -> workspace dependency edges from package.json files."""
+    """Return workspace -> workspace dependency edges from common package manifests."""
+    edges: dict[str, set[str]] = {workspace: set() for workspace in workspace_roots}
+    _add_package_json_edges(root, workspace_roots, edges)
+    _add_cargo_edges(root, workspace_roots, edges)
+    _add_go_edges(root, workspace_roots, edges)
+    return edges
+
+
+def _add_package_json_edges(root: Path, workspace_roots: list[str], edges: dict[str, set[str]]) -> None:
     package_names: dict[str, str] = {}
     for workspace in workspace_roots:
         package_json = root / workspace / "package.json"
@@ -41,7 +49,6 @@ def detect_workspace_dependency_edges(root: Path, workspace_roots: list[str]) ->
         if isinstance(name, str) and name:
             package_names[name] = workspace
 
-    edges: dict[str, set[str]] = {workspace: set() for workspace in workspace_roots}
     for workspace in workspace_roots:
         package_json = root / workspace / "package.json"
         if not package_json.exists():
@@ -59,7 +66,153 @@ def detect_workspace_dependency_edges(root: Path, workspace_roots: list[str]) ->
             dep_workspace = package_names.get(name)
             if dep_workspace and dep_workspace != workspace:
                 edges.setdefault(workspace, set()).add(dep_workspace)
-    return edges
+
+
+def _add_cargo_edges(root: Path, workspace_roots: list[str], edges: dict[str, set[str]]) -> None:
+    for workspace in workspace_roots:
+        manifest = root / workspace / "Cargo.toml"
+        if not manifest.exists():
+            continue
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # type: ignore[no-redef]
+        try:
+            data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+            raw = data.get(section)
+            if isinstance(raw, dict):
+                _add_cargo_section_edges(root, workspace, raw, workspace_roots, edges)
+        target = data.get("target")
+        if isinstance(target, dict):
+            for target_data in target.values():
+                if not isinstance(target_data, dict):
+                    continue
+                for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+                    raw = target_data.get(section)
+                    if isinstance(raw, dict):
+                        _add_cargo_section_edges(root, workspace, raw, workspace_roots, edges)
+
+
+def _add_cargo_section_edges(
+    root: Path,
+    workspace: str,
+    dependencies: dict[str, object],
+    workspace_roots: list[str],
+    edges: dict[str, set[str]],
+) -> None:
+    workspace_dir = root / workspace
+    for spec in dependencies.values():
+        if not isinstance(spec, dict):
+            continue
+        raw_path = spec.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            continue
+        dep_workspace = _workspace_from_relative_path(root, workspace_dir / raw_path, workspace_roots)
+        if dep_workspace and dep_workspace != workspace:
+            edges.setdefault(workspace, set()).add(dep_workspace)
+
+
+def _add_go_edges(root: Path, workspace_roots: list[str], edges: dict[str, set[str]]) -> None:
+    module_to_workspace: dict[str, str] = {}
+    replacements_by_workspace: dict[str, dict[str, str]] = {}
+    requires_by_workspace: dict[str, set[str]] = {}
+    for workspace in workspace_roots:
+        go_mod = root / workspace / "go.mod"
+        if not go_mod.exists():
+            continue
+        try:
+            text = go_mod.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        module = _go_module_name(text)
+        if module:
+            module_to_workspace[module] = workspace
+        replacements_by_workspace[workspace] = _go_replacements(root, root / workspace, text, workspace_roots)
+        requires_by_workspace[workspace] = _go_requires(text)
+
+    for workspace, requires in requires_by_workspace.items():
+        replacements = replacements_by_workspace.get(workspace, {})
+        for module in requires:
+            dep_workspace = replacements.get(module) or module_to_workspace.get(module)
+            if dep_workspace and dep_workspace != workspace:
+                edges.setdefault(workspace, set()).add(dep_workspace)
+
+
+def _go_module_name(text: str) -> str | None:
+    match = re.search(r"^module\s+(\S+)", text, flags=re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _go_requires(text: str) -> set[str]:
+    modules: set[str] = set()
+    in_block = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("//"):
+            continue
+        if line == "require (":
+            in_block = True
+            continue
+        if in_block and line == ")":
+            in_block = False
+            continue
+        if line.startswith("require "):
+            modules.add(line.split()[1])
+        elif in_block:
+            modules.add(line.split()[0])
+    return modules
+
+
+def _go_replacements(root: Path, workspace_dir: Path, text: str, workspace_roots: list[str]) -> dict[str, str]:
+    replacements: dict[str, str] = {}
+    in_block = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("//"):
+            continue
+        if line == "replace (":
+            in_block = True
+            continue
+        if in_block and line == ")":
+            in_block = False
+            continue
+        if line.startswith("replace "):
+            _add_go_replacement(root, workspace_dir, line.removeprefix("replace ").strip(), workspace_roots, replacements)
+        elif in_block:
+            _add_go_replacement(root, workspace_dir, line, workspace_roots, replacements)
+    return replacements
+
+
+def _add_go_replacement(
+    root: Path,
+    workspace_dir: Path,
+    line: str,
+    workspace_roots: list[str],
+    replacements: dict[str, str],
+) -> None:
+    if "=>" not in line:
+        return
+    left, right = [part.strip() for part in line.split("=>", 1)]
+    module = left.split()[0]
+    target = right.split()[0]
+    if not target.startswith((".", "/")):
+        return
+    target_path = Path(target)
+    candidate = target_path if target_path.is_absolute() else workspace_dir / target_path
+    dep_workspace = _workspace_from_relative_path(root, candidate, workspace_roots)
+    if dep_workspace:
+        replacements[module] = dep_workspace
+
+
+def _workspace_from_relative_path(root: Path, candidate: Path, workspace_roots: list[str]) -> str | None:
+    try:
+        rel = candidate.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+    return workspace_for_path(rel, workspace_roots)
 
 
 def workspace_for_path(path: str, workspace_roots: list[str]) -> str | None:

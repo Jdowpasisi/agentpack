@@ -68,5 +68,44 @@ def test_detect_workspace_dependency_edges_from_package_json(tmp_path: Path) -> 
     assert edges["apps/web"] == {"packages/shared"}
 
 
+def test_detect_workspace_dependency_edges_from_cargo_path_dependencies(tmp_path: Path) -> None:
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n', encoding="utf-8")
+    api = tmp_path / "crates" / "api"
+    core = tmp_path / "crates" / "core"
+    api.mkdir(parents=True)
+    core.mkdir(parents=True)
+    api.joinpath("Cargo.toml").write_text(
+        '[package]\nname = "api"\nversion = "0.1.0"\n\n[dependencies]\ncore = { path = "../core" }\n',
+        encoding="utf-8",
+    )
+    core.joinpath("Cargo.toml").write_text('[package]\nname = "core"\nversion = "0.1.0"\n', encoding="utf-8")
+
+    roots = detect_workspace_roots(tmp_path)
+    edges = detect_workspace_dependency_edges(tmp_path, roots)
+
+    assert edges["crates/api"] == {"crates/core"}
+
+
+def test_detect_workspace_dependency_edges_from_go_modules(tmp_path: Path) -> None:
+    (tmp_path / "go.work").write_text("go 1.22\n\nuse (\n  ./services/api\n  ./packages/shared\n)\n", encoding="utf-8")
+    api = tmp_path / "services" / "api"
+    shared = tmp_path / "packages" / "shared"
+    api.mkdir(parents=True)
+    shared.mkdir(parents=True)
+    api.joinpath("go.mod").write_text(
+        "module example.com/api\n\n"
+        "go 1.22\n\n"
+        "require example.com/shared v0.0.0\n\n"
+        "replace example.com/shared => ../../packages/shared\n",
+        encoding="utf-8",
+    )
+    shared.joinpath("go.mod").write_text("module example.com/shared\n\ngo 1.22\n", encoding="utf-8")
+
+    roots = detect_workspace_roots(tmp_path)
+    edges = detect_workspace_dependency_edges(tmp_path, roots)
+
+    assert edges["services/api"] == {"packages/shared"}
+
+
 def test_normalize_workspace() -> None:
     assert normalize_workspace("/apps/web/") == "apps/web"

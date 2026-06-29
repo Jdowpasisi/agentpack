@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible AgentPack bug.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened? What did you expect?
+      placeholder: AgentPack selected stale files after...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal commands, repo shape, or fixture needed to reproduce.
+      placeholder: |
+        1. agentpack init --yes
+        2. agentpack route --task "..."
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Paste relevant output from doctor, route, pack, tests, or logs.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: AgentPack version
+      placeholder: agentpack --version
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent or host
+      options:
+        - Codex
+        - Claude Code
+        - Cursor
+        - Windsurf
+        - GitHub Copilot
+        - MCP
+        - Other
+    validations:
+      required: false

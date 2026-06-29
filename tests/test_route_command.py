@@ -147,6 +147,22 @@ def test_route_json_returns_stable_keys_and_does_not_write_context(tmp_path, mon
     assert not (tmp_path / ".agentpack" / "context.claude.md").exists()
 
 
+def test_route_json_flag_alias_returns_machine_readable_output(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_route_fixture(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["route", "--task", "fix flaky payment webhook test", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["task"] == "fix flaky payment webhook test"
+    assert data["selected_files"]
+    assert data["agent_prompt"]
+
+
 def test_route_uses_recent_issue_references_as_hints(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _write_route_fixture(tmp_path)
@@ -242,6 +258,48 @@ def test_route_suppresses_weak_external_skill_warning_noise(tmp_path, monkeypatc
     assert data["safety_warnings"] == []
     assert "External side-effect skill not auto-selected" not in data["agent_prompt"]
     assert "more external side-effect skills not shown" not in data["agent_prompt"]
+
+
+def test_route_uses_codex_env_over_multi_agent_repo_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_SHELL", "1")
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / ".agentpack" / "config.toml").write_text("", encoding="utf-8")
+    (tmp_path / "GEMINI.md").write_text("antigravity instructions\n", encoding="utf-8")
+    (tmp_path / ".agent" / "skills").mkdir(parents=True)
+    for path in (
+        "src/agentpack/router/service.py",
+        "src/agentpack/router/prompt_builder.py",
+        "src/agentpack/mcp_server.py",
+        "src/agentpack/commands/eval_cmd.py",
+        "src/agentpack/commands/guard.py",
+        "src/agentpack/adapters/detect.py",
+        "src/agentpack/application/pack_service.py",
+    ):
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"# {path}\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "route",
+            "--task",
+            "fix noisy routing, stale CLI/MCP mismatch, and wrong current agent identity",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    selected = [item["path"] for item in data["selected_files"][:6]]
+    assert data["current_agent"] == "codex"
+    assert data["reviewer_agent"] == "claude"
+    assert "src/agentpack/commands/eval_cmd.py" not in selected
+    assert "src/agentpack/router/service.py" in selected
+    assert "src/agentpack/mcp_server.py" in selected
+    assert "src/agentpack/adapters/detect.py" in selected
 
 
 def test_route_refreshes_stale_skills_index(tmp_path, monkeypatch) -> None:

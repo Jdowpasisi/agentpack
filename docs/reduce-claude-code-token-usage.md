@@ -44,12 +44,13 @@ The current published public release table reports scoped evidence from pinned p
 
 | Metric | Result |
 |---|---:|
-| Avg recall | 66.0% |
-| Avg token precision | 51.1% |
+| Cases | 107 |
+| Avg recall | 65.7% |
+| Avg token precision | 51.4% |
 | Pack p50 | 315 tokens |
 | Pack p95 | 1,137 tokens |
 
-See [`benchmarks/results/2026-06-14-public.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/results/2026-06-14-public.md) for the full table.
+See [`benchmarks/results/2026-06-25-public.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/results/2026-06-25-public.md) for the full table.
 
 ## How to tune token use
 

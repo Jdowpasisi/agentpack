@@ -81,6 +81,7 @@ def register(app: typer.Typer) -> None:
             stages.append(_check_npm_version_available(root))
         stages.append(_check_pytest_plugin_dependencies(root))
         stages.append(_run_stage(root, "ruff", [sys.executable, "-m", "ruff", "check", "src", "tests"]))
+        stages.append(_run_stage(root, "mypy", [sys.executable, "-m", "mypy"]))
         pytest_args = _pytest_args_for_profile(root, release_profile)
         with tempfile.TemporaryDirectory(prefix="agentpack-coverage-") as coverage_dir:
             pytest_env = {"COVERAGE_FILE": str(Path(coverage_dir) / ".coverage")} if release_profile != "docs" else None

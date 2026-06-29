@@ -20,6 +20,13 @@
       "status": "skeleton",
       "enforcement_level": "advisory",
       "path": "native-integrations/cursor-extension",
+      "capabilities": {
+        "mandatory_pre_edit_or_pre_tool_hook": false,
+        "ability_to_block_edit_when_readiness_fails": false,
+        "current_prompt_or_task_access": false,
+        "workspace_root_access": true,
+        "command_execution_or_mcp_tool_access": true
+      },
       "blocked_on": [
         "Host API that guarantees extension activation before edits/tool calls",
         "Host API that lets extension block agent edits when AgentPack readiness fails"
@@ -32,6 +39,13 @@
       "status": "skeleton",
       "enforcement_level": "advisory",
       "path": "native-integrations/windsurf-extension",
+      "capabilities": {
+        "mandatory_pre_edit_or_pre_tool_hook": false,
+        "ability_to_block_edit_when_readiness_fails": false,
+        "current_prompt_or_task_access": false,
+        "workspace_root_access": true,
+        "command_execution_or_mcp_tool_access": true
+      },
       "blocked_on": [
         "Host API that guarantees extension activation before edits/tool calls",
         "Host API that lets extension block agent edits when AgentPack readiness fails"
@@ -44,6 +58,13 @@
       "status": "blocked_stub",
       "enforcement_level": "advisory",
       "path": "native-integrations/claude-native",
+      "capabilities": {
+        "mandatory_pre_edit_or_pre_tool_hook": false,
+        "ability_to_block_edit_when_readiness_fails": false,
+        "current_prompt_or_task_access": false,
+        "workspace_root_access": false,
+        "command_execution_or_mcp_tool_access": false
+      },
       "blocked_on": [
         "Native mandatory pre-edit/pre-tool plugin API",
         "Host API for block/deny result when AgentPack readiness fails"
@@ -56,6 +77,13 @@
       "status": "blocked_stub",
       "enforcement_level": "advisory",
       "path": "native-integrations/codex-native",
+      "capabilities": {
+        "mandatory_pre_edit_or_pre_tool_hook": false,
+        "ability_to_block_edit_when_readiness_fails": false,
+        "current_prompt_or_task_access": false,
+        "workspace_root_access": false,
+        "command_execution_or_mcp_tool_access": false
+      },
       "blocked_on": [
         "Native mandatory pre-edit/pre-tool plugin API",
         "Host API for block/deny result when AgentPack readiness fails"

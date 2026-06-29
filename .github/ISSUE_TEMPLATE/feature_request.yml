@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a focused AgentPack improvement.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What workflow should this improve?
+      placeholder: I want machine-readable output for...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the smallest useful change.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing commands, flags, docs, or workarounds you tried.
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation idea
+      description: Tests, docs, benchmark cases, or examples that should prove it.
+    validations:
+      required: false

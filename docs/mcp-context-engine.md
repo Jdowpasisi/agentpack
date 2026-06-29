@@ -32,7 +32,7 @@ agentpack route --task "fix billing webhook retry handling"
 Use JSON output when wiring results into scripts:
 
 ```bash
-agentpack route --task "fix billing webhook retry handling" --format json
+agentpack route --task "fix billing webhook retry handling" --json
 ```
 
 Debug skill routing directly:

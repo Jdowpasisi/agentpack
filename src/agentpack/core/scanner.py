@@ -235,6 +235,8 @@ def scan_incremental(
     for path, prev in prev_files.items():
         if path in removed_or_changed:
             continue
+        if _rel_path(path) in generated_paths:
+            continue
         abs_path = root / path
         if not abs_path.exists():
             continue

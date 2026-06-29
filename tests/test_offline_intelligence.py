@@ -164,6 +164,33 @@ def test_js_role_inference_extracts_frontend_api_literals(tmp_path: Path) -> Non
     assert "API call: /api/signals/history" in summary.calls
 
 
+def test_go_summary_extracts_imports_symbols_and_public_api(tmp_path: Path) -> None:
+    src = _write(
+        tmp_path,
+        "cmd/server/main.go",
+        "package main\n\n"
+        "import (\n"
+        "    \"net/http\"\n"
+        "    \"github.com/gin-gonic/gin\"\n"
+        ")\n\n"
+        "type Server struct {}\n\n"
+        "func NewServer() *Server { return &Server{} }\n\n"
+        "func (s *Server) Start() {\n"
+        "    http.ListenAndServe(\":8080\", nil)\n"
+        "}\n",
+    )
+
+    summary = summarize("cmd/server/main.go", src, "go", "h1")
+
+    assert summary.language == "go"
+    assert "net/http" in summary.imports
+    assert "github.com/gin-gonic/gin" in summary.imports
+    assert {"Server", "NewServer", "Server.Start"} <= {symbol.name for symbol in summary.symbols}
+    assert "NewServer" in summary.defines
+    assert "Server.Start" in summary.defines
+    assert "NewServer" in summary.public_api
+
+
 def test_env_file_external_system_and_side_effect_detection(tmp_path: Path) -> None:
     src = _write(
         tmp_path,

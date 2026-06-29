@@ -97,6 +97,8 @@ _JS_EXPORTED_VAR = re.compile(
     r"\bexport\s+(?:declare\s+)?(?:const|let|var)\s+(\w+)\s*(?::[^=;]+)?=",
 )
 _JS_CLASS = re.compile(r"(?:export\s+)?class\s+(\w+)")
+_GO_FUNC = re.compile(r"^func\s+(?:\(([^)]+)\)\s*)?(\w+)\s*\(([^)]*)\)")
+_GO_TYPE = re.compile(r"^type\s+(\w+)\s+(struct|interface)\b")
 
 
 def extract_js_symbols(path: Path) -> list[Symbol]:
@@ -137,11 +139,73 @@ def extract_js_symbols(path: Path) -> list[Symbol]:
     return symbols
 
 
+def extract_go_symbols(path: Path) -> list[Symbol]:
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+
+    symbols: list[Symbol] = []
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        func_match = _GO_FUNC.match(stripped)
+        if func_match:
+            receiver, name, _args = func_match.groups()
+            symbol_name = f"{_go_receiver_name(receiver)}.{name}" if receiver else name
+            symbols.append(
+                Symbol(
+                    name=symbol_name,
+                    kind="method" if receiver else "function",
+                    start_line=i,
+                    end_line=_go_symbol_end_line(lines, i),
+                    signature=stripped[:120],
+                    body="\n".join(lines[i - 1 : min(i + 49, len(lines))]),
+                )
+            )
+            continue
+        type_match = _GO_TYPE.match(stripped)
+        if type_match:
+            name, type_kind = type_match.groups()
+            symbols.append(
+                Symbol(
+                    name=name,
+                    kind="class",
+                    start_line=i,
+                    end_line=_go_symbol_end_line(lines, i),
+                    signature=stripped[:120],
+                    summary=f"Go {type_kind}",
+                    body="\n".join(lines[i - 1 : min(i + 49, len(lines))]),
+                )
+            )
+    return symbols
+
+
+def _go_receiver_name(receiver: str | None) -> str:
+    if not receiver:
+        return ""
+    parts = receiver.replace("*", " ").split()
+    return parts[-1] if parts else receiver.strip()
+
+
+def _go_symbol_end_line(lines: list[str], start_line: int) -> int:
+    depth = 0
+    saw_open = False
+    for index in range(start_line - 1, len(lines)):
+        line = lines[index]
+        depth += line.count("{") - line.count("}")
+        saw_open = saw_open or "{" in line
+        if saw_open and depth <= 0:
+            return index + 1
+    return start_line
+
+
 def extract_symbols(path: Path, language: str | None) -> list[Symbol]:
     if language == "python":
         return extract_python_symbols(path)
     if language in ("javascript", "typescript"):
         return extract_js_symbols(path)
+    if language == "go":
+        return extract_go_symbols(path)
     return []
 
 

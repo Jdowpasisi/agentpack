@@ -36,6 +36,7 @@ def test_release_check_json_orchestrates_stages(tmp_path, monkeypatch) -> None:
         "version-sync",
         "pytest-plugin-deps",
         "ruff",
+        "mypy",
         "pytest",
         "npm-launcher-tests",
     ]
@@ -76,6 +77,7 @@ def test_release_check_docs_profile_skips_build_benchmark_and_uses_focused_tests
         "version-sync",
         "pytest-plugin-deps",
         "ruff",
+        "mypy",
         "pytest",
     ]
     assert not any("benchmark" in " ".join(call) for call in calls)
@@ -115,6 +117,7 @@ def test_release_check_ci_profile_skips_build_benchmark_and_coverage(tmp_path, m
         "version-sync",
         "pytest-plugin-deps",
         "ruff",
+        "mypy",
         "pytest",
         "npm-launcher-tests",
     ]

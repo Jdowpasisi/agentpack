@@ -122,6 +122,8 @@ jobs:
         run: pytest tests/ -v --cov --cov-report=term-missing -m "not slow"
       - name: Lint
         run: ruff check src/ tests/
+      - name: Type check
+        run: mypy
 
   build:
     needs: test

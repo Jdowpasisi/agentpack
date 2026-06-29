@@ -30,3 +30,14 @@ If any capability is missing, the integration remains `advisory`: useful and lou
 - `windsurf-extension/`: VS Code-style extension skeleton for Windsurf-shaped environments.
 - `claude-native/`: tracked native stub, blocked on mandatory host plugin API.
 - `codex-native/`: tracked native stub, blocked on mandatory host plugin API.
+
+## Capability Matrix
+
+| Host | Workspace root | Command/MCP access | Prompt/task access | Mandatory pre-edit/pre-tool hook | Can block failed readiness |
+| --- | --- | --- | --- | --- | --- |
+| Cursor skeleton | yes | yes | no | no | no |
+| Windsurf skeleton | yes | yes | no | no | no |
+| Claude native stub | no | no | no | no | no |
+| Codex native stub | no | no | no | no | no |
+
+Only hosts with every required capability can be marked `enforced`. Current entries remain `advisory`.

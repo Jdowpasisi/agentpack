@@ -4,7 +4,7 @@ from agentpack.analysis.naming_signals import (
     classify_public_name,
     collect_public_name_candidates,
 )
-from agentpack.analysis.symbols import extract_python_symbols, extract_js_symbols
+from agentpack.analysis.symbols import extract_python_symbols, extract_js_symbols, extract_go_symbols, extract_symbols
 
 
 def test_python_function(tmp_path):
@@ -110,6 +110,28 @@ def test_js_async_arrow_function(tmp_path):
     syms = extract_js_symbols(f)
     names = [s.name for s in syms]
     assert "fetchUser" in names
+
+
+def test_go_function_method_and_type_symbols(tmp_path):
+    f = tmp_path / "server.go"
+    f.write_text(
+        "package server\n\n"
+        "type Handler struct {}\n\n"
+        "func NewHandler() *Handler { return &Handler{} }\n\n"
+        "func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {\n"
+        "    w.WriteHeader(200)\n"
+        "}\n",
+    )
+
+    syms = extract_go_symbols(f)
+    names = [s.name for s in syms]
+
+    assert "Handler" in names
+    assert "NewHandler" in names
+    assert "Handler.ServeHTTP" in names
+    assert next(s for s in syms if s.name == "Handler").kind == "class"
+    assert next(s for s in syms if s.name == "Handler.ServeHTTP").kind == "method"
+    assert [s.name for s in extract_symbols(f, "go")] == names
 
 
 def test_classify_public_name_domain_revealing():

@@ -82,9 +82,9 @@ Python, TypeScript, Go, Java, and monorepo projects. For sampled repos,
 `exclude_globs`, and `max_changed_files`. Synthetic fixtures are useful
 regression tests, but should not be presented as market proof.
 
-The current v0.3.23 release baseline is published as
-[`benchmarks/results/2026-06-14-public.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/results/2026-06-14-public.md):
-108 scored public cases at 66.0% recall and 51.1% token precision. The
+The current public release evidence table is
+[`benchmarks/results/2026-06-25-public.md`](https://github.com/vishal2612200/agentpack/blob/main/benchmarks/results/2026-06-25-public.md):
+107 scored public cases at 65.7% recall and 51.4% token precision. The
 precision margin is thin, so use slice regressions before changing selector
 rules.
 
@@ -125,6 +125,10 @@ agentpack benchmark e2e-report --baseline no-context --treatment agentpack --mar
 
 `e2e-report` compares task success, expected-file touch rate, tool calls, total
 tokens, estimated token cost, time-to-first-correct-file, and duration.
+Public E2E proof status lives in
+[`benchmarks/results/e2e-ab-status.md`](../benchmarks/results/e2e-ab-status.md).
+Until a dated `*-e2e-ab.md` report exists, AgentPack's public benchmark claims
+remain scoped to file selection.
 
 ## Download Stats
 

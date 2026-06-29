@@ -19,15 +19,26 @@ def test_native_integration_status_is_machine_readable() -> None:
 
 def test_native_integration_entries_have_real_paths_and_blockers() -> None:
     data = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+    required = set(data["native_enforcement_contract"]["required_capabilities"])
 
     for host in data["hosts"]:
         path = ROOT / host["path"]
         assert path.exists(), host
         assert host["status"] in {"skeleton", "blocked_stub"}
         assert host["enforcement_level"] == "advisory"
+        assert set(host["capabilities"]) == required
+        assert not all(host["capabilities"].values())
         assert host["blocked_on"], host
         assert all("Host API" in blocker or "plugin API" in blocker for blocker in host["blocked_on"])
         assert (path / "README.md").exists(), host
+
+
+def test_native_integration_docs_include_capability_matrix() -> None:
+    readme = (ROOT / "native-integrations" / "README.md").read_text(encoding="utf-8")
+
+    assert "## Capability Matrix" in readme
+    assert "| Host | Workspace root | Command/MCP access | Prompt/task access | Mandatory pre-edit/pre-tool hook | Can block failed readiness |" in readme
+    assert "Current entries remain `advisory`." in readme
 
 
 def test_extension_skeletons_default_to_agent_specific_readiness_commands() -> None:

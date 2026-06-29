@@ -34,7 +34,9 @@ def _write_route_fixture(root):
     (root / "AGENTS.md").write_text("# Repo Rules\n\nVerify changes with tests.\n", encoding="utf-8")
 
 
-def test_mcp_route_task_returns_json_and_does_not_write_context(tmp_path):
+def test_mcp_route_task_returns_json_and_does_not_write_context(tmp_path, monkeypatch):
+    for name in ("CODEX_CI", "CODEX_ENVIRONMENT", "CODEX_SHELL", "CODEX_THREAD_ID", "OPENAI_CODEX"):
+        monkeypatch.delenv(name, raising=False)
     _write_route_fixture(tmp_path)
 
     data = json.loads(_route_task_impl(tmp_path, "fix flaky payment webhook test"))
