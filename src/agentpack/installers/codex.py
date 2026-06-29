@@ -8,7 +8,12 @@ from importlib import resources
 from pathlib import Path
 
 from agentpack import __version__
-from agentpack.core.command_surface import fallback_agent_guidance, prompt_quality_guidance, refresh_commands
+from agentpack.core.command_surface import (
+    fallback_agent_guidance,
+    mcp_diagnostic_guidance,
+    prompt_quality_guidance,
+    refresh_commands,
+)
 from agentpack.integrations.git_hooks import install_git_hooks
 
 def _agentpack_block() -> str:
@@ -37,6 +42,8 @@ At the start of every coding task:
 When the user switches to a different coding task, update `.agentpack/task.md`, then call MCP again or rerun the refresh command before editing.
 
 {fallback_agent_guidance()}
+
+{mcp_diagnostic_guidance("codex")}
 
 {prompt_quality_guidance()}{thread_line}
 <!-- agentpack:end -->"""

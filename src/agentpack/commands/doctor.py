@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import typer
+from rich.markup import escape
 
 from agentpack.integrations.global_install import (
     _GIT_TEMPLATE_DIR,
@@ -20,6 +21,7 @@ from agentpack.commands._shared import console, _root
 from agentpack.core.command_surface import available_cli_commands, installed_cli_status, refresh_commands
 from agentpack.core.context_pack import load_pack_metadata
 from agentpack.core.ignore import agentignore_sync_status, format_import_summary
+from agentpack.core.mcp_runtime import McpRuntimeCheck, check_mcp_runtime
 from agentpack.core.task_freshness import task_freshness
 from agentpack.core.thread_context import detect_conflicts, list_thread_rows
 from agentpack.integrations.agents import SUPPORTED_AGENTS, check_agent_integration, expand_agents, install_agent_integration
@@ -249,12 +251,14 @@ def register(app: typer.Typer) -> None:
         if _local_has_hooks and not _global_has_hooks:
             console.print("  [yellow]![/] Hooks local-only — context won't auto-inject in other repos. Run: agentpack install --agent claude --global")
 
-        # --- MCP server ---
-        console.print("\n[bold]MCP server[/]")
+        # --- MCP registration ---
+        console.print("\n[bold]MCP registration[/]")
         mcp_json = root / ".mcp.json"
         global_claude_settings_for_mcp = Path.home() / ".claude" / "settings.json"
+        codex_config_for_mcp = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser() / "config.toml"
         _local_has_mcp = False
         _global_has_mcp = False
+        _codex_has_mcp = False
         if mcp_json.exists():
             try:
                 mcp_data = _json.loads(mcp_json.read_text())
@@ -275,16 +279,44 @@ def register(app: typer.Typer) -> None:
                     _global_has_mcp = True
             except Exception:
                 pass
-        if not _local_has_mcp and not _global_has_mcp:
+        if codex_config_for_mcp.exists():
+            try:
+                codex_text = codex_config_for_mcp.read_text(encoding="utf-8")
+                if (
+                    "[mcp_servers.agentpack]" in codex_text
+                    and 'command = "agentpack"' in codex_text
+                    and 'args = ["mcp"]' in codex_text
+                ):
+                    console.print(f"  [green]✓[/] MCP server registered (Codex): {codex_config_for_mcp}")
+                    _codex_has_mcp = True
+            except Exception:
+                pass
+        if not _local_has_mcp and not _global_has_mcp and not _codex_has_mcp:
             console.print("  [yellow]![/] MCP server not registered — mcp__agentpack__* tools unavailable")
-            console.print("  [yellow]![/] exact repair: agentpack install --agent claude")
+            console.print("  [yellow]![/] exact repair: agentpack install --agent codex or agentpack install --agent claude")
             ok = False
         else:
             console.print(
                 "  [green]✓[/] expected MCP tools: "
                 "readiness, route_task, pack_context, get_context, refresh, get_stats"
             )
-            console.print("  [green]✓[/] live exposure proof: call MCP tool `readiness` from the agent host")
+
+        # --- MCP runtime ---
+        console.print("\n[bold]MCP runtime[/]")
+        mcp_runtime = check_mcp_runtime(root=root)
+        _print_mcp_runtime_doctor(mcp_runtime)
+        if not mcp_runtime.ok:
+            ok = False
+
+        # --- Live host exposure ---
+        console.print("\n[bold]Live host exposure[/]")
+        console.print("  [yellow]![/] cannot be proven from CLI")
+        console.print("  Call `agentpack_readiness()` or `mcp__agentpack__readiness()` from the agent host.")
+        if mcp_runtime.ok:
+            console.print(
+                "  If readiness is absent, MCP local server is runnable but this host session has not exposed tools; "
+                "run `agentpack repair --agent <agent>` and restart the host."
+            )
 
         # --- Agent integration matrix ---
         console.print("\n[bold]Agent integration audit[/]")
@@ -375,6 +407,23 @@ def _safe_fix(root: Path, agent: str) -> None:
 
             install_agent_integration(root, selected, install_slash_command=_install_slash_command)
             console.print(f"  [green]✓[/] repaired {selected} integration")
+
+
+def _print_mcp_runtime_doctor(check: McpRuntimeCheck) -> None:
+    if check.status == "stdio_waiting":
+        console.print("  [green]✓[/] agentpack mcp starts and waits for stdio")
+        return
+    if check.status == "ready":
+        console.print(f"  [green]✓[/] {check.detail}")
+        return
+    if check.status == "missing_extra":
+        console.print("  [yellow]![/] missing MCP extra")
+    elif check.status == "command_missing":
+        console.print("  [yellow]![/] agentpack command missing")
+    else:
+        console.print(f"  [yellow]![/] {check.detail}")
+    for command in check.remediation:
+        console.print(f"  Fix: {escape(command)}")
 
 
 def _thread_conflict_findings(root: Path) -> list[str]:

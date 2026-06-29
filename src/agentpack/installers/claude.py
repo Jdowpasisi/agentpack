@@ -4,7 +4,12 @@ import json
 import re
 from pathlib import Path
 
-from agentpack.core.command_surface import fallback_agent_guidance, prompt_quality_guidance, refresh_commands
+from agentpack.core.command_surface import (
+    fallback_agent_guidance,
+    mcp_diagnostic_guidance,
+    prompt_quality_guidance,
+    refresh_commands,
+)
 
 
 def _agentpack_block() -> str:
@@ -62,6 +67,8 @@ Then read `.agentpack/context.claude.md`.
 Use JSON programmatically for configs, storage, hooks, and tool protocols. Use TOON for agent-facing structured context or prompt payloads unless an external contract requires JSON.
 
 {fallback_agent_guidance()}
+
+{mcp_diagnostic_guidance("claude")}
 
 {prompt_quality_guidance()}{thread_line}
 <!-- agentpack:end -->"""

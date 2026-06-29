@@ -15,6 +15,17 @@ The CLI remains the setup/debug/release path. MCP is the best interactive path b
 
 Markdown context files are fallback artifacts for CI, logs, manual review, and non-MCP agents. Every rendered pack includes a machine-readable `agentpack:freshness` comment; agents should treat `active_context: mcp` as the preferred path and refresh before using markdown when `refresh_required: true`.
 
+Do not run `agentpack mcp` as a daily developer command. Agent hosts launch it from MCP config written by install/repair flows. Use bounded manual execution only to diagnose command/import/runtime failures.
+
+Supported setup path:
+
+```bash
+agentpack repair --agent codex
+agentpack doctor --agent codex
+# restart Codex
+# call agentpack_readiness() from the host
+```
+
 For non-MCP agents, use `doctor` to verify the installed command surface and exact repair path:
 
 ```bash

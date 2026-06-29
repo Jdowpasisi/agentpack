@@ -3,7 +3,7 @@ from __future__ import annotations
 import typer
 
 from agentpack.commands._shared import console, _root
-from agentpack.commands.install import _install_slash_command, _print_install_results
+from agentpack.commands.install import _install_slash_command, _print_install_results, _print_mcp_runtime_check
 from agentpack.integrations.agents import SUPPORTED_AGENTS, expand_agents, install_agent_integration
 
 
@@ -36,5 +36,6 @@ def register(app: typer.Typer) -> None:
                 install_slash_command=_install_slash_command,
             )
             _print_install_results(selected, results)
+            _print_mcp_runtime_check(root, selected)
 
         console.print("\n[bold green]Repair complete.[/]")

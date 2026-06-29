@@ -4,6 +4,7 @@ import agentpack.integrations.global_install as gi
 from typer.testing import CliRunner
 
 from agentpack.cli import app
+from agentpack.core.mcp_runtime import McpRuntimeCheck
 
 
 def test_install_generic_is_supported_noop(tmp_path, monkeypatch) -> None:
@@ -64,3 +65,22 @@ def test_global_repair_hooks_without_repo_hooks_dir(tmp_path, monkeypatch) -> No
 
     assert result.exit_code == 0, result.output
     assert "No local .git/hooks directory found" in result.output
+
+
+def test_install_prints_mcp_missing_extra_remediation(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "agentpack.commands.install.check_mcp_runtime",
+        lambda root: McpRuntimeCheck(
+            status="missing_extra",
+            ok=False,
+            detail="missing",
+            remediation=('pipx inject agentpack-cli "agentpack-cli[mcp]"',),
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["install", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    assert "MCP runtime: missing MCP extra" in result.output
+    assert 'pipx inject agentpack-cli "agentpack-cli[mcp]"' in result.output

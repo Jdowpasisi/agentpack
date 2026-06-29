@@ -73,6 +73,21 @@ def fallback_agent_guidance() -> str:
     )
 
 
+def mcp_diagnostic_guidance(agent: str = "auto") -> str:
+    commands = refresh_commands(agent)
+    return (
+        "Prefer AgentPack MCP when tools are exposed. First call readiness "
+        "(`agentpack_readiness()` or `mcp__agentpack__readiness()`) to prove live tool exposure.\n"
+        "If MCP tools are unavailable: run `agentpack mcp` once with a short timeout. "
+        "If it exits with command/import error, report the setup issue and fall back to CLI/direct search. "
+        "If it waits until timeout, the local MCP server is runnable but the host did not expose tools; "
+        f"fall back to CLI/direct search and suggest `agentpack repair --agent {agent}` plus host restart. "
+        "Do not keep `agentpack mcp` running manually.\n"
+        f"CLI fallback: `{commands.primary}`, `agentpack route --task \"<task>\"`, "
+        "`agentpack pack --task auto`, then `rg` / direct file reads."
+    )
+
+
 def prompt_quality_guidance() -> str:
     return (
         "Prompt hygiene: for agent-mode coding work, prefer `Task`, `Files`, "

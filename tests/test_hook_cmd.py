@@ -167,6 +167,23 @@ class TestRunUserPromptSubmit:
         assert "BYPASS REQUIRED" not in ctx
         assert "src/reviewed.py" in ctx
 
+    def test_review_preflight_reminder_only_repeats_when_snapshot_changes(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["src/reviewed.py"])
+        _write_metadata(repo, task="review PR 1127 load test changes", root_hash="hash1")
+        _write_task(repo, "review PR 1127 load test changes")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+
+        first = self._capture_output(repo, {"prompt": "review PR 1127 load test changes"}, monkeypatch)
+        second = self._capture_output(repo, {"prompt": "review PR 1127 load test changes"}, monkeypatch)
+        _write_snapshot(repo, "hash2")
+        third = self._capture_output(repo, {"prompt": "review PR 1127 load test changes"}, monkeypatch)
+
+        assert "REVIEW DETECTED" in first["hookSpecificOutput"]["additionalContext"]
+        assert "REVIEW DETECTED" not in second["hookSpecificOutput"]["additionalContext"]
+        assert "REVIEW DETECTED" in third["hookSpecificOutput"]["additionalContext"]
+
     def test_no_mcp_capped_fallback(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
@@ -179,7 +196,21 @@ class TestRunUserPromptSubmit:
 
         assert len(ctx) <= 3000
         assert "src/a.py" in ctx
+        assert "MCP unavailable: run `agentpack repair --agent auto`" in ctx
         assert "agentpack install" in ctx  # nudge toward MCP
+
+    def test_mcp_status_hint_only_emits_once_per_task(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["src/a.py"])
+        _write_metadata(repo, task="fix login", root_hash="hash1")
+        _write_task(repo, "fix login")
+
+        first = self._capture_output(repo, {"prompt": "fix login"}, monkeypatch)
+        second = self._capture_output(repo, {"prompt": "fix login"}, monkeypatch)
+
+        assert "MCP unavailable" in first["hookSpecificOutput"]["additionalContext"]
+        assert "MCP unavailable" not in second["hookSpecificOutput"]["additionalContext"]
 
     def test_no_mcp_review_preflight_uses_guard_fallback(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)

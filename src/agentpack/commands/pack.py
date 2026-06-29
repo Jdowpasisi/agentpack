@@ -30,7 +30,7 @@ def register(app: typer.Typer) -> None:
         task: str = typer.Option(
             "auto",
             "--task",
-            help="Task source. Only 'auto' is supported; write the task to .agentpack/task.md.",
+            help="Task text to pack, or 'auto' to read .agentpack/task.md / git context.",
         ),
         mode: str = typer.Option("balanced", "--mode", help=f"Budget mode ({MODE_HELP})."),
         budget: int = typer.Option(0, "--budget", help="Token budget (0 = use config default)."),
@@ -88,12 +88,19 @@ def _resolve_task(task: str) -> str:
 
 def _resolve_task_with_source(task: str, thread_id: str | None = None) -> tuple[str, str]:
     if task != "auto":
-        console.print(
-            "[red]`agentpack pack --task \"...\"` is no longer supported.[/]\n"
-            "Write the task to [bold].agentpack/task.md[/], then run "
-            "[bold]agentpack pack --task auto[/] or [bold]agentpack pack[/]."
-        )
-        raise typer.Exit(2)
+        task_text = " ".join(task.strip().split())
+        if not task_text:
+            console.print("[red]Task text cannot be empty.[/]")
+            raise typer.Exit(1)
+        root = _root()
+        scoped = thread_paths(root, thread_id)
+        task_path = scoped.task if scoped else root / ".agentpack" / "task.md"
+        task_path.parent.mkdir(parents=True, exist_ok=True)
+        task_path.write_text(task_text + "\n", encoding="utf-8")
+        source = f"thread:{scoped.thread_id}:--task" if scoped else "--task"
+        console.print(f"[dim]Task from --task: {task_text}[/]")
+        console.print(f"[dim]Wrote {task_path.relative_to(root)}[/]")
+        return task_text, source
     root = _root()
     scoped = thread_paths(root, thread_id)
     if scoped and scoped.task.exists():

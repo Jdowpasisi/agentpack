@@ -16,6 +16,8 @@ class TestCodexAdapter:
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent codex --repair-stale --refresh-context" in content
         assert "MCP is the active path" in content
+        assert "run `agentpack mcp` once with a short timeout" in content
+        assert "Do not keep `agentpack mcp` running manually" in content
         assert "agentpack:freshness" in content
         assert "TOON" in content
         assert ".agentpack/task.md" in content

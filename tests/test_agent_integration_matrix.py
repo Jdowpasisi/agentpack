@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from agentpack.cli import app
+from agentpack.core.mcp_runtime import McpRuntimeCheck
 from agentpack.integrations.agents import check_agent_integration
 
 AGENTS = ("claude", "cursor", "windsurf", "codex", "antigravity", "generic")
@@ -59,6 +60,25 @@ def test_repair_all_installs_every_agent_integration(tmp_path, monkeypatch) -> N
     assert result.exit_code == 0, result.output
     for agent in AGENTS:
         _assert_agent_ready(tmp_path, agent, strict_git=False)
+
+
+def test_repair_prints_mcp_missing_extra_remediation(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "agentpack.commands.install.check_mcp_runtime",
+        lambda root: McpRuntimeCheck(
+            status="missing_extra",
+            ok=False,
+            detail="missing",
+            remediation=('pipx inject agentpack-cli "agentpack-cli[mcp]"',),
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["repair", "--agent", "claude"])
+
+    assert result.exit_code == 0, result.output
+    assert "MCP runtime: missing MCP extra" in result.output
+    assert 'pipx inject agentpack-cli "agentpack-cli[mcp]"' in result.output
 
 
 @pytest.mark.parametrize(

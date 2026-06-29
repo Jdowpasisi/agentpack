@@ -180,8 +180,7 @@ Do not ask the user — just refresh and proceed.
 ## Notes
 
 - All commands are local — no API calls
-- Task text belongs in `.agentpack/task.md`; inline task strings are not supported on `agentpack pack`.
-- `--task auto` reads `.agentpack/task.md`, then falls back to branch name → changed file paths → recent commit
+- `agentpack pack --task "<task>"` writes the task and packs it; `--task auto` reads `.agentpack/task.md`, then falls back to branch name → changed file paths → recent commit
 - Changed files are highest priority in context
 - Session context files: `.agentpack/context.md` (readable), `.agentpack/context.compact.md` (compact)
 - Never overwrite `.agentignore` or `config.toml` without `--force`

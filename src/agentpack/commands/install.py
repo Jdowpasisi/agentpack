@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
+from rich.markup import escape
 
 from agentpack.commands._shared import console, _root
+from agentpack.core.mcp_runtime import McpRuntimeCheck, check_mcp_runtime
 from agentpack.integrations.agents import SUPPORTED_AGENTS, install_agent_integration, resolve_agent
 from agentpack.integrations.git_hooks import install_git_hooks
 from agentpack.integrations.global_install import (
@@ -56,6 +58,31 @@ def _print_install_results(agent: str, results: dict[str, str]) -> None:
         console.print(f"  Write [bold].agentpack/task.md[/], then run [bold]agentpack pack --agent {agent} --task auto[/] to generate context.")
     elif agent == "antigravity":
         console.print("  AgentPack Skill will activate automatically in Antigravity for coding tasks.")
+
+
+def _print_mcp_runtime_result(check: McpRuntimeCheck) -> None:
+    if check.status == "stdio_waiting":
+        console.print("  [green]✓[/] MCP runtime: agentpack mcp starts and waits for stdio")
+        console.print("  [dim]Live host exposure still must be proven with readiness() from the agent host.[/]")
+        return
+    if check.status == "ready":
+        console.print(f"  [green]✓[/] MCP runtime: {check.detail}")
+        return
+    if check.status == "missing_extra":
+        console.print("  [yellow]![/] MCP runtime: missing MCP extra")
+    elif check.status == "command_missing":
+        console.print("  [yellow]![/] MCP runtime: agentpack command missing")
+    else:
+        console.print(f"  [yellow]![/] MCP runtime: {check.detail}")
+    for command in check.remediation:
+        console.print(f"  Fix: [bold]{escape(command)}[/]")
+
+
+def _print_mcp_runtime_check(root: Path, agent: str) -> None:
+    if agent not in {"claude", "codex"}:
+        return
+    console.print("[bold]MCP runtime check[/]")
+    _print_mcp_runtime_result(check_mcp_runtime(root=root))
 
 
 def _print_dry_run_agent(agent: str) -> None:
@@ -118,6 +145,7 @@ def register(app: typer.Typer) -> None:
             install_slash_command=_install_slash_command,
         )
         _print_install_results(resolved, results)
+        _print_mcp_runtime_check(root, resolved)
 
     @app.command(name="global-install")
     def global_install_cmd(
@@ -196,6 +224,7 @@ def register(app: typer.Typer) -> None:
             install_slash_command=_install_slash_command,
         )
         _print_install_results(resolved, results)
+        _print_mcp_runtime_check(root, resolved)
         console.print("\n[bold green]Global install complete.[/]")
         console.print("  Git hooks fire on commit/merge/checkout — [bold]only in opted-in repos[/].")
         if shell_hook:

@@ -16,6 +16,7 @@ from agentpack.commands.doctor import (
     _thread_conflict_findings,
 )
 from agentpack.core.command_surface import installed_cli_status, refresh_commands
+from agentpack.core.mcp_runtime import McpRuntimeCheck
 from agentpack.core.thread_context import append_thread_index, build_thread_index_row
 
 
@@ -96,10 +97,19 @@ def test_doctor_release_hygiene_warning_does_not_fail_summary(tmp_path: Path, mo
     monkeypatch.setattr("agentpack.commands.doctor._agentignore_sync_findings", lambda root: ["synced: .agentignore present"])
     monkeypatch.setattr("agentpack.commands.doctor._thread_conflict_findings", lambda root: [])
     monkeypatch.setattr("agentpack.commands.doctor._publish_secret_findings", lambda root: [])
+    monkeypatch.setattr(
+        "agentpack.commands.doctor.check_mcp_runtime",
+        lambda root: McpRuntimeCheck(status="stdio_waiting", ok=True, detail="waiting"),
+    )
 
     result = CliRunner().invoke(app, ["doctor", "--agent", "generic"])
 
     assert result.exit_code == 0, result.output
+    assert "MCP registration" in result.output
+    assert "MCP runtime" in result.output
+    assert "agentpack mcp starts and waits for stdio" in result.output
+    assert "Live host exposure" in result.output
+    assert "cannot be proven from CLI" in result.output
     assert "generated/local artifacts present" in result.output
     assert "agentpack-review.md" in result.output
     assert "agentpack-learn.md" in result.output

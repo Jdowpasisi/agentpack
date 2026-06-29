@@ -21,6 +21,8 @@ class TestCursorAdapter:
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent cursor --repair-stale --refresh-context" in content
         assert "MCP is the active path" in content
+        assert "run `agentpack mcp` once with a short timeout" in content
+        assert "Do not keep `agentpack mcp` running manually" in content
         assert "agentpack:freshness" in content
         assert "When the user switches to a different coding task" in content
         assert "context.md" in content
@@ -65,6 +67,8 @@ class TestCursorAdapter:
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent cursor --repair-stale --refresh-context" in content
         assert "MCP is the active path" in content
+        assert "run `agentpack mcp` once with a short timeout" in content
+        assert "Do not keep `agentpack mcp` running manually" in content
         assert "agentpack:freshness" in content
         assert "When the user switches to a different coding task" in content
         assert "context.md" in content
@@ -97,6 +101,8 @@ class TestWindsurfAdapter:
         assert "agentpack_pack_context" in content
         assert "agentpack guard --agent windsurf --repair-stale --refresh-context" in content
         assert "MCP is the active path" in content
+        assert "run `agentpack mcp` once with a short timeout" in content
+        assert "Do not keep `agentpack mcp` running manually" in content
         assert "agentpack:freshness" in content
         assert "When the user switches to a different coding task" in content
         assert "context.md" in content

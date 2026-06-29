@@ -11,6 +11,38 @@ Format: `## [version] — YYYY-MM-DD` followed by categorised entries.
 ### Added
 - No changes yet.
 
+## [0.3.34] — 2026-06-29
+
+### Added
+- Added a bounded MCP runtime diagnostic that checks whether the `agentpack` command resolves, whether `mcp.server.fastmcp` imports, and whether `agentpack mcp` starts without leaving a long-running process behind.
+- Added explicit MCP runtime reporting to `agentpack install --agent codex|claude`, `agentpack repair --agent codex|claude`, and `agentpack doctor --agent <agent>` so setup now distinguishes registration, local server readiness, and live host exposure.
+- Added exact remediation text for missing MCP extras, including `pipx inject agentpack-cli "agentpack-cli[mcp]"` for installed CLI users and `python -m pip install -e ".[mcp]"` for source checkouts.
+- Added generated-agent guidance for Codex, Claude, Cursor, Windsurf, and Antigravity that tells agents to prove MCP exposure with readiness first, run only a bounded `agentpack mcp` diagnostic when tools are absent, and then continue with CLI/direct-search fallback.
+
+### Changed
+- Clarified `agentpack mcp` as a low-level stdio server entrypoint launched by agent hosts from MCP config, not a daily developer command.
+- Split `agentpack doctor` MCP output into `MCP registration`, `MCP runtime`, and `Live host exposure` sections so a locally runnable server is not confused with tools being exposed inside the current host session.
+- Made hook messaging less noisy by deduplicating MCP fallback and review-preflight reminders per task/session while resetting those reminders on `SessionStart`.
+- Updated deploy-task hook guidance to say AgentPack is a guardrail and context frame, while rendered deploy configuration and live platform state remain the source of truth for production deployment checks.
+- Updated review-task guidance so staged review workflows stay explicit about preflight, understanding, and findings artifacts instead of relying on inline prompt discipline.
+- Restored `agentpack pack --task "<task>"` as a supported one-command path that writes the task into the active task file before packing, while preserving `--task auto` as the default read-existing-context mode.
+
+### Fixed
+- Fixed MCP fallback UX where configured integrations could still leave agents without callable tools and no clear diagnostic path.
+- Fixed review context anchoring so PR review workflows prefer the actual PR target and diff instead of silently anchoring to the checked-out branch or `HEAD~1` fallback.
+- Fixed TOON citation validation for evidence strings with prose before a `path:line` token by avoiding path parsing that absorbs leading sentence text into nonexistent filenames.
+- Reduced unrelated dirty-tree and wrong-task context noise by making stale reasons explicit and by routing agents back to direct `rg`, PR diff inspection, and focused validation when AgentPack context is missing, stale, or wrong-worktree.
+
+### Documentation
+- Expanded MCP setup docs with the supported repair/doctor/restart/readiness workflow and bounded manual diagnostic behavior.
+- Updated packaged skills, Codex plugin skills, and slash-command docs to document `pack --task "<task>"`, MCP readiness checks, and CLI fallback expectations.
+- Updated README current-release notes for the 0.3.34 MCP reliability, review anchoring, deploy routing, and citation-validation fixes.
+
+### Validation
+- Ran focused MCP, install, repair, doctor, hook, and generated-instruction tests.
+- Ran `PYTHONPATH=src python -m pytest -q -m 'not slow'` with `1278 passed, 2 deselected`.
+- Ran `ruff`, `compileall`, `git diff --check`, and a bounded local source MCP stdio probe.
+
 ## [0.3.33] — 2026-06-28
 
 ### Documentation

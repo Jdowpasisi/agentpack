@@ -136,14 +136,14 @@ It reuses cached file summaries and snapshot metadata so repeated packs do not s
 - freshness warnings when task or git state changes
 - local benchmark data when selected context misses real changed files
 
-## What's Current In 0.3.33
+## What's Current In 0.3.34
 
-- Grounded broad context now supports review, sharing, audit, and repo-overview tasks with citation checks and scoped safety gates.
-- Review workflows now push agents through preflight, understanding, and findings stages instead of letting review prompts answer inline.
-- Pack and route fallbacks are stricter about stale context, missing MCP surfaces, and source provenance.
-- The npm wrapper preserves the selected Python descriptor when creating the versioned CLI environment.
-- Packaged Codex plugin metadata, docs URLs, and scanner automation now score cleanly in local HOL scans.
-- Light fixture recall improved by keeping correlated source/deploy summaries and using concrete owner terms in fixture tasks.
+- MCP setup is now checked in normal install, repair, and doctor flows, with clear separation between config registration, local runtime readiness, and live host exposure.
+- Agent instructions now prefer MCP only after a readiness call proves live tools, then fall back to bounded diagnostics, CLI context refresh, and direct repo search when host tools are missing.
+- Review and deployment tasks now get stronger source-of-truth routing so PR reviews stay anchored to the target diff and deploy work prioritizes rendered config plus live platform state.
+- `agentpack pack --task "<task>"` works again as a one-command task write plus context pack path, while `--task auto` remains the default context-source mode.
+- TOON citation validation is stricter about path tokens so prose before evidence no longer turns into a bogus file path.
+- Hook reminders are deduplicated per task/session and explain MCP fallback without repeating on every prompt.
 
 ## Proof So Far
 
@@ -299,7 +299,7 @@ pipx ensurepath
 
 ## Status
 
-Alpha: `0.3.33`.
+Alpha: `0.3.34`.
 
 Works, tested, and used in real sessions. Python and JavaScript/TypeScript have strongest support. APIs may change before 1.0.
 

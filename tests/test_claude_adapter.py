@@ -46,6 +46,8 @@ def test_patch_creates_claude_md(tmp_path):
     assert "mcp__agentpack__pack_context" in content
     assert "agentpack guard --agent claude --repair-stale --refresh-context" in content
     assert "Prefer MCP" in content
+    assert "run `agentpack mcp` once with a short timeout" in content
+    assert "Do not keep `agentpack mcp` running manually" in content
 
 
 def test_patch_appends_to_existing(tmp_path):

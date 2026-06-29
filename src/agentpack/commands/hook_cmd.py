@@ -240,6 +240,39 @@ def _review_preflight_note(*, review_intent: bool, context_stale: bool, has_mcp:
     return "\n".join(lines) + "\n"
 
 
+def _review_reminder_key(task: str, packed_root_hash: str | None, current_root_hash: str | None) -> str:
+    return json.dumps(
+        {
+            "task": task,
+            "packed_root_hash": packed_root_hash or "",
+            "current_root_hash": current_root_hash or "",
+        },
+        sort_keys=True,
+    )
+
+
+def _should_emit_review_preflight(
+    root: Path,
+    *,
+    review_intent: bool,
+    task: str,
+    packed_root_hash: str | None,
+    current_root_hash: str | None,
+) -> bool:
+    if not review_intent:
+        return False
+    reminder_path = root / ".agentpack" / ".review_preflight_reminded"
+    key = _review_reminder_key(task, packed_root_hash, current_root_hash)
+    try:
+        if reminder_path.exists() and reminder_path.read_text(encoding="utf-8") == key:
+            return False
+        reminder_path.parent.mkdir(parents=True, exist_ok=True)
+        reminder_path.write_text(key, encoding="utf-8")
+    except OSError:
+        return True
+    return True
+
+
 def _source_of_truth_note(task: str) -> str:
     if _looks_like_deploy_task(task):
         return (
@@ -455,6 +488,51 @@ def _current_root_hash(root: Path) -> str | None:
         return None
 
 
+def _stale_reasons(
+    *,
+    pack_missing: bool,
+    repo_changed: bool,
+    task_switched: bool,
+    pack_task_changed: bool,
+) -> list[str]:
+    reasons: list[str] = []
+    if pack_missing:
+        reasons.append("pack missing metadata")
+    if repo_changed:
+        reasons.append("repo snapshot changed")
+    if task_switched:
+        reasons.append("prompt switched task")
+    if pack_task_changed:
+        reasons.append("task differs from packed task")
+    return reasons
+
+
+def _stale_note(reasons: list[str]) -> str:
+    return f"stale reason: {', '.join(reasons)}\n" if reasons else ""
+
+
+def _mcp_status_note(root: Path, *, has_mcp: bool, task: str) -> str:
+    reminder_path = root / ".agentpack" / ".mcp_reminded"
+    key = json.dumps({"task": task, "has_mcp": has_mcp}, sort_keys=True)
+    try:
+        if reminder_path.exists() and reminder_path.read_text(encoding="utf-8") == key:
+            return ""
+        reminder_path.parent.mkdir(parents=True, exist_ok=True)
+        reminder_path.write_text(key, encoding="utf-8")
+    except OSError:
+        pass
+    if has_mcp:
+        return (
+            "MCP registration found. Live exposure must be proven by readiness(). "
+            "If readiness is absent, run one bounded `agentpack mcp` diagnostic, then use CLI/direct search fallback. "
+            "Do not keep `agentpack mcp` running manually.\n"
+        )
+    return (
+        "MCP unavailable: run `agentpack repair --agent auto`. Using CLI/direct search fallback. "
+        "A bounded `agentpack mcp` diagnostic can distinguish setup failure from host exposure failure.\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Event handlers
 # ---------------------------------------------------------------------------
@@ -465,6 +543,7 @@ def _run_session_start(root: Path) -> None:
         root / ".agentpack" / ".mcp_reminded",
         root / ".agentpack" / ".context_injected",
         root / ".agentpack" / ".no_task_reminded",
+        root / ".agentpack" / ".review_preflight_reminded",
     ]:
         try:
             sentinel.unlink(missing_ok=True)
@@ -550,6 +629,12 @@ def _run_user_prompt_submit(root: Path) -> None:
     pack_task_changed = bool(task != "auto" and packed_task and packed_task != task)
 
     context_stale = pack_missing or repo_changed or task_switched or pack_task_changed
+    stale_reasons = _stale_reasons(
+        pack_missing=pack_missing,
+        repo_changed=repo_changed,
+        task_switched=task_switched,
+        pack_task_changed=pack_task_changed,
+    )
     blocking_refresh = bool(cfg.hooks.blocking_task_refresh and context_stale)
     refresh_state = "fresh"
     refresh_error = ""
@@ -574,14 +659,23 @@ def _run_user_prompt_submit(root: Path) -> None:
     raw_hints = _load_hints(root, n=5 if has_mcp else 8) if safe_hints else []
     hints = _filter_runtime_infra_hints(current_task, raw_hints)
     hints_suppressed = safe_hints and bool(raw_hints) and not hints
+    emit_review_preflight = _should_emit_review_preflight(
+        root,
+        review_intent=review_intent,
+        task=current_task,
+        packed_root_hash=packed_root_hash,
+        current_root_hash=current_hash,
+    )
     review_note = _review_preflight_note(
         review_intent=review_intent,
         context_stale=context_stale,
         has_mcp=has_mcp,
         task=current_task,
-    )
+    ) if emit_review_preflight else ""
     review_stage_gate = _review_stage_gate_note(root, review_intent=review_intent)
     source_note = _source_of_truth_note(current_task)
+    stale_detail = _stale_note(stale_reasons)
+    mcp_detail = _mcp_status_note(root, has_mcp=has_mcp, task=current_task)
 
     if has_mcp:
         if hints:
@@ -603,6 +697,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + stale_detail
+                + mcp_detail
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
@@ -618,6 +714,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + stale_detail
+                + mcp_detail
                 + (
                     "If the AgentPack MCP tool is visible, call agentpack_get_context(); "
                     f"otherwise run `{refresh_commands('auto').primary}` and use direct repo search."
@@ -631,6 +729,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + stale_detail
+                + mcp_detail
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (
                     'If the AgentPack MCP tool is visible, call agentpack_pack_context(task="..."); '
@@ -644,6 +744,7 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + mcp_detail
                 + (f"delta: {delta}\n" if delta else "")
                 + (
                     "If the AgentPack MCP tools are visible, call agentpack_pack_context(task=\"...\") for a fresh pack; "
@@ -654,6 +755,7 @@ def _run_user_prompt_submit(root: Path) -> None:
             msg = (
                 "AgentPack active. No pack yet.\n"
                 + source_note
+                + mcp_detail
                 + (
                     'If the AgentPack MCP tool is visible, call agentpack_pack_context(task="..."); '
                     f"otherwise run `{refresh_commands('auto').primary}`."
@@ -679,6 +781,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + stale_detail
+                + mcp_detail
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
@@ -693,6 +797,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + stale_detail
+                + mcp_detail
                 + f"Run `{refresh_commands('auto').primary}`. If tools stay unavailable, use direct repo search."
             )
         elif refresh_state == "refresh failed":
@@ -703,6 +809,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + stale_detail
+                + mcp_detail
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + f"Run `{refresh_commands('auto').primary}` to rebuild the current task pack."
             )
@@ -713,13 +821,15 @@ def _run_user_prompt_submit(root: Path) -> None:
                 + review_note
                 + review_stage_gate
                 + source_note
+                + mcp_detail
                 + (f"delta: {delta}\n" if delta else "")
                 + f"Run `{refresh_commands('auto').primary}` for a fresh pack, or use direct repo search."
             )
         else:
             msg = (
                 "AgentPack active. Write `.agentpack/task.md`, then run `agentpack pack --task auto` to build context.\n"
-                "For auto context, install MCP: agentpack install --agent claude"
+                + mcp_detail
+                + "For auto context, install MCP: agentpack install --agent claude"
             )
 
         if len(msg) > 3000:

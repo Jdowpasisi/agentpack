@@ -721,11 +721,12 @@ Global mode writes `.agentpack/task.md`. Thread mode writes
 
 ### `agentpack pack`
 
-Generate a context pack. Task text lives in `.agentpack/task.md`; inline task strings are no longer supported on `pack`. `--task auto` remains for old hooks and scripts, and is the default when the flag is omitted.
+Generate a context pack. `agentpack pack --task "<task>"` writes the task into `.agentpack/task.md` and packs it. `--task auto` reads `.agentpack/task.md`, then falls back to git context, and is the default when the flag is omitted.
 
 ```bash
 printf '%s\n' "fix auth session bug" > .agentpack/task.md
 agentpack pack                                # auto-detects your IDE
+agentpack pack --task "fix auth session bug"  # write task + pack in one command
 agentpack pack --agent claude                 # explicit agent
 agentpack pack --workspace apps/web
 agentpack pack --thread codex-local           # scoped task/context for one agent thread
@@ -749,7 +750,7 @@ Options:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--agent` | `auto` | Target agent (`auto` \| `claude` \| `cursor` \| `windsurf` \| `codex` \| `antigravity` \| `generic`). `auto` detects the active IDE from env and project files. |
-| `--task` | `auto` | Backward-compatible task source. Only `auto` is supported; write task text to `.agentpack/task.md`. |
+| `--task` | `auto` | Task text to write before packing, or `auto` to read `.agentpack/task.md` / git context. |
 | `--mode` | `balanced` | Budget mode: `lite`, `balanced`, `deep` |
 | `--budget` | 0 (uses config default 40000) | Token budget |
 | `--workspace` | — | Restrict packing to a monorepo workspace and write `.agentpack/workspaces/<workspace>/context.md` |
@@ -1029,15 +1030,31 @@ Requires an initialized project (`agentpack init`). Refreshes context, prints th
 
 ### `agentpack mcp`
 
-Run AgentPack as an MCP server — exposes context packing as tools that Claude Code (and any MCP-compatible agent) can call directly.
+Start AgentPack's stdio MCP server. This is a low-level server/debug entrypoint; normal developers should use `agentpack install`, `agentpack repair`, and `agentpack doctor` so the agent host launches MCP from config.
+
+```bash
+agentpack repair --agent codex
+agentpack doctor --agent codex
+# restart Codex, then call agentpack_readiness() from the host
+```
+
+Manual `agentpack mcp` execution is diagnostic only. Run it once with a short timeout:
+
+- If it exits with a command/import error, fix setup and fall back to CLI/direct search.
+- If it waits until timeout, the local MCP server is runnable but the host did not expose tools; run `agentpack repair --agent <agent>`, restart the host, and fall back to CLI/direct search.
+- Do not keep `agentpack mcp` running manually.
+
+If the MCP extra is missing:
 
 ```bash
 pipx inject agentpack-cli "agentpack-cli[mcp]"
-PIPX_AGENTPACK="$(pipx environment --value PIPX_BIN_DIR)/agentpack"
-"$PIPX_AGENTPACK" mcp
 ```
 
-Use the explicit `pipx` binary path above if you also have the npm wrapper on `PATH`; otherwise `agentpack mcp` may still resolve to the Node launcher instead of the extras-enabled Python CLI.
+For source checkouts:
+
+```bash
+python -m pip install -e ".[mcp]"
+```
 
 Register in Claude Code settings (`~/.claude/settings.json`):
 
@@ -1070,7 +1087,7 @@ Register in Claude Code settings (`~/.claude/settings.json`):
 | `get_delta_context(max_files)` | Return the latest selected-file delta plus top current selected files. Useful for cheap prompt-time refresh checks. |
 | `get_stats()` | Return latest pack stats, savings, selection quality, excluded files, and benchmark-style signals. |
 
-**Live MCP exposure:** CLI `doctor` can verify MCP registration/config. To prove the current agent host actually exposes AgentPack tools, call `readiness()` from that host. If it returns JSON, live exposure is confirmed.
+**Live MCP exposure:** CLI `doctor` verifies MCP registration and local runtime readiness. It cannot prove the current agent host actually exposes AgentPack tools; call `readiness()` from that host. If it returns JSON, live exposure is confirmed.
 
 **Staleness detection:** `get_context()` compares the current task file, snapshot hash, and git state against the latest pack metadata. If `.agentpack/task.md` or the repo snapshot changed, it blocks for a fresh pack and prepends:
 

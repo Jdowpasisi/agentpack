@@ -8,21 +8,24 @@ from agentpack.cli import app
 from agentpack.core.thread_context import append_thread_index, build_thread_index_row
 
 
-def test_pack_rejects_explicit_task_text(tmp_path, monkeypatch) -> None:
+def test_pack_accepts_explicit_task_text(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    (tmp_path / ".agentpack").mkdir()
+    (tmp_path / "auth.py").write_text("def check_auth(): return True\n", encoding="utf-8")
+
     result = CliRunner().invoke(app, ["pack", "--agent", "generic", "--task", "fix auth bug"])
 
-    assert result.exit_code == 2
-    assert "no longer supported" in result.output
-    assert ".agentpack/task.md" in result.output
-    assert "agentpack pack --task auto" in result.output
+    assert result.exit_code == 0, result.output
+    assert "Task from --task: fix auth bug" in result.output
+    assert (tmp_path / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix auth bug\n"
+    assert (tmp_path / ".agentpack" / "context.md").exists()
 
 
 def test_pack_help_directs_tasks_to_task_md() -> None:
     result = CliRunner().invoke(app, ["pack", "--help"])
 
     assert result.exit_code == 0
-    assert "Only 'auto' is supported" in result.output
+    assert "Task text to pack" in result.output
     assert ".agentpack/task.md" in result.output
 
 
