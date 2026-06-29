@@ -45,12 +45,15 @@ with `good first issue`, at least ten contributors, setup instructions,
 
 Current live status checked before this file was updated:
 
-- open issues: `0`
+- open starter issues: `15` (`#20` through `#34`)
+- open issues with `good first issue`: `9`
 - contributor count from GitHub contributors API: `4`
 - repository permission for the current `gh` token: `READ`
+- missing target topics: `good-first-issue`, `help-wanted`, `cli`, `python`
+- missing specialized labels: `docs`, `benchmark`, `cli`, `testing`
 
-AgentPack should be submitted to Good First Issue after the starter issues are
-created on GitHub and the contributor-count criterion is met.
+AgentPack should be submitted to Good First Issue after the target topics and
+specialized labels are applied and the contributor-count criterion is met.
 
 First Contributions is a contributor education project. For discovery there,
 use the same readiness bar before proposing AgentPack in any project list:
