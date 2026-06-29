@@ -9,6 +9,7 @@ Use these docs when you want local/offline repo analysis, MCP-first routing, CI-
 - [Commands](commands.md): CLI reference and common workflows.
 - [Configuration](configuration.md): config, scoring weights, `.agentignore`, and git integration.
 - [How AgentPack works](how-agentpack-works.md): route, pack, retrieve, learn, and benchmark flow.
+- [Demo assets](demo.md): generated README GIF/MP4 and regeneration command.
 
 Core onboarding uses `agentpack init`, `agentpack route`, `agentpack pack`,
 `agentpack doctor`, and `agentpack benchmark`. The rest of the CLI is advanced

@@ -36,6 +36,14 @@
 
 ---
 
+<p align="center">
+  <img src="docs/assets/agentpack-demo.gif" alt="Terminal demo: AgentPack refreshes context, routes a task to ranked files and warnings, then runs a focused test." width="840">
+</p>
+
+<p align="center">
+  <a href="docs/assets/agentpack-demo.mp4">MP4 demo</a>
+</p>
+
 You know the pattern. You ask an agent to fix one bug. It `rg`s half the repo, opens the wrong files, misses the test, then rediscovers the architecture you already had.
 
 AgentPack does the repo-orientation pass first.
