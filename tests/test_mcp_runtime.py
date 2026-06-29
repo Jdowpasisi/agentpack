@@ -5,6 +5,7 @@ import subprocess
 from typer.testing import CliRunner
 
 from agentpack.cli import app
+from agentpack.core import mcp_runtime
 from agentpack.core.mcp_runtime import check_mcp_runtime
 
 
@@ -12,8 +13,8 @@ def test_mcp_runtime_reports_missing_extra(monkeypatch, tmp_path) -> None:
     def fake_import(name: str):
         raise ModuleNotFoundError("No module named 'mcp'", name="mcp")
 
-    monkeypatch.setattr("agentpack.core.mcp_runtime.shutil.which", lambda command: "/bin/agentpack")
-    monkeypatch.setattr("agentpack.core.mcp_runtime.importlib.import_module", fake_import)
+    monkeypatch.setattr(mcp_runtime.shutil, "which", lambda command: "/bin/agentpack")
+    monkeypatch.setattr(mcp_runtime.importlib, "import_module", fake_import)
 
     result = check_mcp_runtime(root=tmp_path)
 
@@ -37,9 +38,9 @@ def test_mcp_runtime_reports_stdio_waiting_and_kills_process(monkeypatch, tmp_pa
             self.killed = True
 
     proc = FakeProc()
-    monkeypatch.setattr("agentpack.core.mcp_runtime.shutil.which", lambda command: "/bin/agentpack")
-    monkeypatch.setattr("agentpack.core.mcp_runtime.importlib.import_module", lambda name: object())
-    monkeypatch.setattr("agentpack.core.mcp_runtime.subprocess.Popen", lambda *args, **kwargs: proc)
+    monkeypatch.setattr(mcp_runtime.shutil, "which", lambda command: "/bin/agentpack")
+    monkeypatch.setattr(mcp_runtime.importlib, "import_module", lambda name: object())
+    monkeypatch.setattr(mcp_runtime.subprocess, "Popen", lambda *args, **kwargs: proc)
 
     result = check_mcp_runtime(root=tmp_path, timeout_s=0.01)
 
