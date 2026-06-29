@@ -10,6 +10,11 @@
     "description": "Extra attention is needed"
   },
   {
+    "name": "first-timers-only",
+    "color": "5319e7",
+    "description": "Reserved for a first open-source contribution"
+  },
+  {
     "name": "docs",
     "color": "0075ca",
     "description": "Documentation improvements"

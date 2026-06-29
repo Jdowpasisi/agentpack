@@ -102,6 +102,13 @@ npx @vishal2612200/agentpack task set "fix auth token expiry"
 npx @vishal2612200/agentpack pack --task auto
 ```
 
+## New Contributors
+
+Start with [`good first issue`](https://github.com/vishal2612200/agentpack/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) or [`help wanted`](https://github.com/vishal2612200/agentpack/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22help%20wanted%22) issues.
+If this would be your first open-source contribution, use the smaller
+[`first-timers-only`](https://github.com/vishal2612200/agentpack/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22first-timers-only%22) queue.
+Contribution setup and review expectations are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Quick Demo
 
 Route task first:

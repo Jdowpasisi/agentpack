@@ -4,6 +4,7 @@
     "labels": [
       "good first issue",
       "help wanted",
+      "first-timers-only",
       "docs"
     ],
     "pinned": false,
@@ -13,6 +14,7 @@
     "title": "docs: add a glossary for route, pack, guard, MCP, and benchmark",
     "labels": [
       "good first issue",
+      "first-timers-only",
       "docs"
     ],
     "pinned": false,

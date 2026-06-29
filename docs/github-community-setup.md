@@ -9,6 +9,7 @@ Target repository topics:
 
 - `good-first-issue`
 - `help-wanted`
+- `first-timers-only`
 - `developer-tools`
 - `cli`
 - `python`
@@ -23,6 +24,7 @@ They include:
 
 - `good first issue`
 - `help wanted`
+- `first-timers-only`
 - `docs`
 - `documentation`
 - `benchmark`
@@ -47,10 +49,12 @@ Current live status checked before this file was updated:
 
 - open starter issues: `15` (`#20` through `#34`)
 - open issues with `good first issue`: `9`
+- open issues with `first-timers-only`: `2`
 - contributor count from GitHub contributors API: `4`
 - repository permission with the personal `gh` token: `ADMIN`
-- target topics present: `good-first-issue`, `help-wanted`, `developer-tools`, `cli`, `python`
-- specialized labels present: `docs`, `benchmark`, `cli`, `testing`
+- target topics present: `good-first-issue`, `help-wanted`, `first-timers-only`, `developer-tools`, `cli`, `python`
+- specialized labels present: `first-timers-only`, `docs`, `benchmark`,
+  `cli`, `testing`
 - pinned issues: `#20`, `#32`, `#33`
 - seeded discussions: Roadmap `#36`, Ideas `#37`, Help wanted `#38`
 
@@ -61,16 +65,19 @@ First Contributions is a contributor education project with a project discovery
 website. AgentPack has been submitted to that project list:
 
 - First Contributions website PR: <https://github.com/firstcontributions/firstcontributions.github.io/pull/718>
+  with `Good First Issue` and `First Timers Only` tags
 
 For any follow-up there, use the same readiness bar before proposing AgentPack
 in another project list:
 
 - public repository
 - active `good first issue` and `help wanted` issues
+- at least a few tightly scoped `first-timers-only` issues for true first-time
+  open-source contributors
 - clear `CONTRIBUTING.md`
 - beginner-friendly issue acceptance criteria
-- repository topics for `good-first-issue`, `help-wanted`, `developer-tools`,
-  `cli`, and `python`
+- repository topics for `good-first-issue`, `help-wanted`,
+  `first-timers-only`, `developer-tools`, `cli`, and `python`
 
 ## Discussions
 

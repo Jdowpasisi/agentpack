@@ -22,12 +22,18 @@ Start with issues labeled `good first issue`. These should have a narrow scope,
 clear files or docs areas, and acceptance criteria that can be verified without
 knowing the whole codebase.
 
+Issues labeled `first-timers-only` are reserved for people making their first
+open-source contribution. If you have already contributed to OSS, please leave
+those for new contributors and pick another `good first issue` or `help wanted`
+task.
+
 Useful labels:
 
 | Label | Meaning |
 |---|---|
 | `good first issue` | Small, well-scoped task for a first contribution |
 | `help wanted` | Maintainers want community help or feedback |
+| `first-timers-only` | Reserved for someone making their first OSS contribution |
 | `docs` / `documentation` | Documentation-only or documentation-heavy work |
 | `benchmark` | Benchmark cases, result docs, or evidence tooling |
 | `cli` | Command-line behavior, flags, help text, or output contracts |

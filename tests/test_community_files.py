@@ -47,7 +47,17 @@ def test_contributing_documents_route_json_alias() -> None:
 def test_contributor_label_manifest_matches_docs() -> None:
     labels = json.loads((ROOT / ".github" / "contributor-labels.json").read_text(encoding="utf-8"))
     names = {label["name"] for label in labels}
-    expected = {"good first issue", "help wanted", "docs", "documentation", "benchmark", "cli", "python", "testing"}
+    expected = {
+        "good first issue",
+        "help wanted",
+        "first-timers-only",
+        "docs",
+        "documentation",
+        "benchmark",
+        "cli",
+        "python",
+        "testing",
+    }
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
 
     assert expected <= names
@@ -59,7 +69,7 @@ def test_repository_topics_include_discovery_targets() -> None:
     topics = set(json.loads((ROOT / ".github" / "repository-topics.json").read_text(encoding="utf-8")))
     setup = (ROOT / "docs" / "github-community-setup.md").read_text(encoding="utf-8")
 
-    assert {"good-first-issue", "help-wanted", "developer-tools", "cli", "python"} <= topics
+    assert {"good-first-issue", "help-wanted", "first-timers-only", "developer-tools", "cli", "python"} <= topics
     assert "Good First Issue" in setup
     assert "First Contributions" in setup
     assert "at least three open issues" in setup
@@ -76,6 +86,7 @@ def test_contributor_issue_manifest_has_first_issue_and_pin_queue() -> None:
     assert 3 <= len(pinned) <= 5
     assert all(issue["body"].count("## Acceptance criteria") == 1 for issue in issues)
     assert any("good first issue" in issue["labels"] for issue in issues)
+    assert any("first-timers-only" in issue["labels"] for issue in issues)
     assert any("benchmark" in issue["labels"] for issue in issues)
     assert any("cli" in issue["labels"] for issue in issues)
     assert any("python" in issue["labels"] for issue in issues)
