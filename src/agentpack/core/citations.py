@@ -264,7 +264,11 @@ def validate_claim_support(
             continue
         overlap = claim_terms & _terms(span)
         if len(overlap) < min_overlap:
-            invalid.append(f"{label}: {citation.path}:{citation.start_line} does not support claim text")
+            invalid.append(
+                f"{label}: {citation.path}:{citation.start_line} does not support claim text; "
+                f"claim={_compact_error_text(claim_text)}; cited={_compact_error_text(span)}; "
+                "fix=cite a line that contains the claimed term, narrow the claim, or mark it unresolved"
+            )
             continue
         if semantic_judge is not None:
             reason = semantic_judge({
@@ -274,8 +278,25 @@ def validate_claim_support(
                 "overlap_terms": sorted(overlap),
             })
             if reason:
-                invalid.append(f"{label}: {citation.path}:{citation.start_line} semantic support rejected ({reason})")
+                invalid.append(
+                    f"{label}: {citation.path}:{citation.start_line} semantic support rejected ({reason}); "
+                    f"claim={_compact_error_text(claim_text)}; cited={_compact_error_text(span)}; "
+                    "fix=cite stronger evidence, narrow the claim, or mark it unresolved"
+                )
     return invalid
+
+
+def _compact_error_text(value: object, limit: int = 140) -> str:
+    if value is None:
+        text = ""
+    elif isinstance(value, str):
+        text = value
+    else:
+        text = json.dumps(value, sort_keys=True)
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
 
 
 def semantic_support_command_judge(command: str, *, timeout_s: float = 30.0) -> SemanticSupportJudge:

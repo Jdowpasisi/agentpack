@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.resources
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -30,8 +31,18 @@ _PREFLIGHT_PATH = Path(".agentpack/review-preflight.json")
 _RUNBOOK_PATH = Path(".agentpack/review.prompt.md")
 _UNDERSTANDING_PROMPT_PATH = Path(".agentpack/review-understanding.prompt.md")
 _JUDGE_PROMPT_PATH = Path(".agentpack/review-judge.prompt.md")
+_STATE_PATH = Path(".agentpack/review-state.json")
 _REVIEW_RUNS_DIR = Path(".agentpack/reviews")
 _LLM_REVIEW_FORMAT = "TOON"
+_PR_URL_RE = re.compile(r"https?://\S+/pull/(?P<number>\d+)\b", re.IGNORECASE)
+_PR_CONTEXT_RE = re.compile(
+    r"(?:\b(?:pr|pull request)\s*#?\s*(?P<number>\d+)\b|\bgh\s+pr\s+(?:view|diff|checkout)\s+(?P<gh_number>\d+)\b)",
+    re.IGNORECASE,
+)
+
+
+class _ReviewPreflightError(Exception):
+    pass
 
 
 def register(app: typer.Typer) -> None:
@@ -39,12 +50,23 @@ def register(app: typer.Typer) -> None:
     def review(
         review_context: str = typer.Argument("", help="Optional reviewer or developer context for this PR review."),
         resume: str = typer.Option("", "--resume", help="Resume a previous review run by run id."),
+        pr_target: str = typer.Option("", "--pr", help="PR number or URL to review. Binds diff/context to that PR."),
+        allow_local_fallback: bool = typer.Option(
+            False,
+            "--allow-local-fallback",
+            help="Allow local HEAD-based diff fallback when GitHub PR metadata or fetch is unavailable.",
+        ),
+        check: bool = typer.Option(False, "--check", help="Validate active review stage artifacts and print the next gate."),
     ) -> None:
         """Prepare the full two-stage PR review bundle for the current branch or PR."""
         root = _root()
         if not git_core.is_git_repo(root):
             console.print("[red]agentpack review requires a git repository.[/]")
             raise typer.Exit(1)
+
+        if check:
+            _check_active_review(root)
+            return
 
         if resume.strip():
             preflight = _load_review_run(root, resume.strip())
@@ -54,8 +76,19 @@ def register(app: typer.Typer) -> None:
                 run_id=preflight["review"]["run_id"],
             )
         else:
-            outputs = _review_output_paths(root)
-            preflight = _build_review_preflight(root, review_context.strip(), outputs)
+            target, cleaned_context = _parse_review_target(pr_target.strip(), review_context.strip())
+            outputs = _review_output_paths(root, branch_prefix=_target_branch_prefix(target))
+            try:
+                preflight = _build_review_preflight(
+                    root,
+                    cleaned_context,
+                    outputs,
+                    target=target,
+                    allow_local_fallback=allow_local_fallback,
+                )
+            except _ReviewPreflightError as exc:
+                console.print(f"[red]Review preflight blocked:[/] {exc}")
+                raise typer.Exit(1) from exc
 
         runbook = _render_review_runbook(preflight)
         understanding_prompt = _render_stage_prompt(
@@ -76,10 +109,12 @@ def register(app: typer.Typer) -> None:
             outputs["runbook"]: runbook,
             outputs["understanding_prompt"]: understanding_prompt,
             outputs["judge_prompt"]: judge_prompt,
+            outputs["state"]: json.dumps(_review_state(root, preflight), indent=2) + "\n",
             _PREFLIGHT_PATH: json.dumps(preflight, indent=2) + "\n",
             _RUNBOOK_PATH: runbook,
             _UNDERSTANDING_PROMPT_PATH: understanding_prompt,
             _JUDGE_PROMPT_PATH: judge_prompt,
+            _STATE_PATH: json.dumps(_review_state(root, preflight), indent=2) + "\n",
         }
         for rel_path, content in artifacts.items():
             abs_path = root / rel_path
@@ -94,19 +129,27 @@ def register(app: typer.Typer) -> None:
         console.print(f"[green]✓[/] Stage 2 prompt: [bold]{_JUDGE_PROMPT_PATH}[/]")
         console.print(f"[green]✓[/] Stage 1 output target: [bold]{_rel_to_root(outputs['understanding'], root)}[/]")
         console.print(f"[green]✓[/] Stage 2 output target: [bold]{_rel_to_root(outputs['findings'], root)}[/]")
+        console.print(f"[green]✓[/] Review stage state: [bold]{_STATE_PATH}[/]")
         if preflight["warnings"]:
             console.print("[yellow]Warnings:[/]")
             for warning in preflight["warnings"]:
                 console.print(f"  - {warning}")
-        console.print("Use the runbook from your agent host; it drives understanding, then judge, against exact diff and code evidence.")
+        console.print("Use the runbook from your agent host; run `agentpack review --check` after each stage before continuing.")
 
 
-def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, Any]) -> dict[str, Any]:
+def _build_review_preflight(
+    root: Path,
+    review_context: str,
+    outputs: dict[str, Any],
+    *,
+    target: dict[str, Any] | None = None,
+    allow_local_fallback: bool = False,
+) -> dict[str, Any]:
     branch = outputs["branch"]
-    sha = git_core.current_sha(root) or ""
-    pr = _gh_pr_metadata(root)
+    pr = _gh_pr_metadata(root, target)
     all_paths = _repo_paths(root)
-    diff_info = _diff_base(root, pr)
+    diff_info = _diff_base(root, pr, target=target, allow_local_fallback=allow_local_fallback)
+    sha = diff_info.get("head_sha") or git_core.current_sha(root) or ""
     changed_paths = _changed_paths(root, diff_info["range"])
     changed_files = [
         {
@@ -115,8 +158,9 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
         }
         for path in changed_paths
     ]
-    warnings = _warnings(root, pr, diff_info, changed_paths)
+    warnings, info = _warnings(root, pr, diff_info, changed_paths)
     context_pack = _build_review_context_pack(root, review_context, diff_info, outputs, warnings)
+    review_target = _preflight_target(target, pr)
 
     return {
         "generated_at": _now_iso(),
@@ -126,6 +170,7 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
             "run_id": outputs["run_id"],
             "branch": branch,
             "branch_prefix": outputs["branch_prefix"],
+            "target": review_target,
         },
         "execution_contract": {
             "structured_format": _LLM_REVIEW_FORMAT,
@@ -145,6 +190,7 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
         "diff": {
             "range": diff_info["range"],
             "base_ref": diff_info["base_ref"],
+            "head_ref": diff_info.get("head_ref", ""),
             "source": diff_info["source"],
             "changed_files_count": len(changed_files),
         },
@@ -156,14 +202,17 @@ def _build_review_preflight(root: Path, review_context: str, outputs: dict[str, 
             "judge_prompt": _rel_to_root(outputs["judge_prompt"], root),
             "understanding_output": _rel_to_root(outputs["understanding"], root),
             "findings_output": _rel_to_root(outputs["findings"], root),
+            "state": _rel_to_root(outputs["state"], root),
             "active_preflight": str(_PREFLIGHT_PATH),
             "active_runbook": str(_RUNBOOK_PATH),
             "active_understanding_prompt": str(_UNDERSTANDING_PROMPT_PATH),
             "active_judge_prompt": str(_JUDGE_PROMPT_PATH),
+            "active_state": str(_STATE_PATH),
         },
         "context_pack": context_pack,
         "changed_files": changed_files,
         "warnings": warnings,
+        "info": info,
     }
 
 
@@ -188,6 +237,7 @@ def _review_output_paths(
         "judge_prompt": run_dir / "judge.prompt.md",
         "understanding": run_dir / "understanding.toon",
         "findings": run_dir / "findings.toon",
+        "state": run_dir / "state.json",
     }
 
 
@@ -195,13 +245,88 @@ def _new_review_run_id() -> str:
     return f"{_now_iso().replace(':', '').replace('-', '').replace('.', '')}-{uuid4().hex[:8]}"
 
 
+def _parse_review_target(raw_pr: str, review_context: str) -> tuple[dict[str, Any] | None, str]:
+    if raw_pr:
+        return _target_from_raw(raw_pr, source="option"), review_context
+    url_match = _PR_URL_RE.search(review_context)
+    if url_match:
+        target = _target_from_raw(url_match.group(0), source="argument")
+        cleaned = _clean_review_context(review_context[:url_match.start()] + review_context[url_match.end():])
+        return target, cleaned
+    match = _PR_CONTEXT_RE.search(review_context)
+    if not match:
+        return None, review_context
+    number = match.group("number") or match.group("gh_number") or ""
+    target = _target_from_raw(number, source="argument")
+    cleaned = _clean_review_context(review_context[:match.start()] + review_context[match.end():])
+    return target, cleaned
+
+
+def _target_from_raw(raw: str, *, source: str) -> dict[str, Any]:
+    value = raw.strip()
+    url_match = _PR_URL_RE.search(value)
+    number = url_match.group("number") if url_match else value.lstrip("#")
+    if not number.isdigit():
+        number_match = re.search(r"\b(\d+)\b", value)
+        number = number_match.group(1) if number_match else ""
+    return {
+        "raw": value,
+        "number": int(number) if number.isdigit() else None,
+        "url": url_match.group(0) if url_match else "",
+        "source": source,
+    }
+
+
+def _target_branch_prefix(target: dict[str, Any] | None) -> str | None:
+    if not target or not target.get("number"):
+        return None
+    return f"pr-{target['number']}"
+
+
+def _target_cli_arg(target: dict[str, Any] | None) -> str | None:
+    if not target:
+        return None
+    if target.get("url"):
+        return str(target["url"])
+    if target.get("number"):
+        return str(target["number"])
+    raw = str(target.get("raw") or "").strip()
+    return raw or None
+
+
+def _clean_review_context(value: str) -> str:
+    return " ".join(value.replace("  ", " ").strip(" -:\t").split())
+
+
+def _preflight_target(target: dict[str, Any] | None, pr: dict[str, Any] | None) -> dict[str, Any]:
+    if target:
+        return {
+            "raw": target.get("raw", ""),
+            "number": target.get("number") or (pr or {}).get("number"),
+            "url": target.get("url") or (pr or {}).get("url", ""),
+            "source": target.get("source", ""),
+        }
+    if pr:
+        return {
+            "raw": "",
+            "number": pr.get("number"),
+            "url": pr.get("url", ""),
+            "source": "current-branch",
+        }
+    return {"raw": "", "number": None, "url": "", "source": "local-fallback"}
+
+
 def _load_review_run(root: Path, run_id: str) -> dict[str, Any]:
     branch = git_core.current_branch(root) or "HEAD"
     branch_prefix = branch.replace("/", "-")
     preflight_path = root / _REVIEW_RUNS_DIR / branch_prefix / run_id / "preflight.json"
     if not preflight_path.exists():
-        console.print(f"[red]Review run not found:[/] {preflight_path}")
-        raise typer.Exit(1)
+        matches = sorted((root / _REVIEW_RUNS_DIR).glob(f"*/{run_id}/preflight.json"))
+        if len(matches) == 1:
+            preflight_path = matches[0]
+        else:
+            console.print(f"[red]Review run not found:[/] {preflight_path}")
+            raise typer.Exit(1)
     try:
         preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
@@ -223,6 +348,7 @@ def _load_review_run(root: Path, run_id: str) -> dict[str, Any]:
 
 
 def _render_review_runbook(preflight: dict[str, Any]) -> str:
+    target = preflight["review"].get("target", {})
     return (
         "# AgentPack Review Workflow\n\n"
         "Run the full two-stage review flow for the current PR or branch. Treat the source of truth as the latest PR head, "
@@ -243,27 +369,29 @@ def _render_review_runbook(preflight: dict[str, Any]) -> str:
         f"- Head SHA: {preflight['git']['head_sha']}\n"
         f"- Diff range: {preflight['diff']['range']}\n"
         f"- Diff source: {preflight['diff']['source']}\n"
-        f"- Changed files: {preflight['diff']['changed_files_count']}\n"
+        + (f"- Review target: PR #{target['number']} ({target['source']})\n" if target.get("number") else "")
+        + f"- Changed files: {preflight['diff']['changed_files_count']}\n"
         + (f"- AgentPack context: `{preflight['context_pack']['path']}` ({preflight['context_pack']['tokens']} tokens)\n" if preflight.get("context_pack", {}).get("path") else "")
         + (f"- PR: #{preflight['pr']['number']} — {preflight['pr']['title']}\n" if preflight.get("pr") else "")
         + (f"- PR URL: {preflight['pr']['url']}\n" if preflight.get("pr") and preflight["pr"].get("url") else "")
         + "\n## Generated Artifacts\n\n"
-        f"- Preflight JSON: `{preflight['paths']['preflight']}`\n"
+        + f"- Preflight JSON: `{preflight['paths']['preflight']}`\n"
         f"- Stage 1 prompt: `{preflight['paths']['understanding_prompt']}`\n"
         f"- Stage 2 prompt: `{preflight['paths']['judge_prompt']}`\n"
         f"- Stage 1 output ({_LLM_REVIEW_FORMAT}): `{preflight['paths']['understanding_output']}`\n"
-        f"- Stage 2 output ({_LLM_REVIEW_FORMAT}): `{preflight['paths']['findings_output']}`\n\n"
+        f"- Stage 2 output ({_LLM_REVIEW_FORMAT}): `{preflight['paths']['findings_output']}`\n"
+        f"- Stage state JSON: `{preflight['paths']['state']}`\n\n"
         "## Hard Gates\n\n"
         "1. Do not perform the review inline from these prompts or this runbook.\n"
-        "2. If you cannot write the Stage 1 output file at the declared path, stop and report blocked.\n"
-        "3. Do not start Stage 2 until the Stage 1 output file exists and validates against the declared schema.\n"
-        "4. If you cannot write the Stage 2 output file at the declared path, stop and report blocked.\n"
-        "5. Do not produce a final review summary unless the Stage 2 output file exists and validates against the declared schema.\n\n"
+        "2. If diff source is not `pr-target` or `current-pr`, stop and rerun `agentpack review --pr <number>`.\n"
+        "3. If you cannot write the Stage 1 output file at the declared path, stop and report blocked.\n"
+        "4. After Stage 1, run `agentpack review --check`; do not start Stage 2 until it validates Stage 1.\n"
+        "5. After Stage 2, run `agentpack review --check`; do not produce a final summary unless it validates Stage 2.\n\n"
         "## Workflow\n\n"
         f"1. Read the Stage 1 prompt file completely and produce the understanding {_LLM_REVIEW_FORMAT} at the declared output path.\n"
-        f"2. Confirm the understanding {_LLM_REVIEW_FORMAT} file exists and follows the declared schema before moving on.\n"
+        f"2. Run `agentpack review --check` and confirm the understanding {_LLM_REVIEW_FORMAT} file exists and follows the declared schema before moving on.\n"
         f"3. Read the Stage 2 prompt file completely and produce the findings {_LLM_REVIEW_FORMAT} at the declared output path.\n"
-        f"4. Confirm the findings {_LLM_REVIEW_FORMAT} file exists and follows the declared schema before reporting back.\n"
+        f"4. Run `agentpack review --check` and confirm the findings {_LLM_REVIEW_FORMAT} file exists and follows the declared schema before reporting back.\n"
         "5. In the final user-facing response, summarize findings and validation gaps without exposing internal stage names.\n"
     )
 
@@ -289,6 +417,9 @@ def _render_stage_prompt(
             f"- Head SHA: {preflight['git']['head_sha']}",
             f"- Diff range: {preflight['diff']['range']}",
             f"- Diff source: {preflight['diff']['source']}",
+            f"- Review target: PR #{preflight['review'].get('target', {}).get('number')}"
+            if preflight["review"].get("target", {}).get("number")
+            else "- Review target: current branch/local fallback",
             f"- Output path: {_rel_to_root(abs_output, root)}",
             f"- Structured output format: {_LLM_REVIEW_FORMAT}",
         ]
@@ -306,6 +437,7 @@ def _render_stage_prompt(
             "- Do not answer inline from this stage prompt.",
             "- Write the required TOON artifact to the declared output path and nothing else.",
             "- If you cannot write the file or validate that it exists, stop and report blocked.",
+            "- Run `agentpack review --check` after writing this artifact before continuing.",
         ]
     )
     if prior_path is not None:
@@ -324,7 +456,8 @@ def _build_review_context_pack(
     outputs: dict[str, Any],
     warnings: list[str],
 ) -> dict[str, Any]:
-    task = "review current PR with broad repo context"
+    target_label = diff_info.get("target_label") or "current PR"
+    task = f"review {target_label} with broad repo context"
     if review_context:
         task = f"{task}: {review_context[:200]}"
     try:
@@ -364,17 +497,19 @@ def _load_review_template(name: str) -> str:
         ).read_text(encoding="utf-8")
 
 
-def _gh_pr_metadata(root: Path) -> dict[str, Any] | None:
+def _gh_pr_metadata(root: Path, target: dict[str, Any] | None = None) -> dict[str, Any] | None:
     if shutil.which("gh") is None:
         return None
+    target_arg = _target_cli_arg(target)
+    args = ["gh", "pr", "view"]
+    if target_arg:
+        args.append(target_arg)
+    args.extend([
+        "--json",
+        "number,title,url,baseRefName,headRefName",
+    ])
     result = subprocess.run(
-        [
-            "gh",
-            "pr",
-            "view",
-            "--json",
-            "number,title,url,baseRefName,headRefName",
-        ],
+        args,
         cwd=root,
         capture_output=True,
         text=True,
@@ -406,26 +541,115 @@ def _repo_paths(root: Path) -> set[str]:
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
-def _diff_base(root: Path, pr: dict[str, Any] | None) -> dict[str, str]:
+def _diff_base(
+    root: Path,
+    pr: dict[str, Any] | None,
+    *,
+    target: dict[str, Any] | None = None,
+    allow_local_fallback: bool = False,
+) -> dict[str, str]:
+    if pr:
+        number = pr.get("number") or (target or {}).get("number")
+        base_name = str(pr.get("base_ref") or "").strip()
+        if number and base_name:
+            fetched = _fetch_pr_refs(root, int(number), base_name)
+            if fetched["ok"]:
+                base_ref = f"origin/{base_name}"
+                head_ref = f"origin/pr/{number}"
+                return {
+                    "base_ref": base_ref,
+                    "head_ref": head_ref,
+                    "head_sha": _rev_parse(root, head_ref),
+                    "range": f"{base_ref}...{head_ref}",
+                    "source": "pr-target" if target else "current-pr",
+                    "target_label": f"PR #{number}",
+                }
+            if not allow_local_fallback:
+                raise _ReviewPreflightError(
+                    f"could not fetch PR #{number} refs ({fetched['error']}); "
+                    "rerun with network/GitHub access or pass --allow-local-fallback explicitly"
+                )
+        elif not allow_local_fallback:
+            raise _ReviewPreflightError("PR metadata missing number/base branch; pass --pr <number> or --allow-local-fallback")
+        return _local_diff_base(root, pr, fallback_reason=f"PR ref fetch unavailable for #{number or '?'}")
+
+    if not allow_local_fallback:
+        target_hint = _target_cli_arg(target)
+        if target_hint:
+            raise _ReviewPreflightError(
+                f"gh PR metadata unavailable for {target_hint}; review diff not trusted. "
+                "Fix gh auth/network or pass --allow-local-fallback explicitly."
+            )
+        raise _ReviewPreflightError(
+            "gh PR metadata unavailable; pass --pr <number-or-url> so review can bind to the requested PR, "
+            "or pass --allow-local-fallback explicitly for local branch review"
+        )
+    return _local_diff_base(root, pr, fallback_reason="gh PR metadata unavailable")
+
+
+def _local_diff_base(root: Path, pr: dict[str, Any] | None, *, fallback_reason: str) -> dict[str, str]:
     base_name = (pr or {}).get("base_ref", "")
     for candidate in _base_candidates(base_name):
         if _git_ref_exists(root, candidate):
             return {
                 "base_ref": candidate,
+                "head_ref": "HEAD",
+                "head_sha": git_core.current_sha(root) or "",
                 "range": f"{candidate}...HEAD",
-                "source": "pr-base",
+                "source": "local-fallback",
+                "fallback_reason": fallback_reason,
+                "target_label": "local branch",
             }
     if _git_ref_exists(root, "HEAD~1"):
         return {
             "base_ref": "HEAD~1",
+            "head_ref": "HEAD",
+            "head_sha": git_core.current_sha(root) or "",
             "range": "HEAD~1..HEAD",
-            "source": "previous-commit",
+            "source": "local-fallback",
+            "fallback_reason": fallback_reason,
+            "target_label": "local branch",
         }
     return {
         "base_ref": "HEAD",
+        "head_ref": "HEAD",
+        "head_sha": git_core.current_sha(root) or "",
         "range": "HEAD",
-        "source": "head-only",
+        "source": "local-fallback",
+        "fallback_reason": fallback_reason,
+        "target_label": "local branch",
     }
+
+
+def _fetch_pr_refs(root: Path, number: int, base_name: str) -> dict[str, Any]:
+    result = subprocess.run(
+        [
+            "git",
+            "fetch",
+            "--quiet",
+            "origin",
+            f"+refs/heads/{base_name}:refs/remotes/origin/{base_name}",
+            f"+refs/pull/{number}/head:refs/remotes/origin/pr/{number}",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return {"ok": True, "error": ""}
+    return {"ok": False, "error": (result.stderr or result.stdout or f"git fetch exited {result.returncode}").strip()}
+
+
+def _rev_parse(root: Path, ref: str) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", ref],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
 
 
 def _base_candidates(base_name: str) -> list[str]:
@@ -455,22 +679,33 @@ def _changed_paths(root: Path, diff_range: str) -> list[str]:
     return sorted(line.strip() for line in result.stdout.splitlines() if line.strip())
 
 
-def _warnings(root: Path, pr: dict[str, Any] | None, diff_info: dict[str, str], changed_paths: list[str]) -> list[str]:
+def _warnings(
+    root: Path,
+    pr: dict[str, Any] | None,
+    diff_info: dict[str, str],
+    changed_paths: list[str],
+) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
+    info: list[str] = []
     dirty = sorted(git_core.dirty_files(root))
-    if dirty:
-        warnings.append(f"dirty tree has {len(dirty)} path(s); review the checked-out PR head, not local edits")
+    dirty_overlap = sorted(set(dirty) & set(changed_paths))
+    if dirty_overlap:
+        warnings.append(
+            f"dirty tree overlaps review diff ({len(dirty_overlap)} path(s)); review the fetched PR head, not local edits"
+        )
+    elif dirty:
+        info.append(f"dirty tree has {len(dirty)} unrelated path(s); no overlap with review diff")
     warnings.extend(_incomplete_review_run_warnings(root))
     if not pr:
         warnings.append("gh PR metadata unavailable; review is using local git context only")
-    if diff_info["source"] != "pr-base":
-        warnings.append(f"diff base fell back to {diff_info['base_ref']}")
+    if diff_info["source"] == "local-fallback":
+        warnings.append(f"diff fell back to local range {diff_info['range']}: {diff_info.get('fallback_reason', 'unknown reason')}")
     if not changed_paths:
         warnings.append("no changed files detected for the selected diff range")
     generated = [path for path in changed_paths if path.startswith(".agentpack/")]
     if generated:
         warnings.append("generated AgentPack artifacts are in the diff; keep them low priority unless the change is about distribution or docs")
-    return warnings
+    return warnings, info
 
 
 def _incomplete_review_run_warnings(root: Path) -> list[str]:
@@ -503,6 +738,87 @@ def _incomplete_review_run_warnings(root: Path) -> list[str]:
     return warnings
 
 
+def _review_state(root: Path, preflight: dict[str, Any]) -> dict[str, Any]:
+    understanding = root / preflight["paths"]["understanding_output"]
+    findings = root / preflight["paths"]["findings_output"]
+    status = "awaiting_understanding"
+    try:
+        if understanding.exists():
+            _validate_review_artifact(understanding, kind="understanding")
+            status = "awaiting_findings"
+        if findings.exists():
+            _validate_review_artifact(findings, kind="findings")
+            status = "complete"
+    except ValueError:
+        status = "blocked_invalid_artifact"
+    return {
+        "generated_at": _now_iso(),
+        "run_id": preflight["review"]["run_id"],
+        "status": status,
+        "preflight": preflight["paths"]["preflight"],
+        "understanding_output": preflight["paths"]["understanding_output"],
+        "findings_output": preflight["paths"]["findings_output"],
+        "check_command": "agentpack review --check",
+    }
+
+
+def _check_active_review(root: Path) -> None:
+    if not (root / _PREFLIGHT_PATH).exists():
+        console.print("[red]No active review preflight found.[/] Run `agentpack review --pr <number>` first.")
+        raise typer.Exit(1)
+    try:
+        preflight = json.loads((root / _PREFLIGHT_PATH).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Active review preflight is invalid JSON:[/] {exc}")
+        raise typer.Exit(1) from exc
+
+    understanding = root / preflight["paths"]["understanding_output"]
+    findings = root / preflight["paths"]["findings_output"]
+    state_path = root / preflight["paths"].get("state", _STATE_PATH)
+
+    if not understanding.exists():
+        state = _review_state(root, preflight)
+        _write_review_state(root, preflight, state)
+        console.print(f"[red]Stage 1 artifact missing:[/] {preflight['paths']['understanding_output']}")
+        raise typer.Exit(1)
+    try:
+        _validate_review_artifact(understanding, kind="understanding")
+    except ValueError as exc:
+        state = _review_state(root, preflight)
+        _write_review_state(root, preflight, state)
+        console.print(f"[red]Stage 1 artifact invalid:[/] {exc}")
+        raise typer.Exit(1) from exc
+
+    if not findings.exists():
+        state = _review_state(root, preflight)
+        _write_review_state(root, preflight, state)
+        console.print("[green]✓[/] Stage 1 valid. Proceed to Stage 2 judge prompt.")
+        console.print(f"State: [bold]{_rel_to_root(state_path, root)}[/]")
+        return
+    try:
+        _validate_review_artifact(findings, kind="findings")
+    except ValueError as exc:
+        state = _review_state(root, preflight)
+        _write_review_state(root, preflight, state)
+        console.print(f"[red]Stage 2 artifact invalid:[/] {exc}")
+        raise typer.Exit(1) from exc
+
+    state = _review_state(root, preflight)
+    _write_review_state(root, preflight, state)
+    console.print("[green]✓[/] Stage 2 valid. Review artifacts complete; final summary is unblocked.")
+    console.print(f"State: [bold]{_rel_to_root(state_path, root)}[/]")
+
+
+def _write_review_state(root: Path, preflight: dict[str, Any], state: dict[str, Any]) -> None:
+    targets = [root / _STATE_PATH]
+    if preflight.get("paths", {}).get("state"):
+        targets.append(root / preflight["paths"]["state"])
+    content = json.dumps(state, indent=2) + "\n"
+    for path in targets:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(path, content)
+
+
 def _validate_review_artifact(path: Path, *, kind: str) -> dict[str, Any]:
     try:
         payload = load_toon(path)
@@ -526,8 +842,26 @@ def _validate_review_artifact(path: Path, *, kind: str) -> dict[str, Any]:
     if citation_validation.invalid or citation_validation.missing:
         details = [*citation_validation.invalid[:5], *citation_validation.missing[:5]]
         suffix = "; ".join(details) if details else "missing citation"
-        raise ValueError(f"{path.name} has invalid or missing citations: {suffix}")
+        report_path = _write_review_validation_report(path, kind, citation_validation)
+        report_note = f"; full report: {report_path.name}" if report_path else ""
+        raise ValueError(f"{path.name} has invalid or missing citations: {suffix}{report_note}")
     return payload
+
+
+def _write_review_validation_report(path: Path, kind: str, validation: CitationValidation) -> Path | None:
+    try:
+        report_path = path.with_name(f"{kind}-validation-errors.json")
+        payload = {
+            "artifact": path.name,
+            "kind": kind,
+            "invalid": validation.invalid,
+            "missing": validation.missing,
+            "valid_count": len(validation.valid),
+        }
+        report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        return report_path
+    except OSError:
+        return None
 
 
 def _validate_findings_citations(root: Path, payload: dict[str, Any]) -> CitationValidation:

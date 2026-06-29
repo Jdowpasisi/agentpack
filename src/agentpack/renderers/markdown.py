@@ -333,7 +333,7 @@ def _machine_freshness_block(pack: ContextPack) -> str:
         "generated_at": pack.freshness.get("generated_at", ""),
         "stale_task_context": stale_task,
         "refresh_required": refresh_required,
-        "mcp_refresh_tool": "agentpack_get_context",
+        "mcp_refresh_tool": "agentpack_get_context if exposed by the agent host",
         "cli_refresh_command": refresh_commands(pack.agent).primary,
     }
     return "<!-- agentpack:freshness\n" + render_toon(fields, root_name="agentpack_freshness").rstrip() + "\n-->"
@@ -475,7 +475,8 @@ def render_claude(pack: ContextPack) -> str:
         sections.append(
             "> **STALE TASK CONTEXT:** `.agentpack/task.md` does not match this packed context. "
             "Do not trust selected files until refreshed. Run `agentpack pack --task auto`, "
-            "or call `agentpack_pack_context()` / `agentpack_get_context()` before using this pack."
+            "or call `agentpack_pack_context()` / `agentpack_get_context()` only if those MCP tools are visible. "
+            "If tools are unavailable, ignore old selected files and use direct repo search."
         )
         sections.append("")
     if pack.stale or _has_task_stale_warning(pack):

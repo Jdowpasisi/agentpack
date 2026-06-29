@@ -7,7 +7,13 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from agentpack.cli import app
-from agentpack.commands.review_cmd import _build_review_preflight, _load_review_template, _review_output_paths, _validate_review_artifact
+from agentpack.commands.review_cmd import (
+    _build_review_preflight,
+    _load_review_template,
+    _parse_review_target,
+    _review_output_paths,
+    _validate_review_artifact,
+)
 
 
 def _init_repo(tmp_path: Path) -> Path:
@@ -34,7 +40,7 @@ def test_build_review_preflight_uses_pr_base_and_related_tests(tmp_path, monkeyp
     repo = _init_repo(tmp_path)
     monkeypatch.setattr(
         "agentpack.commands.review_cmd._gh_pr_metadata",
-        lambda _root: {
+        lambda _root, _target=None: {
             "number": 6,
             "title": "Review flow",
             "url": "https://example.com/pr/6",
@@ -42,13 +48,18 @@ def test_build_review_preflight_uses_pr_base_and_related_tests(tmp_path, monkeyp
             "head_ref": "feature/review",
         },
     )
+    monkeypatch.setattr("agentpack.commands.review_cmd._fetch_pr_refs", lambda _root, _number, _base: {"ok": True, "error": ""})
+    monkeypatch.setattr("agentpack.commands.review_cmd._rev_parse", lambda _root, _ref: "pr-head-sha")
+    monkeypatch.setattr("agentpack.commands.review_cmd._changed_paths", lambda _root, _range: ["src/foo.py"])
 
-    outputs = _review_output_paths(repo)
-    preflight = _build_review_preflight(repo, "focus on backward compatibility", outputs)
+    target = {"raw": "6", "number": 6, "url": "", "source": "option"}
+    outputs = _review_output_paths(repo, branch_prefix="pr-6")
+    preflight = _build_review_preflight(repo, "focus on backward compatibility", outputs, target=target)
 
     assert preflight["review_context"] == "focus on backward compatibility"
     assert preflight["review"]["mode"] == "fresh"
-    assert preflight["review"]["branch_prefix"] == "feature-review"
+    assert preflight["review"]["branch_prefix"] == "pr-6"
+    assert preflight["review"]["target"] == {"raw": "6", "number": 6, "url": "https://example.com/pr/6", "source": "option"}
     assert preflight["execution_contract"] == {
         "structured_format": "TOON",
         "requires_write_to_file": True,
@@ -57,11 +68,14 @@ def test_build_review_preflight_uses_pr_base_and_related_tests(tmp_path, monkeyp
         "blocked_without_stage_artifact": True,
         "stage_order": ["understanding", "judge"],
     }
-    assert preflight["diff"]["base_ref"] == "main"
-    assert preflight["diff"]["source"] == "pr-base"
-    assert preflight["paths"]["run_dir"].startswith(".agentpack/reviews/feature-review/")
-    assert preflight["paths"]["understanding_output"].startswith(".agentpack/reviews/feature-review/")
-    assert preflight["paths"]["findings_output"].startswith(".agentpack/reviews/feature-review/")
+    assert preflight["git"]["head_sha"] == "pr-head-sha"
+    assert preflight["diff"]["base_ref"] == "origin/main"
+    assert preflight["diff"]["head_ref"] == "origin/pr/6"
+    assert preflight["diff"]["range"] == "origin/main...origin/pr/6"
+    assert preflight["diff"]["source"] == "pr-target"
+    assert preflight["paths"]["run_dir"].startswith(".agentpack/reviews/pr-6/")
+    assert preflight["paths"]["understanding_output"].startswith(".agentpack/reviews/pr-6/")
+    assert preflight["paths"]["findings_output"].startswith(".agentpack/reviews/pr-6/")
     assert preflight["changed_files"] == [
         {
             "path": "src/foo.py",
@@ -71,12 +85,101 @@ def test_build_review_preflight_uses_pr_base_and_related_tests(tmp_path, monkeyp
     assert preflight["warnings"] == []
 
 
+def test_parse_review_target_from_url_and_preserves_lens() -> None:
+    target, lens = _parse_review_target("", "https://github.com/acme/repo/pull/98 focus latency")
+
+    assert target == {
+        "raw": "https://github.com/acme/repo/pull/98",
+        "number": 98,
+        "url": "https://github.com/acme/repo/pull/98",
+        "source": "argument",
+    }
+    assert lens == "focus latency"
+
+
+def test_review_command_blocks_without_pr_or_explicit_local_fallback(tmp_path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root, _target=None: None)
+
+    result = CliRunner().invoke(app, ["review", "reviewer is worried about prompt latency"])
+
+    assert result.exit_code == 1
+    assert "Review preflight blocked" in result.output
+    assert "--allow-local-fallback" in result.output
+
+
+def test_review_command_explicit_pr_binds_diff_and_run_dir(tmp_path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    seen_targets = []
+
+    def fake_gh(_root, target=None):
+        seen_targets.append(target)
+        return {
+            "number": 98,
+            "title": "Load test",
+            "url": "https://example.com/pr/98",
+            "base_ref": "main",
+            "head_ref": "feature/load-test",
+        }
+
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", fake_gh)
+    monkeypatch.setattr("agentpack.commands.review_cmd._fetch_pr_refs", lambda _root, _number, _base: {"ok": True, "error": ""})
+    monkeypatch.setattr("agentpack.commands.review_cmd._rev_parse", lambda _root, _ref: "abc123")
+    monkeypatch.setattr("agentpack.commands.review_cmd._changed_paths", lambda _root, _range: ["src/foo.py"])
+    monkeypatch.setattr(
+        "agentpack.commands.review_cmd._build_review_context_pack",
+        lambda _root, _review_context, _diff_info, _outputs, _warnings: {
+            "path": "",
+            "tokens": 0,
+            "selected_files": 0,
+            "broad_context": False,
+        },
+    )
+
+    result = CliRunner().invoke(app, ["review", "--pr", "98", "focus latency"])
+
+    assert result.exit_code == 0, result.output
+    assert seen_targets[0]["number"] == 98
+    preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
+    assert preflight["review_context"] == "focus latency"
+    assert preflight["review"]["branch_prefix"] == "pr-98"
+    assert preflight["review"]["target"]["number"] == 98
+    assert preflight["diff"]["range"] == "origin/main...origin/pr/98"
+    assert preflight["diff"]["source"] == "pr-target"
+    assert preflight["paths"]["run_dir"].startswith(".agentpack/reviews/pr-98/")
+    assert (repo / ".agentpack" / "review-state.json").exists()
+
+
+def test_review_command_explicit_pr_fetch_failure_blocks_without_fallback(tmp_path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(
+        "agentpack.commands.review_cmd._gh_pr_metadata",
+        lambda _root, _target=None: {
+            "number": 98,
+            "title": "Load test",
+            "url": "https://example.com/pr/98",
+            "base_ref": "main",
+            "head_ref": "feature/load-test",
+        },
+    )
+    monkeypatch.setattr("agentpack.commands.review_cmd._fetch_pr_refs", lambda _root, _number, _base: {"ok": False, "error": "no network"})
+
+    result = CliRunner().invoke(app, ["review", "--pr", "98", "focus latency"])
+
+    assert result.exit_code == 1
+    assert "could not fetch PR #98 refs" in result.output
+    assert "--allow-local-fallback" in result.output
+
+
 def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, monkeypatch) -> None:
     repo = _init_repo(tmp_path)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root: None)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root, _target=None: None)
 
-    result = CliRunner().invoke(app, ["review", "reviewer is worried about prompt latency"])
+    result = CliRunner().invoke(app, ["review", "--allow-local-fallback", "reviewer is worried about prompt latency"])
 
     assert result.exit_code == 0, result.output
     preflight_path = repo / ".agentpack" / "review-preflight.json"
@@ -115,8 +218,8 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     assert "agentpack_pack_context" in runbook
     assert "Do not perform the review inline" in runbook
     assert "If you cannot write the Stage 1 output file" in runbook
-    assert "Do not start Stage 2 until the Stage 1 output file exists" in runbook
-    assert "Do not produce a final review summary unless the Stage 2 output file exists" in runbook
+    assert "run `agentpack review --check`; do not start Stage 2" in runbook
+    assert "do not produce a final summary unless it validates Stage 2" in runbook
 
     understanding_prompt = understanding_prompt_path.read_text(encoding="utf-8")
     template = _load_review_template("stage1-understanding.md")
@@ -143,20 +246,72 @@ def test_review_command_writes_run_scoped_bundle_and_active_aliases(tmp_path, mo
     assert '"findings"' in judge_prompt
 
 
+def test_review_check_gates_stage_outputs(tmp_path, monkeypatch) -> None:
+    repo = _init_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root, _target=None: None)
+    runner = CliRunner()
+
+    first = runner.invoke(app, ["review", "--allow-local-fallback", "first pass"])
+    assert first.exit_code == 0, first.output
+    preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
+
+    missing = runner.invoke(app, ["review", "--check"])
+    assert missing.exit_code == 1
+    assert "Stage 1 artifact missing" in missing.output
+
+    understanding = repo / preflight["paths"]["understanding_output"]
+    understanding.parent.mkdir(parents=True, exist_ok=True)
+    understanding.write_text(
+        "@format toon\n"
+        "@root review_understanding\n"
+        "intent:\n"
+        "  requirement: placeholder\n"
+        "change_units[]:\n"
+        "  []\n"
+        "open_questions[]:\n"
+        "  []\n",
+        encoding="utf-8",
+    )
+
+    ready = runner.invoke(app, ["review", "--check"])
+    assert ready.exit_code == 0, ready.output
+    assert "Stage 1 valid" in ready.output
+    state = json.loads((repo / ".agentpack" / "review-state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "awaiting_findings"
+
+    findings = repo / preflight["paths"]["findings_output"]
+    findings.write_text(
+        "@format toon\n"
+        "@root review_findings\n"
+        "findings[]:\n"
+        "  []\n"
+        "coverage:\n"
+        "  status: complete\n",
+        encoding="utf-8",
+    )
+
+    complete = runner.invoke(app, ["review", "--check"])
+    assert complete.exit_code == 0, complete.output
+    assert "Stage 2 valid" in complete.output
+    state = json.loads((repo / ".agentpack" / "review-state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "complete"
+
+
 def test_review_command_starts_fresh_and_warns_about_incomplete_previous_run(tmp_path, monkeypatch) -> None:
     repo = _init_repo(tmp_path)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root: None)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root, _target=None: None)
     runner = CliRunner()
 
-    first = runner.invoke(app, ["review", "first pass"])
+    first = runner.invoke(app, ["review", "--allow-local-fallback", "first pass"])
     assert first.exit_code == 0, first.output
     first_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
     first_understanding = repo / first_preflight["paths"]["understanding_output"]
     first_understanding.parent.mkdir(parents=True, exist_ok=True)
     first_understanding.write_text("@format toon\n@root review_understanding\nintent:\n  requirement: placeholder\nchange_units[]:\n  []\nopen_questions[]:\n  []\n", encoding="utf-8")
 
-    second = runner.invoke(app, ["review", "second pass"])
+    second = runner.invoke(app, ["review", "--allow-local-fallback", "second pass"])
     assert second.exit_code == 0, second.output
     second_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
 
@@ -168,10 +323,10 @@ def test_review_command_starts_fresh_and_warns_about_incomplete_previous_run(tmp
 def test_review_command_resume_reuses_existing_run(tmp_path, monkeypatch) -> None:
     repo = _init_repo(tmp_path)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root: None)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root, _target=None: None)
     runner = CliRunner()
 
-    first = runner.invoke(app, ["review", "first pass"])
+    first = runner.invoke(app, ["review", "--allow-local-fallback", "first pass"])
     assert first.exit_code == 0, first.output
     first_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
     run_id = first_preflight["review"]["run_id"]
@@ -187,17 +342,17 @@ def test_review_command_resume_reuses_existing_run(tmp_path, monkeypatch) -> Non
 def test_review_command_warns_on_invalid_understanding_toon(tmp_path, monkeypatch) -> None:
     repo = _init_repo(tmp_path)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root: None)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root, _target=None: None)
     runner = CliRunner()
 
-    first = runner.invoke(app, ["review", "first pass"])
+    first = runner.invoke(app, ["review", "--allow-local-fallback", "first pass"])
     assert first.exit_code == 0, first.output
     first_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
     first_understanding = repo / first_preflight["paths"]["understanding_output"]
     first_understanding.parent.mkdir(parents=True, exist_ok=True)
     first_understanding.write_text("@format toon\nbroken\n", encoding="utf-8")
 
-    second = runner.invoke(app, ["review", "second pass"])
+    second = runner.invoke(app, ["review", "--allow-local-fallback", "second pass"])
     assert second.exit_code == 0, second.output
     second_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
 
@@ -206,10 +361,10 @@ def test_review_command_warns_on_invalid_understanding_toon(tmp_path, monkeypatc
 def test_review_command_resume_fails_cleanly_on_invalid_understanding_toon(tmp_path, monkeypatch) -> None:
     repo = _init_repo(tmp_path)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root: None)
+    monkeypatch.setattr("agentpack.commands.review_cmd._gh_pr_metadata", lambda _root, _target=None: None)
     runner = CliRunner()
 
-    first = runner.invoke(app, ["review", "first pass"])
+    first = runner.invoke(app, ["review", "--allow-local-fallback", "first pass"])
     assert first.exit_code == 0, first.output
     first_preflight = json.loads((repo / ".agentpack" / "review-preflight.json").read_text(encoding="utf-8"))
     run_id = first_preflight["review"]["run_id"]

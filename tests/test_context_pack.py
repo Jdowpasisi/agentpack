@@ -275,7 +275,10 @@ def test_validate_claim_support_accepts_semantic_judge_callback(tmp_path):
     )
 
     assert accepted == []
-    assert rejected == ["claim: src.py:2 semantic support rejected (meaning does not follow)"]
+    assert len(rejected) == 1
+    assert rejected[0].startswith("claim: src.py:2 semantic support rejected (meaning does not follow)")
+    assert "claim=limit returns 10" in rejected[0]
+    assert "cited=return 10" in rejected[0]
 
 
 def test_high_score_unchanged_file_uses_skeleton_mode():
@@ -667,6 +670,32 @@ def test_reserve_bucket_order_seeds_tests_docs_and_deps():
         "tests/test_auth.py",
         "docs/auth.md",
         "src/auth_service.py",
+    ]
+
+
+def test_runtime_infra_config_gets_priority_over_unrelated_changed_file():
+    manifest = _fi("copilot/api/manifest.yml", tokens=100)
+    waf = _fi("deploy/waf/cloudformation.yml", tokens=100)
+    payment_noise = _fi("payments/provider.py", tokens=100)
+
+    selected, _ = select_files(
+        files=[payment_noise, manifest, waf],
+        scored=[
+            (payment_noise, 150.0, ["modified"]),
+            (manifest, 90.0, ["config file", "content keyword match (2)", "keyword phrase match: copilot waf"]),
+            (waf, 85.0, ["config file", "content keyword match (2)", "keyword phrase match: cloudformation waf"]),
+        ],
+        changed_paths={"payments/provider.py"},
+        summaries={},
+        mode="deep",
+        budget=10000,
+        max_file_tokens=4000,
+        keywords={"otp", "waf", "copilot", "cloudformation"},
+    )
+
+    assert [sf.path for sf in selected[:2]] == [
+        "copilot/api/manifest.yml",
+        "deploy/waf/cloudformation.yml",
     ]
 
 
@@ -3107,6 +3136,7 @@ def test_render_loud_stale_task_warning():
     assert "direct `rg`, target-file reads" in rendered
     assert "agentpack_get_context()" in rendered
     assert "agentpack_pack_context()" in rendered
+    assert "only if those MCP tools are visible" in rendered
 
 
 def test_select_files_caps_unrelated_changed_files_when_many_dirty():

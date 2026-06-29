@@ -69,6 +69,42 @@ _VAGUE_TASK_REFERENCES = {
     "this",
     "those",
 }
+_RUNTIME_INFRA_TERMS = {
+    "alb",
+    "aws",
+    "cfn",
+    "cloudformation",
+    "cloudwatch",
+    "copilot",
+    "deploy",
+    "ecs",
+    "iam",
+    "infra",
+    "lambda",
+    "otp",
+    "runtime",
+    "secret",
+    "security",
+    "ssm",
+    "waf",
+}
+_RUNTIME_INFRA_PATH_TERMS = {
+    ".github/workflows",
+    "aws",
+    "cfn",
+    "cloudformation",
+    "copilot",
+    "deploy",
+    "ecs",
+    "iam",
+    "infra",
+    "lambda",
+    "manifest",
+    "override",
+    "security",
+    "serverless",
+    "waf",
+}
 
 
 def register(app: typer.Typer) -> None:
@@ -144,7 +180,10 @@ def _review_preflight_note(*, review_intent: bool, context_stale: bool, has_mcp:
     if not review_intent:
         return ""
     if has_mcp:
-        refresh = f'Call agentpack_pack_context(task="{task}") before PR diff/code review.'
+        refresh = (
+            f'If the AgentPack MCP tool is visible, call agentpack_pack_context(task="{task}") before PR diff/code review; '
+            f"otherwise run `{refresh_commands('auto').primary}` and use direct repo evidence."
+        )
     else:
         refresh = f"Run `{refresh_commands('auto').primary}` before PR diff/code review."
     lines = [
@@ -154,6 +193,57 @@ def _review_preflight_note(*, review_intent: bool, context_stale: bool, has_mcp:
     if context_stale:
         lines.append("BYPASS REQUIRED: if reviewing without refreshed AgentPack context, state why.")
     return "\n".join(lines) + "\n"
+
+
+def _source_of_truth_note(task: str) -> str:
+    if not _looks_like_runtime_infra_task(task):
+        return ""
+    return (
+        "SOURCE OF TRUTH: treat AgentPack as guardrail/orientation only. "
+        "Use direct repo search, rendered config, cloud/provider validation, and focused tests for final evidence.\n"
+    )
+
+
+def _looks_like_runtime_infra_task(task: str) -> bool:
+    terms = _task_terms(task)
+    return bool(terms & _RUNTIME_INFRA_TERMS)
+
+
+def _filter_runtime_infra_hints(task: str, hints: list[dict]) -> list[dict]:
+    if not _looks_like_runtime_infra_task(task):
+        return hints
+    task_terms = _task_terms(task)
+    filtered = [hint for hint in hints if _runtime_infra_hint_relevant(hint, task_terms)]
+    return filtered
+
+
+def _runtime_infra_hint_relevant(hint: dict, task_terms: set[str]) -> bool:
+    haystack = f"{hint.get('path', '')} {hint.get('why', '')}".lower()
+    if any(term in haystack for term in task_terms if len(term) >= 3):
+        return True
+    return any(term in haystack for term in _RUNTIME_INFRA_PATH_TERMS)
+
+
+def _review_stage_gate_note(root: Path, *, review_intent: bool) -> str:
+    if not review_intent:
+        return ""
+    state_path = root / ".agentpack" / "review-state.json"
+    if not state_path.exists():
+        return ""
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "REVIEW STAGE BLOCK: active review state is unreadable. Run `agentpack review --check`.\n"
+    status = str(state.get("status") or "")
+    if status == "complete":
+        return ""
+    if status == "awaiting_understanding":
+        return "REVIEW STAGE BLOCK: Stage 1 understanding artifact missing. Write it, then run `agentpack review --check`.\n"
+    if status == "awaiting_findings":
+        return "REVIEW STAGE BLOCK: Stage 2 findings artifact missing. Write it, then run `agentpack review --check` before final summary.\n"
+    if status == "blocked_invalid_artifact":
+        return "REVIEW STAGE BLOCK: active review artifact invalid. Run `agentpack review --check` for exact error.\n"
+    return f"REVIEW STAGE BLOCK: active review status `{status}`. Run `agentpack review --check`.\n"
 
 
 def _prompt_task(prompt: str) -> str:
@@ -417,13 +507,17 @@ def _run_user_prompt_submit(root: Path) -> None:
     review_intent = _looks_like_review_prompt(prompt)
     delta = _load_delta_summary(root)
     safe_hints = not pack_missing and not pack_task_changed and not task_switched and not repo_changed
-    hints = _load_hints(root, n=5 if has_mcp else 8) if safe_hints else []
+    raw_hints = _load_hints(root, n=5 if has_mcp else 8) if safe_hints else []
+    hints = _filter_runtime_infra_hints(current_task, raw_hints)
+    hints_suppressed = safe_hints and bool(raw_hints) and not hints
     review_note = _review_preflight_note(
         review_intent=review_intent,
         context_stale=context_stale,
         has_mcp=has_mcp,
         task=current_task,
     )
+    review_stage_gate = _review_stage_gate_note(root, review_intent=review_intent)
+    source_note = _source_of_truth_note(current_task)
 
     if has_mcp:
         if hints:
@@ -443,11 +537,14 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"AgentPack {status_note}\n"
                 f"task: {current_task}\n"
                 + review_note
+                + review_stage_gate
+                + source_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
                 f"top files:\n{files_lines}\n"
-                f"Call agentpack_get_delta_context() for delta or agentpack_pack_context(task=\"...\") for full ranked context."
+                "If the AgentPack MCP tools are visible, call agentpack_get_delta_context() for delta or "
+                'agentpack_pack_context(task="...") for full ranked context; otherwise use direct repo search.'
             )
         elif refresh_state == "refresh pending":
             msg = (
@@ -455,7 +552,12 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"task: {current_task}\n"
                 + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
                 + review_note
-                + "Call agentpack_get_context() to refresh the current task pack."
+                + review_stage_gate
+                + source_note
+                + (
+                    "If the AgentPack MCP tool is visible, call agentpack_get_context(); "
+                    f"otherwise run `{refresh_commands('auto').primary}` and use direct repo search."
+                )
             )
         elif refresh_state == "refresh failed":
             msg = (
@@ -463,13 +565,35 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"task: {current_task}\n"
                 + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
                 + review_note
+                + review_stage_gate
+                + source_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
-                + "Call agentpack_pack_context(task=\"...\") to rebuild the current task pack."
+                + (
+                    'If the AgentPack MCP tool is visible, call agentpack_pack_context(task="..."); '
+                    f"otherwise run `{refresh_commands('auto').primary}` and use direct repo search."
+                )
+            )
+        elif hints_suppressed:
+            msg = (
+                "AgentPack guardrail active. Selected-file hints suppressed because they did not match this runtime/infra task.\n"
+                f"task: {current_task}\n"
+                + review_note
+                + review_stage_gate
+                + source_note
+                + (f"delta: {delta}\n" if delta else "")
+                + (
+                    "If the AgentPack MCP tools are visible, call agentpack_pack_context(task=\"...\") for a fresh pack; "
+                    f"otherwise run `{refresh_commands('auto').primary}` or use direct repo search."
+                )
             )
         else:
             msg = (
-                "AgentPack active. No pack yet — call agentpack_pack_context(task=\"...\") "
-                "to build context for this task."
+                "AgentPack active. No pack yet.\n"
+                + source_note
+                + (
+                    'If the AgentPack MCP tool is visible, call agentpack_pack_context(task="..."); '
+                    f"otherwise run `{refresh_commands('auto').primary}`."
+                )
             )
     else:
         if hints:
@@ -489,6 +613,8 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"AgentPack context{changed_note}\n"
                 f"task: {current_task}\n"
                 + review_note
+                + review_stage_gate
+                + source_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
                 + (f"delta: {delta}\n" if delta else "")
                 +
@@ -501,7 +627,9 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"task: {current_task}\n"
                 + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
                 + review_note
-                + "Run `agentpack pack --task auto` or install MCP and call `agentpack_get_context()`."
+                + review_stage_gate
+                + source_note
+                + f"Run `{refresh_commands('auto').primary}`. If tools stay unavailable, use direct repo search."
             )
         elif refresh_state == "refresh failed":
             msg = (
@@ -509,8 +637,20 @@ def _run_user_prompt_submit(root: Path) -> None:
                 f"task: {current_task}\n"
                 + (f"packed task: {packed_task}\n" if packed_task and packed_task != current_task else "")
                 + review_note
+                + review_stage_gate
+                + source_note
                 + (f"refresh error: {refresh_error}\n" if refresh_error else "")
-                + "Run `agentpack pack --task auto` to rebuild the current task pack."
+                + f"Run `{refresh_commands('auto').primary}` to rebuild the current task pack."
+            )
+        elif hints_suppressed:
+            msg = (
+                "AgentPack guardrail active. Selected-file hints suppressed because they did not match this runtime/infra task.\n"
+                f"task: {current_task}\n"
+                + review_note
+                + review_stage_gate
+                + source_note
+                + (f"delta: {delta}\n" if delta else "")
+                + f"Run `{refresh_commands('auto').primary}` for a fresh pack, or use direct repo search."
             )
         else:
             msg = (

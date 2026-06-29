@@ -414,6 +414,24 @@ _IGNORE_TASK_TERMS = {
     "prettierignore",
 }
 
+_RUNTIME_INFRA_TERMS = {
+    "alb",
+    "aws",
+    "cfn",
+    "cloudformation",
+    "cloudwatch",
+    "copilot",
+    "ecs",
+    "iam",
+    "infra",
+    "lambda",
+    "otp",
+    "secret",
+    "security",
+    "ssm",
+    "waf",
+}
+
 
 def _is_ignore_control_path(path: str) -> bool:
     return Path(path).name.lower() in _IGNORE_CONTROL_NAMES
@@ -552,6 +570,28 @@ def _is_balance_config_candidate(path: str, reasons: list[str]) -> bool:
     )
 
 
+def _is_runtime_infra_candidate(path: str, reasons: list[str]) -> bool:
+    haystack = f"{path} {' '.join(reasons)}".lower()
+    if not any(term in haystack for term in _RUNTIME_INFRA_TERMS):
+        return False
+    if "config file" in reasons or _is_deploy_config_path(path):
+        return True
+    return any(
+        term in haystack
+        for term in (
+            ".github/workflows",
+            "copilot",
+            "cloudformation",
+            "cfn",
+            "iam",
+            "waf",
+            "manifest",
+            "override",
+            "security",
+        )
+    )
+
+
 def _is_balance_source_candidate(path: str, reasons: list[str]) -> bool:
     if not _is_source_path(path) or "config file" in reasons:
         return False
@@ -573,17 +613,20 @@ def _selection_priority(
     changed_paths: set[str],
     max_file_tokens: int,
     summaries: dict[str, Any] | None = None,
-) -> tuple[int, int, float, float]:
+) -> tuple[int, int, int, float, float]:
     """Hybrid rank: changed/task-relevant first, then score with a token-value nudge."""
     fi, score, reasons = item
     changed_priority = 1 if fi.path in changed_paths else 0
     signal_priority = 1 if _has_task_signal(reasons) else 0
+    infra_priority = 1 if _is_runtime_infra_candidate(fi.path, reasons) else 0
     role_bonus = 0.0
     explicit_test_task = any(reason == "explicit test task file" for reason in reasons)
     if _is_primary_release_metadata(fi.path, reasons):
         role_bonus += 180.0
     elif explicit_test_task:
         role_bonus += 45.0
+    elif _is_runtime_infra_candidate(fi.path, reasons):
+        role_bonus += 170.0
     elif _is_root_go_source_candidate(fi.path, reasons):
         role_bonus += 230.0
     elif _is_direct_source_candidate(fi.path, reasons):
@@ -598,7 +641,7 @@ def _selection_priority(
         role_bonus += 25.0
     rough_tokens = max(1, min(fi.estimated_tokens, max_file_tokens))
     value_bonus = min(60.0, (score / rough_tokens) * 120.0)
-    return changed_priority, signal_priority, score + role_bonus + value_bonus, score
+    return infra_priority, changed_priority, signal_priority, score + role_bonus + value_bonus, score
 
 
 _RESERVED_BUCKET_ORDER = ("changed", "tests", "docs", "deps")
@@ -1454,6 +1497,8 @@ def _marginal_evidence_score(path: str, score: float, reasons: list[str], token_
         evidence += 65.0
     if "config file" in reasons and content_hits >= 2:
         evidence += 45.0
+    if _is_runtime_infra_candidate(path, reasons):
+        evidence += 80.0
     if any(reason.startswith(("direct dependency", "reverse dependency", "caller of selected symbol")) for reason in reasons):
         evidence += 60.0
     if any(reason.startswith("workspace match") for reason in reasons):

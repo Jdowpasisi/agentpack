@@ -13,6 +13,7 @@ from agentpack.commands.hook_cmd import (
     _current_root_hash,
     _run_git_auto_repack,
     _run_user_prompt_submit,
+    _review_stage_gate_note,
     _looks_like_coding_prompt,
     _looks_like_review_prompt,
     _looks_like_task_switch,
@@ -146,6 +147,7 @@ class TestRunUserPromptSubmit:
         assert "REVIEW DETECTED" in ctx
         assert "BYPASS REQUIRED" in ctx
         assert 'agentpack_pack_context(task="review PR 1127 load test changes")' in ctx
+        assert "If the AgentPack MCP tool is visible" in ctx
         assert "packed task: fix login" in ctx
         assert "src/old.py" not in ctx
 
@@ -193,6 +195,35 @@ class TestRunUserPromptSubmit:
         assert "agentpack guard --agent auto --repair-stale --refresh-context" in ctx
         assert "src/reviewed.py" in ctx
 
+    def test_runtime_infra_task_suppresses_unrelated_hints_and_names_source_of_truth(self, repo: Path, monkeypatch) -> None:
+        monkeypatch.setattr("pathlib.Path.home", lambda: repo)
+        _write_snapshot(repo, "hash1")
+        _write_metrics(repo, ["payments/stripe.py", "billing/provider.py"])
+        _write_metadata(repo, task="fix OTP WAF Copilot CloudFormation rules", root_hash="hash1")
+        _write_task(repo, "fix OTP WAF Copilot CloudFormation rules")
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"agentpack": {}}}))
+
+        out = self._capture_output(repo, {"prompt": "fix OTP WAF Copilot CloudFormation rules"}, monkeypatch)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+
+        assert "Selected-file hints suppressed" in ctx
+        assert "SOURCE OF TRUTH" in ctx
+        assert "direct repo search, rendered config, cloud/provider validation" in ctx
+        assert "payments/stripe.py" not in ctx
+        assert "agentpack_get_context()" not in ctx
+
+    def test_review_stage_gate_note_blocks_incomplete_active_review(self, repo: Path) -> None:
+        (repo / ".agentpack" / "review-state.json").write_text(
+            json.dumps({"status": "awaiting_findings"}),
+            encoding="utf-8",
+        )
+
+        note = _review_stage_gate_note(repo, review_intent=True)
+
+        assert "REVIEW STAGE BLOCK" in note
+        assert "Stage 2 findings artifact missing" in note
+        assert "agentpack review --check" in note
+
     def test_hard_cap_enforced(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
         _write_snapshot(repo, "hash1")
@@ -225,6 +256,7 @@ class TestRunUserPromptSubmit:
         assert (repo / ".agentpack" / "task.md").read_text(encoding="utf-8") == "fix login bug\n"
         ctx = json.loads(outputs[0])["hookSpecificOutput"]["additionalContext"]
         assert "refresh pending" in ctx
+        assert "agentpack_get_context()" not in ctx
 
     def test_repo_unchanged_no_repack(self, repo: Path, monkeypatch) -> None:
         monkeypatch.setattr("pathlib.Path.home", lambda: repo)
