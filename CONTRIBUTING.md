@@ -16,6 +16,27 @@ For npm wrapper changes:
 npm install --prefix npm
 ```
 
+## Finding A First Issue
+
+Start with issues labeled `good first issue`. These should have a narrow scope,
+clear files or docs areas, and acceptance criteria that can be verified without
+knowing the whole codebase.
+
+Useful labels:
+
+| Label | Meaning |
+|---|---|
+| `good first issue` | Small, well-scoped task for a first contribution |
+| `help wanted` | Maintainers want community help or feedback |
+| `docs` / `documentation` | Documentation-only or documentation-heavy work |
+| `benchmark` | Benchmark cases, result docs, or evidence tooling |
+| `cli` | Command-line behavior, flags, help text, or output contracts |
+| `python` | Python package implementation work |
+| `testing` | Tests, fixtures, release checks, or validation coverage |
+
+If you are unsure where to start, comment on a `help wanted` issue with what you
+want to work on. Maintainers should confirm scope before larger changes.
+
 ## Before Opening a PR
 
 Run the narrowest relevant tests first, then broaden when the change touches
@@ -47,6 +68,12 @@ python -m agentpack.cli release-check --profile docs --json
   pre-edit or pre-tool blocking API.
 - Use `agentpack route --task "<task>" --json` when another tool needs
   machine-readable routing output.
+- For benchmark changes, keep claims tied to dated result files and explain what
+  the benchmark proves and does not prove.
+- For CLI changes, preserve existing flags unless there is a documented
+  compatibility reason to change them.
+- For type-safety changes, expand `mypy` coverage module by module with focused
+  tests.
 
 ## Pull Requests
 

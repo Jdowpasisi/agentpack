@@ -1,0 +1,42 @@
+[
+  {
+    "name": "good first issue",
+    "color": "7057ff",
+    "description": "Small, well-scoped task for a first contribution"
+  },
+  {
+    "name": "help wanted",
+    "color": "008672",
+    "description": "Extra attention is needed"
+  },
+  {
+    "name": "docs",
+    "color": "0075ca",
+    "description": "Documentation improvements"
+  },
+  {
+    "name": "documentation",
+    "color": "0075ca",
+    "description": "Improvements or additions to documentation"
+  },
+  {
+    "name": "benchmark",
+    "color": "fbca04",
+    "description": "Benchmark cases, metrics, and evidence"
+  },
+  {
+    "name": "cli",
+    "color": "5319e7",
+    "description": "Command-line interface behavior"
+  },
+  {
+    "name": "python",
+    "color": "2b67c6",
+    "description": "Python package implementation"
+  },
+  {
+    "name": "testing",
+    "color": "c2e0c6",
+    "description": "Tests, fixtures, and validation"
+  }
+]

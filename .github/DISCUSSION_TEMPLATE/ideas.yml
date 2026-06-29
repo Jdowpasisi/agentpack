@@ -1,0 +1,18 @@
+title: "Idea: "
+labels:
+  - idea
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: What integration, workflow, or feature should AgentPack explore?
+    validations:
+      required: true
+  - type: textarea
+    id: fit
+    attributes:
+      label: Fit
+      description: Who would use it, and what problem would it solve?
+    validations:
+      required: false

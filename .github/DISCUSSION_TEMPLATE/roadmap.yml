@@ -1,0 +1,18 @@
+title: "Roadmap: "
+labels:
+  - roadmap
+body:
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should AgentPack prioritize, and why?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Links, benchmarks, issues, or user workflows that support the proposal.
+    validations:
+      required: false
