@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const packageJson = require("../package.json");
+const packageLock = require("../package-lock.json");
 const launcher = require("../bin/agentpack.js");
 
 const repoRoot = path.join(__dirname, "..", "..");
@@ -25,6 +26,12 @@ const pyprojectVersion = pyproject.match(/^version = "([^"]+)"/m)?.[1];
 const initVersion = initPy.match(/__version__ = "([^"]+)"/)?.[1];
 
 assert.equal(packageJson.version, pyprojectVersion, "npm package version must match pyproject.toml");
+assert.equal(packageLock.version, packageJson.version, "npm package-lock version must match package.json");
+assert.equal(
+  packageLock.packages[""].version,
+  packageJson.version,
+  "npm package-lock root package must match package.json"
+);
 assert.equal(packageJson.version, initVersion, "npm package version must match src/agentpack/__init__.py");
 assert.equal(codexPlugin.version, packageJson.version, "Codex plugin version must match npm package version");
 assert.equal(packagedCodexPlugin.version, packageJson.version, "packaged Codex plugin version must match npm package version");

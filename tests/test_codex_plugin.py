@@ -75,6 +75,9 @@ def test_codexignore_keeps_plugin_scan_focused() -> None:
     assert "tests/" in ignore
     assert ".github/workflows/ci.yml" in ignore
     assert ".github/workflows/hol-plugin-scanner.yml" not in ignore
+    assert "uv.lock" not in ignore
+    assert (ROOT / "uv.lock").exists()
+    assert (ROOT / "npm" / "package-lock.json").exists()
 
 
 def test_packaged_codex_plugin_is_self_contained_for_distribution() -> None:
