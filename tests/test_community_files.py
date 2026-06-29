@@ -11,6 +11,7 @@ def test_community_files_exist() -> None:
     for rel in (
         "CODE_OF_CONDUCT.md",
         "CONTRIBUTING.md",
+        "LICENSE",
         ".github/PULL_REQUEST_TEMPLATE.md",
         ".github/ISSUE_TEMPLATE/bug_report.yml",
         ".github/ISSUE_TEMPLATE/feature_request.yml",
@@ -42,6 +43,14 @@ def test_contributing_documents_route_json_alias() -> None:
     text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
 
     assert 'agentpack route --task "<task>" --json' in text
+
+
+def test_license_file_is_mit() -> None:
+    text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+
+    assert text.startswith("MIT License")
+    assert "Permission is hereby granted, free of charge" in text
+    assert "THE SOFTWARE IS PROVIDED \"AS IS\"" in text
 
 
 def test_contributor_label_manifest_matches_docs() -> None:

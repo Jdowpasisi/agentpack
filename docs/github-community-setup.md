@@ -51,6 +51,7 @@ Current live status checked before this file was updated:
 - open issues with `good first issue`: `9`
 - open issues with `first-timers-only`: `2`
 - contributor count from GitHub contributors API: `4`
+- license detected by GitHub license endpoint: `MIT`
 - repository permission with the personal `gh` token: `ADMIN`
 - target topics present: `good-first-issue`, `help-wanted`, `first-timers-only`, `developer-tools`, `cli`, `python`
 - specialized labels present: `first-timers-only`, `docs`, `benchmark`,
